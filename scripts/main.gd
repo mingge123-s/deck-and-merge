@@ -493,6 +493,28 @@ func _find_target(unit: BattleUnit) -> BattleUnit:
 func _attack(attacker: BattleUnit, target: BattleUnit) -> void:
 	attacker.spend_attack_time()
 	attacker.play_attack()
+	if attacker.stats.role == "ranged":
+		var facing := 1.0 if attacker.faction == "ally" else -1.0
+		var start_pos := attacker.position + Vector2(facing * 30.0, -56.0)
+		var target_pos := func() -> Variant:
+			if is_instance_valid(target) and target.alive:
+				return target.position + Vector2(0, -56.0)
+			return null
+		var on_hit := func() -> void:
+			if is_instance_valid(target) and target.alive:
+				target.receive_damage(float(attacker.stats.attack))
+				_spawn_hit_fx(target.position, Color("#ffd273"), "✦")
+		var projectile := Projectile.new()
+		projectile.setup(
+			start_pos,
+			target_pos,
+			300.0,
+			str(attacker.stats.era),
+			attacker.stats.color_value,
+			on_hit
+		)
+		battlefield.add_child(projectile)
+		return
 	target.receive_damage(float(attacker.stats.attack))
 	_spawn_hit_fx(target.position, Color("#ffd273"), "✦")
 
@@ -500,6 +522,31 @@ func _attack_tower(attacker: BattleUnit) -> void:
 	attacker.spend_attack_time()
 	attacker.play_attack()
 	var damage := float(attacker.stats.attack)
+	var tower_x := ENEMY_TOWER_X if attacker.faction == "ally" else ALLY_TOWER_X
+	if attacker.stats.role == "ranged":
+		var facing := 1.0 if attacker.faction == "ally" else -1.0
+		var start_pos := attacker.position + Vector2(facing * 30.0, -56.0)
+		var tower_point := Vector2(tower_x, BATTLE_GROUND_Y - 56.0)
+		var target_pos := func() -> Variant:
+			return tower_point
+		var on_hit := func() -> void:
+			if attacker.faction == "ally":
+				enemy_tower_hp = maxf(0.0, enemy_tower_hp - damage)
+				_spawn_hit_fx(tower_point, Color("#ffd273"), "✦")
+			else:
+				ally_tower_hp = maxf(0.0, ally_tower_hp - damage)
+				_spawn_hit_fx(tower_point, Color("#ff8e70"), "✦")
+		var projectile := Projectile.new()
+		projectile.setup(
+			start_pos,
+			target_pos,
+			300.0,
+			str(attacker.stats.era),
+			attacker.stats.color_value,
+			on_hit
+		)
+		battlefield.add_child(projectile)
+		return
 	if attacker.faction == "ally":
 		enemy_tower_hp = maxf(0.0, enemy_tower_hp - damage)
 		_spawn_hit_fx(Vector2(ENEMY_TOWER_X, 80), Color("#ffd273"), "✦")
