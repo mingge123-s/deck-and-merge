@@ -2,3 +2,6 @@
 anim_src/
 __pycache__/
 *.pyc
+
+# Web export output
+build/
