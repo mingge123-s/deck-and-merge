@@ -48,7 +48,12 @@ var era_label: Label
 var score_label: Label
 var status_label: Label
 var restart_button: Button
-var battle_button: Button
+var result_menu_button: Button
+var return_button: Button
+var main_menu: Control
+var settings_panel: Panel
+var music_slider: HSlider
+var sfx_slider: HSlider
 var battle_hint: Label
 var ally_tower_bar: ProgressBar
 var enemy_tower_bar: ProgressBar
@@ -73,7 +78,7 @@ func _ready() -> void:
 	_build_tray()
 	_build_battlefield()
 	_build_overlay()
-	_start_round()
+	_build_main_menu()
 
 func _on_battlefield_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
@@ -228,15 +233,15 @@ func _build_battlefield() -> void:
 	enemy_tower_shadow = _create_tower_shadow(false)
 	ally_tower_sprite = _create_tower_sprite(true)
 	enemy_tower_sprite = _create_tower_sprite(false)
-	battle_button = Button.new()
-	battle_button.position = Vector2(16, 10)
-	battle_button.size = Vector2(120, 44)
-	battle_button.text = "⚔ 开战"
-	battle_button.add_theme_font_size_override("font_size", 17)
-	battle_button.add_theme_stylebox_override("normal", _panel_style(Color("#e4863e"), Color("#713722"), 14, 3))
-	battle_button.add_theme_stylebox_override("hover", _panel_style(Color("#f2a252"), Color("#713722"), 14, 3))
-	battle_button.pressed.connect(_start_battle)
-	battlefield.add_child(battle_button)
+	return_button = Button.new()
+	return_button.position = Vector2(16, 10)
+	return_button.size = Vector2(120, 44)
+	return_button.text = "≡ 主界面"
+	return_button.add_theme_font_size_override("font_size", 17)
+	return_button.add_theme_stylebox_override("normal", _panel_style(Color("#e4863e"), Color("#713722"), 14, 3))
+	return_button.add_theme_stylebox_override("hover", _panel_style(Color("#f2a252"), Color("#713722"), 14, 3))
+	return_button.pressed.connect(_show_main_menu)
+	battlefield.add_child(return_button)
 	battle_hint = _label(battlefield, "拖动战场查看双方阵地", Vector2(150, 18), Vector2(300, 22), 12, Color("#f9deb0"))
 	minimap = BattleMinimap.new()
 	minimap.position = Vector2(462, 8)
@@ -359,6 +364,133 @@ func _build_overlay() -> void:
 	restart_button.pressed.connect(_start_round)
 	restart_button.visible = false
 	add_child(restart_button)
+	result_menu_button = Button.new()
+	result_menu_button.position = Vector2(275, 494)
+	result_menu_button.size = Vector2(170, 48)
+	result_menu_button.text = "返回主界面"
+	result_menu_button.add_theme_font_size_override("font_size", 17)
+	result_menu_button.add_theme_stylebox_override("normal", _panel_style(Color("#a75d38"), Color("#6d3724"), 15, 3))
+	result_menu_button.add_theme_stylebox_override("hover", _panel_style(Color("#c87845"), Color("#6d3724"), 15, 3))
+	result_menu_button.pressed.connect(_show_main_menu)
+	result_menu_button.visible = false
+	add_child(result_menu_button)
+
+func _build_main_menu() -> void:
+	main_menu = Control.new()
+	main_menu.name = "MainMenu"
+	main_menu.size = VIEW_SIZE
+	main_menu.z_index = 100
+	main_menu.mouse_filter = Control.MOUSE_FILTER_STOP
+	add_child(main_menu)
+	var shade := ColorRect.new()
+	shade.size = VIEW_SIZE
+	shade.color = Color("#2a1710")
+	shade.mouse_filter = Control.MOUSE_FILTER_STOP
+	main_menu.add_child(shade)
+	var bg := TextureRect.new()
+	bg.size = VIEW_SIZE
+	bg.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	bg.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if ResourceLoader.exists("res://assets/bg_menu.png"):
+		bg.texture = load("res://assets/bg_menu.png")
+	main_menu.add_child(bg)
+	var vignette := ColorRect.new()
+	vignette.size = VIEW_SIZE
+	vignette.color = Color(0.05, 0.03, 0.02, 0.28)
+	vignette.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	main_menu.add_child(vignette)
+	var card := Panel.new()
+	card.position = Vector2(66, 170)
+	card.size = Vector2(588, 900)
+	card.add_theme_stylebox_override("panel", _panel_style(Color(0.17, 0.09, 0.06, 0.55), Color(0.55, 0.32, 0.18, 0.9), 30, 4))
+	main_menu.add_child(card)
+	var title := _label(card, "牌桌远征", Vector2(0, 105), Vector2(588, 70), 44, Color("#fff0c7"))
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var subtitle := _label(card, "Deck & Merge", Vector2(0, 176), Vector2(588, 34), 21, Color("#f2ca92"))
+	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var tagline := _label(card, "从石器时代开始，守护你的牌桌", Vector2(0, 230), Vector2(588, 28), 14, Color("#e6c199"))
+	tagline.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var start_button := _menu_button(card, "开始游戏", Vector2(144, 330), Vector2(300, 68), 24)
+	start_button.pressed.connect(_enter_game)
+	var solo_button := _menu_button(card, "单机闯关", Vector2(144, 430), Vector2(300, 56), 19)
+	solo_button.pressed.connect(_enter_game)
+	var online_button := _menu_button(card, "联机匹配", Vector2(144, 508), Vector2(300, 56), 19)
+	online_button.disabled = true
+	online_button.tooltip_text = "敬请期待"
+	var soon := _label(card, "敬请期待", Vector2(458, 522), Vector2(94, 24), 12, Color("#e6c199"))
+	soon.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var settings_button := _menu_button(card, "设置", Vector2(144, 586), Vector2(300, 56), 19)
+	settings_button.pressed.connect(_show_settings)
+	_label(card, "点击开始，自动进入战斗", Vector2(0, 735), Vector2(588, 28), 14, Color("#e6c199")).horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_build_settings_panel(card)
+
+func _menu_button(parent: Control, text: String, position: Vector2, size: Vector2, font_size: int) -> Button:
+	var button := Button.new()
+	button.position = position
+	button.size = size
+	button.text = text
+	button.add_theme_font_size_override("font_size", font_size)
+	button.add_theme_stylebox_override("normal", _panel_style(Color("#b86a3e"), Color("#713722"), 16, 3))
+	button.add_theme_stylebox_override("hover", _panel_style(Color("#d5864b"), Color("#713722"), 16, 3))
+	button.add_theme_stylebox_override("disabled", _panel_style(Color("#8c735f"), Color("#6b5548"), 16, 3))
+	parent.add_child(button)
+	return button
+
+func _build_settings_panel(parent: Control) -> void:
+	settings_panel = Panel.new()
+	settings_panel.position = Vector2(84, 250)
+	settings_panel.size = Vector2(420, 430)
+	settings_panel.add_theme_stylebox_override("panel", _panel_style(Color("#c58a53"), Color("#70412c"), 24, 3))
+	settings_panel.visible = false
+	parent.add_child(settings_panel)
+	var title := _label(settings_panel, "设置", Vector2(0, 30), Vector2(420, 40), 28)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_label(settings_panel, "音乐音量", Vector2(42, 112), Vector2(120, 28), 17, Color("#fff0c7"))
+	music_slider = _volume_slider(settings_panel, Vector2(172, 112), "Music")
+	_label(settings_panel, "音效音量", Vector2(42, 202), Vector2(120, 28), 17, Color("#fff0c7"))
+	sfx_slider = _volume_slider(settings_panel, Vector2(172, 202), "SFX")
+	var close_button := _menu_button(settings_panel, "关闭", Vector2(110, 310), Vector2(200, 54), 18)
+	close_button.pressed.connect(_hide_settings)
+
+func _volume_slider(parent: Control, position: Vector2, bus_name: String) -> HSlider:
+	var slider := HSlider.new()
+	slider.position = position
+	slider.size = Vector2(205, 32)
+	slider.min_value = 0.0
+	slider.max_value = 100.0
+	slider.value = 80.0
+	slider.value_changed.connect(_on_volume_changed.bind(bus_name))
+	parent.add_child(slider)
+	return slider
+
+func _on_volume_changed(value: float, bus_name: String) -> void:
+	var linear := maxf(value / 100.0, 0.001)
+	var db := linear_to_db(linear)
+	var bus_index := AudioServer.get_bus_index(bus_name)
+	if bus_index >= 0:
+		AudioServer.set_bus_volume_db(bus_index, db)
+
+func _show_settings() -> void:
+	if settings_panel != null:
+		settings_panel.visible = true
+
+func _hide_settings() -> void:
+	if settings_panel != null:
+		settings_panel.visible = false
+
+func _enter_game() -> void:
+	_hide_settings()
+	if main_menu != null:
+		main_menu.visible = false
+	_start_round()
+
+func _show_main_menu() -> void:
+	battle_active = false
+	battle_ended = false
+	_remove_battle_units()
+	if main_menu != null:
+		main_menu.visible = true
 
 func _start_round() -> void:
 	for card in deck_cards:
@@ -374,18 +506,17 @@ func _start_round() -> void:
 	current_era = GameData.ERAS[0]
 	era_index = 0
 	kill_score = 0
-	battle_active = false
+	battle_active = true
 	battle_ended = false
-	wave_timer = 0.0
+	wave_timer = 3.0
 	pending_era_cards.clear()
 	era_card_timer = 0.0
 	ally_tower_hp = GameData.tower_hp(current_era)
 	enemy_tower_hp = GameData.tower_hp(current_era)
-	battle_button.disabled = false
-	battle_button.text = "⚔ 开战"
-	battle_hint.text = "敌方英雄将从右塔出击"
+	battle_hint.text = "备战 3 秒，敌方部队即将出击"
 	status_label.visible = false
 	restart_button.visible = false
+	result_menu_button.visible = false
 	_remove_battle_units()
 	_update_progress_ui()
 	_update_tower_ui()
@@ -488,7 +619,7 @@ func _add_to_tray(card_id: String) -> void:
 	_rebuild_tray_visuals()
 	_check_merges()
 	if deck_cards.is_empty() and tray_cards.is_empty() and not battle_active:
-		battle_hint.text = "牌堆清空！点击开战迎击镜像敌军"
+		battle_hint.text = "牌堆清空！合成英雄迎击敌军"
 	elif tray_cards.size() == 7 and not _has_triple():
 		_finish_round("卡住了！合成台已满")
 
@@ -548,20 +679,6 @@ func _spawn_ally(hero_id: String) -> void:
 	battle_units.append(unit)
 	occupied_units += 1
 
-func _start_battle() -> void:
-	if battle_active or battle_ended:
-		return
-	if _living_units("ally").is_empty():
-		_finish_round("先合成至少一个时代英雄")
-		return
-	battle_active = true
-	battle_ended = false
-	wave_timer = 0.0
-	battle_button.disabled = true
-	battle_button.text = "战斗中"
-	battle_hint.text = "镜像敌军持续从右塔出击"
-	print("战斗开始: 时代=%s, 己方=%d" % [current_era, _living_units("ally").size()])
-
 func _spawn_wave() -> void:
 	var ids := GameData.heroes_for_era(current_era)
 	if ids.is_empty():
@@ -606,8 +723,6 @@ func _step_battle(delta: float) -> void:
 		_finish_battle(true, "胜利！敌方防御塔已摧毁")
 	elif ally_tower_hp <= 0.0:
 		_finish_battle(false, "失败！己方防御塔被摧毁")
-	elif _living_units("ally").is_empty() and _living_units("enemy").size() > 0:
-		_finish_battle(false, "失败！部落英雄全部倒下")
 
 func _move_unit(unit: BattleUnit, target_x: float, delta: float) -> void:
 	var direction := signf(target_x - unit.position.x)
@@ -768,6 +883,7 @@ func _finish_round(message: String) -> void:
 	status_label.text = message
 	status_label.visible = true
 	restart_button.visible = true
+	result_menu_button.visible = true
 
 func _update_progress_ui() -> void:
 	if era_label == null:
