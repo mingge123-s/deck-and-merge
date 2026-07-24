@@ -28,3 +28,10 @@
 - `BattleUnit` 按 `hero.anim` 复用帧动画并按职业倍率调整体型；缺少美术时回退为静态贴图或纯色英雄名占位。
 - 通过 `godot --headless --path . --import`、`--check-only` 和主场景运行检查。
 - DISPLAY 实跑使用临时调试入口生成石器时代英雄并开战，确认战斗可进入失败结算；截图留存于 `/tmp/deck_and_merge_era_battle.png`。
+
+## 2026-07-23：补齐后期时代英雄帧动画
+
+- 为此前缺动画的 11 名英雄补齐 idle/walk/attack/die 帧动画：工业 BOSS（蒸汽机甲男爵）、现代全职业（防暴盾警/机枪兵/特工/狙击手/钢铁将军）、未来全职业（护盾机甲/激光剑士/赛博忍者/等离子炮手/AI 巨型机甲）。至此 5 时代 × 5 职业共 25 名英雄均有真实帧动画，敌我共用。
+- 生成管线：以 idle 帧为参考图（图生图）重摆姿势生成其余 5 帧，角色跨帧一致性显著提升；再经 `build_anim.py` 去背/紧裁/脚部对齐输出到 `assets/anim/<id>/` 并写 `meta.json`。
+- 新增 `tools/shrink_anim.py`：将每个英雄的动画画布高度上限压到 420px，帧与 `meta.json`（anchor/char_height/canvas）按同一比例缩放，属渲染等价变换。导出 pck 从 139MB 降到 84MB。
+- 验证：`godot --headless --import` 全部 66 张新图生成 `.import`；单线程 Web 导出成功；部署到 `https://mingge.asia/deck-and-merge/`，本地/远端 pck sha256 一致，HTTPS 200。

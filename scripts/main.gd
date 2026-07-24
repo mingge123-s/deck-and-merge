@@ -14,6 +14,9 @@ var board: Control
 var tray: Control
 var battlefield: Control
 var card_layer: Control
+var battle_bg: TextureRect
+var ally_tower_sprite: Sprite2D
+var enemy_tower_sprite: Sprite2D
 var tray_cards: Array[String] = []
 var tray_views: Array[Control] = []
 var deck_cards: Array[CardView] = []
@@ -159,14 +162,15 @@ func _build_battlefield() -> void:
 	battlefield.size = BATTLE_RECT.size
 	battlefield.add_theme_stylebox_override("panel", _panel_style(Color("#8d5d3f"), Color("#70412c"), 22, 3))
 	add_child(battlefield)
-	var bg := TextureRect.new()
-	bg.position = Vector2(7, 7)
-	bg.size = BATTLE_RECT.size - Vector2(14, 14)
-	bg.texture = load("res://assets/bg_battle.png")
-	bg.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	bg.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
-	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	battlefield.add_child(bg)
+	battle_bg = TextureRect.new()
+	battle_bg.position = Vector2(7, 7)
+	battle_bg.size = BATTLE_RECT.size - Vector2(14, 14)
+	battle_bg.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	battle_bg.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	battle_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	battlefield.add_child(battle_bg)
+	ally_tower_sprite = _create_tower_sprite(true)
+	enemy_tower_sprite = _create_tower_sprite(false)
 	_label(battlefield, "🛡 防御塔战线", Vector2(18, 10), Vector2(210, 28), 18)
 	battle_hint = _label(battlefield, "敌方英雄将从右塔出击", Vector2(250, 14), Vector2(260, 22), 12, Color("#f9deb0"))
 	battle_button = Button.new()
@@ -183,12 +187,34 @@ func _build_battlefield() -> void:
 	_label(battlefield, "己方英雄", Vector2(26, 245), Vector2(120, 22), 12, Color("#fff0c7"))
 	_label(battlefield, "镜像敌军", Vector2(515, 245), Vector2(110, 22), 12, Color("#ffd5a7"))
 
+func _create_tower_sprite(ally: bool) -> Sprite2D:
+	var tower := Sprite2D.new()
+	tower.position = Vector2(ALLY_TOWER_X if ally else ENEMY_TOWER_X, BATTLE_GROUND_Y - 80.0)
+	tower.z_index = 1
+	tower.flip_h = not ally
+	battlefield.add_child(tower)
+	return tower
+
+func _refresh_era_visuals() -> void:
+	var bg_path := "res://assets/bg_battle_%s.png" % current_era
+	if not ResourceLoader.exists(bg_path):
+		bg_path = "res://assets/bg_battle_stone.png"
+	battle_bg.texture = load(bg_path)
+	var tower_path := "res://assets/towers/%s.png" % current_era
+	if not ResourceLoader.exists(tower_path):
+		tower_path = "res://assets/towers/stone.png"
+	for tower in [ally_tower_sprite, enemy_tower_sprite]:
+		tower.texture = load(tower_path)
+		var factor := 160.0 / maxf(1.0, float(tower.texture.get_height()))
+		tower.scale = Vector2(factor, factor)
+
 func _create_tower_ui(ally: bool) -> void:
 	var x := 18.0 if ally else 524.0
 	var title := "己方塔" if ally else "敌方塔"
 	var panel := Panel.new()
 	panel.position = Vector2(x, 62)
 	panel.size = Vector2(100, 70)
+	panel.z_index = 2
 	panel.add_theme_stylebox_override("panel", _panel_style(Color("#51362d", 0.82), Color("#f3ca74"), 10, 2))
 	battlefield.add_child(panel)
 	_label(panel, title, Vector2(8, 5), Vector2(84, 20), 13)
@@ -259,6 +285,7 @@ func _start_round() -> void:
 	for index in range(deck.size()):
 		_spawn_card(deck[index], index)
 	_refresh_covered()
+	_refresh_era_visuals()
 
 func _spawn_card(card_id: String, index: int, bottom := false) -> void:
 	var card := CardView.new()
@@ -493,6 +520,28 @@ func _find_target(unit: BattleUnit) -> BattleUnit:
 func _attack(attacker: BattleUnit, target: BattleUnit) -> void:
 	attacker.spend_attack_time()
 	attacker.play_attack()
+	if attacker.stats.role == "ranged":
+		var facing := 1.0 if attacker.faction == "ally" else -1.0
+		var start_pos := attacker.position + Vector2(facing * 30.0, -56.0)
+		var target_pos := func() -> Variant:
+			if is_instance_valid(target) and target.alive:
+				return target.position + Vector2(0, -56.0)
+			return null
+		var on_hit := func() -> void:
+			if is_instance_valid(target) and target.alive:
+				target.receive_damage(float(attacker.stats.attack))
+				_spawn_hit_fx(target.position, Color("#ffd273"), "✦")
+		var projectile := Projectile.new()
+		projectile.setup(
+			start_pos,
+			target_pos,
+			300.0,
+			str(attacker.stats.era),
+			attacker.stats.color_value,
+			on_hit
+		)
+		battlefield.add_child(projectile)
+		return
 	target.receive_damage(float(attacker.stats.attack))
 	_spawn_hit_fx(target.position, Color("#ffd273"), "✦")
 
@@ -500,6 +549,31 @@ func _attack_tower(attacker: BattleUnit) -> void:
 	attacker.spend_attack_time()
 	attacker.play_attack()
 	var damage := float(attacker.stats.attack)
+	var tower_x := ENEMY_TOWER_X if attacker.faction == "ally" else ALLY_TOWER_X
+	if attacker.stats.role == "ranged":
+		var facing := 1.0 if attacker.faction == "ally" else -1.0
+		var start_pos := attacker.position + Vector2(facing * 30.0, -56.0)
+		var tower_point := Vector2(tower_x, BATTLE_GROUND_Y - 56.0)
+		var target_pos := func() -> Variant:
+			return tower_point
+		var on_hit := func() -> void:
+			if attacker.faction == "ally":
+				enemy_tower_hp = maxf(0.0, enemy_tower_hp - damage)
+				_spawn_hit_fx(tower_point, Color("#ffd273"), "✦")
+			else:
+				ally_tower_hp = maxf(0.0, ally_tower_hp - damage)
+				_spawn_hit_fx(tower_point, Color("#ff8e70"), "✦")
+		var projectile := Projectile.new()
+		projectile.setup(
+			start_pos,
+			target_pos,
+			300.0,
+			str(attacker.stats.era),
+			attacker.stats.color_value,
+			on_hit
+		)
+		battlefield.add_child(projectile)
+		return
 	if attacker.faction == "ally":
 		enemy_tower_hp = maxf(0.0, enemy_tower_hp - damage)
 		_spawn_hit_fx(Vector2(ENEMY_TOWER_X, 80), Color("#ffd273"), "✦")
@@ -527,6 +601,7 @@ func _check_era_upgrade() -> void:
 	_add_new_era_cards()
 	_update_progress_ui()
 	battle_hint.text = "文明进阶：%s！新时代卡牌已从牌堆底部加入" % GameData.ERA_NAMES[current_era]
+	_refresh_era_visuals()
 	print("时代进阶: %s" % current_era)
 
 func _add_new_era_cards() -> void:
