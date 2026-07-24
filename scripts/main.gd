@@ -8,6 +8,8 @@ const CARD_SIZE := Vector2(138, 166)
 const BATTLE_GROUND_Y := 222.0
 const WORLD_WIDTH := 1680.0
 const BATTLE_VIEW_W := 648.0
+const DECK_MAX := 26
+const REFILL_INTERVAL := 0.7
 const ALLY_TOWER_X := 96.0
 const ENEMY_TOWER_X := WORLD_WIDTH - 96.0
 const TOWER_RANGE := 82.0
@@ -62,6 +64,7 @@ var enemy_tower_label: Label
 var battle_active := false
 var battle_ended := false
 var wave_timer := 0.0
+var refill_timer := 0.0
 var pending_era_cards: Array[String] = []
 var era_card_timer := 0.0
 var ally_tower_hp := 1.0
@@ -118,6 +121,15 @@ func _process(delta: float) -> void:
 			_spawn_card(pending_era_cards.pop_front(), deck_cards.size(), true)
 			era_card_timer = 0.32
 			_refresh_covered()
+	if not battle_ended and main_menu != null and not main_menu.visible:
+		refill_timer -= delta
+		if refill_timer <= 0.0:
+			refill_timer = REFILL_INTERVAL
+			if deck_cards.size() < DECK_MAX:
+				var pool := GameData.cards_for_era(current_era)
+				if not pool.is_empty():
+					_spawn_card(pool[rng.randi() % pool.size()], deck_cards.size(), true)
+					_refresh_covered()
 	if not battle_active or battle_ended:
 		return
 	wave_timer -= delta
@@ -518,6 +530,7 @@ func _start_round() -> void:
 	battle_active = true
 	battle_ended = false
 	wave_timer = 3.0
+	refill_timer = REFILL_INTERVAL
 	pending_era_cards.clear()
 	era_card_timer = 0.0
 	ally_tower_hp = GameData.tower_hp(current_era)
