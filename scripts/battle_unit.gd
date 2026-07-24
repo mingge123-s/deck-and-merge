@@ -3,6 +3,9 @@ extends Node2D
 
 signal expired(unit: BattleUnit)
 
+static var _meta_cache: Dictionary = {}
+static var _frames_cache: Dictionary = {}
+
 var unit_id := ""
 var faction := ""
 var stats: Dictionary = {}
@@ -39,15 +42,26 @@ func _setup_animated(id: String, side: String, desired_height: float) -> bool:
 	var meta_path := "%s/meta.json" % dir
 	if not ResourceLoader.exists("%s/idle.png" % dir) or not FileAccess.file_exists(meta_path):
 		return false
-	var meta: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(meta_path))
-	if meta == null:
-		return false
-	var frames := SpriteFrames.new()
-	frames.remove_animation("default")
-	_add_anim(frames, dir, "idle", ["idle"], 4.0, true)
-	_add_anim(frames, dir, "walk", ["walk_a", "walk_b"], 7.0, true)
-	_add_anim(frames, dir, "attack", ["atk_a", "atk_b"], 11.0, false)
-	_add_anim(frames, dir, "die", ["die"], 1.0, false)
+	var meta: Dictionary
+	if _meta_cache.has(id):
+		meta = _meta_cache[id]
+	else:
+		var parsed_meta = JSON.parse_string(FileAccess.get_file_as_string(meta_path))
+		if not parsed_meta is Dictionary:
+			return false
+		meta = parsed_meta
+		_meta_cache[id] = meta
+	var frames: SpriteFrames
+	if _frames_cache.has(id):
+		frames = _frames_cache[id]
+	else:
+		frames = SpriteFrames.new()
+		frames.remove_animation("default")
+		_add_anim(frames, dir, "idle", ["idle"], 4.0, true)
+		_add_anim(frames, dir, "walk", ["walk_a", "walk_b"], 7.0, true)
+		_add_anim(frames, dir, "attack", ["atk_a", "atk_b"], 11.0, false)
+		_add_anim(frames, dir, "die", ["die"], 1.0, false)
+		_frames_cache[id] = frames
 	anim = AnimatedSprite2D.new()
 	anim.sprite_frames = frames
 	anim.centered = false

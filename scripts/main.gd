@@ -84,6 +84,7 @@ var ally_tower_hp := 1.0
 var enemy_tower_hp := 1.0
 var era_visual_tween: Tween
 var rng := RandomNumberGenerator.new()
+var hit_fx_pool: Array[Label] = []
 
 func _ready() -> void:
 	_apply_default_font()
@@ -731,9 +732,40 @@ func _pile_position(index: int) -> Vector2:
 	return Vector2(8.0 + column * 92.0 + rng.randf_range(-28.0, 28.0), 3.0 + row * 86.0 + rng.randf_range(-28.0, 28.0))
 
 func _refresh_covered() -> void:
+	var snapshots: Array[Dictionary] = []
+	for card in deck_cards:
+		if not is_instance_valid(card) or card.claimed:
+			continue
+		var transform := card.get_global_transform_with_canvas()
+		var inverse := transform.affine_inverse()
+		var corners := [
+			transform * Vector2.ZERO,
+			transform * Vector2(CARD_SIZE.x, 0.0),
+			transform * Vector2(0.0, CARD_SIZE.y),
+			transform * CARD_SIZE,
+		]
+		var min_point: Vector2 = corners[0]
+		var max_point: Vector2 = corners[0]
+		for corner in corners:
+			min_point.x = minf(min_point.x, corner.x)
+			min_point.y = minf(min_point.y, corner.y)
+			max_point.x = maxf(max_point.x, corner.x)
+			max_point.y = maxf(max_point.y, corner.y)
+		snapshots.append({
+			"card": card,
+			"z_index": card.z_index,
+			"inverse": inverse,
+			"aabb": Rect2(min_point, max_point - min_point),
+			"transform": transform,
+		})
 	for card in deck_cards:
 		if is_instance_valid(card):
-			card.set_locked(not _card_has_exposed_area(card))
+			var snapshot: Dictionary = {}
+			for candidate in snapshots:
+				if candidate["card"] == card:
+					snapshot = candidate
+					break
+			card.set_locked(not _card_has_exposed_area(snapshot, snapshots))
 
 func _on_card_layer_input(event: InputEvent) -> void:
 	if not event is InputEventMouseButton or event.button_index != MOUSE_BUTTON_LEFT or not event.pressed:
@@ -756,10 +788,26 @@ func _top_card_at(canvas_point: Vector2) -> CardView:
 			highest_z = card.z_index
 	return result
 
-func _card_has_exposed_area(card: CardView) -> bool:
-	for y in range(1, int(CARD_SIZE.y), 3):
-		for x in range(1, int(CARD_SIZE.x), 3):
-			if _top_card_at(card.get_global_transform_with_canvas() * Vector2(x, y)) == card:
+func _card_has_exposed_area(snapshot: Dictionary, snapshots: Array[Dictionary]) -> bool:
+	if snapshot.is_empty():
+		return false
+	var transform: Transform2D = snapshot["transform"]
+	var z_index: int = snapshot["z_index"]
+	for y in range(1, int(CARD_SIZE.y), 16):
+		for x in range(1, int(CARD_SIZE.x), 16):
+			var canvas_point := transform * Vector2(x, y)
+			var covered := false
+			for candidate in snapshots:
+				if candidate["z_index"] <= z_index:
+					continue
+				var aabb: Rect2 = candidate["aabb"]
+				if not aabb.has_point(canvas_point):
+					continue
+				var inverse: Transform2D = candidate["inverse"]
+				if Rect2(Vector2.ZERO, CARD_SIZE).has_point(inverse * canvas_point):
+					covered = true
+					break
+			if not covered:
 				return true
 	return false
 
@@ -892,11 +940,13 @@ func _spawn_enemy(hero_id: String, index: int) -> void:
 	battle_units.append(unit)
 
 func _step_battle(delta: float) -> void:
+	var ally_units := _living_units("ally")
+	var enemy_units := _living_units("enemy")
 	for unit in battle_units:
 		if not is_instance_valid(unit) or not unit.alive:
 			continue
 		unit.attack_cooldown = maxf(0.0, unit.attack_cooldown - delta)
-		var target := _find_target(unit)
+		var target := _find_target(unit, ally_units, enemy_units)
 		if target != null:
 			var distance := absf(target.position.x - unit.position.x)
 			if distance > float(unit.stats.range):
@@ -911,30 +961,31 @@ func _step_battle(delta: float) -> void:
 				_attack_tower(unit)
 	ally_tower_cd = maxf(0.0, ally_tower_cd - delta)
 	enemy_tower_cd = maxf(0.0, enemy_tower_cd - delta)
-	_process_tower_attack(true)
-	_process_tower_attack(false)
+	_process_tower_attack(true, enemy_units)
+	_process_tower_attack(false, ally_units)
 	if enemy_tower_hp <= 0.0:
 		_finish_battle(true, "胜利！敌方防御塔已摧毁")
 	elif ally_tower_hp <= 0.0:
 		_finish_battle(false, "失败！己方防御塔被摧毁")
 
-func _find_tower_target(ally: bool) -> BattleUnit:
-	var faction := "enemy" if ally else "ally"
+func _find_tower_target(ally: bool, candidates: Array[BattleUnit]) -> BattleUnit:
 	var tower_x := ALLY_TOWER_X if ally else ENEMY_TOWER_X
 	var nearest: BattleUnit
 	var nearest_distance := TOWER_ATTACK_RANGE + 1.0
-	for unit in _living_units(faction):
+	for unit in candidates:
+		if not is_instance_valid(unit) or not unit.alive:
+			continue
 		var distance := absf(unit.position.x - tower_x)
 		if distance <= TOWER_ATTACK_RANGE and distance < nearest_distance:
 			nearest = unit
 			nearest_distance = distance
 	return nearest
 
-func _process_tower_attack(ally: bool) -> void:
+func _process_tower_attack(ally: bool, candidates: Array[BattleUnit]) -> void:
 	var cooldown := ally_tower_cd if ally else enemy_tower_cd
 	if cooldown > 0.0:
 		return
-	var target := _find_tower_target(ally)
+	var target := _find_tower_target(ally, candidates)
 	if target == null:
 		return
 	var tower_x := ALLY_TOWER_X if ally else ENEMY_TOWER_X
@@ -963,16 +1014,15 @@ func _move_unit(unit: BattleUnit, target_x: float, delta: float) -> void:
 	unit.position.x += direction * float(unit.stats.move_speed) * delta
 	unit.set_moving(true)
 
-func _find_target(unit: BattleUnit) -> BattleUnit:
-	var candidates: Array[BattleUnit] = []
-	var enemy_faction := "enemy" if unit.faction == "ally" else "ally"
-	for candidate in _living_units(enemy_faction):
-		candidates.append(candidate)
+func _find_target(unit: BattleUnit, ally_units: Array[BattleUnit], enemy_units: Array[BattleUnit]) -> BattleUnit:
+	var candidates := enemy_units if unit.faction == "ally" else ally_units
 	if candidates.is_empty():
 		return null
-	var nearest: BattleUnit = candidates[0]
-	var nearest_distance := absf(nearest.position.x - unit.position.x)
+	var nearest: BattleUnit
+	var nearest_distance := INF
 	for candidate in candidates:
+		if not is_instance_valid(candidate) or not candidate.alive:
+			continue
 		var distance := absf(candidate.position.x - unit.position.x)
 		if distance < nearest_distance:
 			nearest = candidate
@@ -1083,18 +1133,32 @@ func _add_new_era_cards() -> void:
 	era_card_timer = 0.0
 
 func _spawn_hit_fx(local_position: Vector2, color: Color, text: String) -> void:
-	var fx := Label.new()
+	var fx: Label
+	if hit_fx_pool.is_empty():
+		fx = Label.new()
+		fx.z_index = 6
+		fx.add_theme_font_size_override("font_size", 24)
+	else:
+		fx = hit_fx_pool.pop_back()
 	fx.position = local_position + Vector2(-14, -130)
 	fx.text = text
-	fx.z_index = 6
-	fx.add_theme_font_size_override("font_size", 24)
 	fx.add_theme_color_override("font_color", color)
-	world.add_child(fx)
+	fx.modulate = Color.WHITE
+	fx.visible = true
+	if fx.get_parent() == null:
+		world.add_child(fx)
 	var tween := create_tween()
 	tween.set_parallel(true)
 	tween.tween_property(fx, "position:y", fx.position.y - 18, 0.3)
 	tween.tween_property(fx, "modulate", Color(1, 1, 1, 0), 0.3)
-	tween.chain().tween_callback(fx.queue_free)
+	tween.chain().tween_callback(_recycle_hit_fx.bind(fx))
+
+func _recycle_hit_fx(fx: Label) -> void:
+	if not is_instance_valid(fx):
+		return
+	fx.visible = false
+	fx.modulate = Color.WHITE
+	hit_fx_pool.append(fx)
 
 func _finish_battle(won: bool, message: String) -> void:
 	if battle_ended:
