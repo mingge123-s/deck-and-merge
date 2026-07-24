@@ -6,6 +6,13 @@ config_version=5
 config/name="牌桌远征：石器时代"
 run/main_scene="res://scenes/main.tscn"
 
+[audio]
+default_bus_layout="res://default_bus_layout.tres"
+
+[autoload]
+SaveManager="*res://scripts/save_manager.gd"
+AudioManager="*res://scripts/audio_manager.gd"
+
 [display]
 window/size/viewport_width=720
 window/size/viewport_height=1280

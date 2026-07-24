@@ -75,6 +75,7 @@ var rng := RandomNumberGenerator.new()
 func _ready() -> void:
 	_apply_default_font()
 	GameData.initialize()
+	coin_count = SaveManager.get_coins()
 	rng.randomize()
 	_build_background()
 	_build_top_bar()
@@ -196,9 +197,14 @@ func _build_top_bar() -> void:
 	bar.add_child(return_button)
 	_label(bar, "🪨 牌桌远征", Vector2(68, 5), Vector2(205, 30), 21)
 	era_label = _label(bar, "", Vector2(70, 38), Vector2(220, 20), 12, Color("#f6d69f"))
-	coin_label = _label(bar, "💰  2,480", Vector2(350, 8), Vector2(120, 28), 16, Color("#fff0c7"))
+	coin_label = _label(bar, "", Vector2(350, 8), Vector2(120, 28), 16, Color("#fff0c7"))
 	score_label = _label(bar, "", Vector2(350, 37), Vector2(280, 22), 12, Color("#ffe3a5"))
 	_update_progress_ui()
+	_update_coin_ui()
+
+func _update_coin_ui() -> void:
+	if coin_label != null:
+		coin_label.text = "💰  %d" % coin_count
 
 func _build_board() -> void:
 	board = Panel.new()
@@ -480,17 +486,13 @@ func _volume_slider(parent: Control, position: Vector2, bus_name: String) -> HSl
 	slider.size = Vector2(205, 32)
 	slider.min_value = 0.0
 	slider.max_value = 100.0
-	slider.value = 80.0
+	slider.value = SaveManager.get_volume(bus_name)
 	slider.value_changed.connect(_on_volume_changed.bind(bus_name))
 	parent.add_child(slider)
 	return slider
 
 func _on_volume_changed(value: float, bus_name: String) -> void:
-	var linear := maxf(value / 100.0, 0.001)
-	var db := linear_to_db(linear)
-	var bus_index := AudioServer.get_bus_index(bus_name)
-	if bus_index >= 0:
-		AudioServer.set_bus_volume_db(bus_index, db)
+	AudioManager.apply_volume(bus_name, value)
 
 func _show_settings() -> void:
 	if settings_panel != null:
@@ -883,7 +885,8 @@ func _finish_battle(won: bool, message: String) -> void:
 	print("战斗结束: %s" % message)
 	if won:
 		coin_count += 120
-		coin_label.text = "💰  %d" % coin_count
+		_update_coin_ui()
+		SaveManager.set_coins(coin_count)
 		_finish_round("%s\n获得 +120 金币" % message)
 	else:
 		_finish_round(message)
