@@ -6,8 +6,10 @@ const TRAY_RECT := Rect2(36, 766, 648, 156)
 const BATTLE_RECT := Rect2(36, 944, 648, 280)
 const CARD_SIZE := Vector2(138, 166)
 const BATTLE_GROUND_Y := 222.0
-const ALLY_TOWER_X := 64.0
-const ENEMY_TOWER_X := 610.0
+const WORLD_WIDTH := 1680.0
+const BATTLE_VIEW_W := 648.0
+const ALLY_TOWER_X := 96.0
+const ENEMY_TOWER_X := WORLD_WIDTH - 96.0
 const TOWER_RANGE := 82.0
 const TOWER_HEIGHT := 160.0
 const TOWER_GROUND_NUDGE := 3.0
@@ -22,6 +24,10 @@ const ERA_TOWER_TINTS := {
 var board: Control
 var tray: Control
 var battlefield: Control
+var world: Control
+var minimap: BattleMinimap
+var camera_x := 0.0
+var dragging := false
 var card_layer: Control
 var battle_bg: TextureRect
 var ally_tower_sprite: Sprite2D
@@ -69,7 +75,37 @@ func _ready() -> void:
 	_build_overlay()
 	_start_round()
 
+func _on_battlefield_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+		dragging = event.pressed
+	elif event is InputEventMouseMotion and dragging:
+		camera_x = clampf(camera_x - event.relative.x, 0.0, WORLD_WIDTH - BATTLE_VIEW_W)
+		_apply_camera()
+
+func _apply_camera() -> void:
+	if world != null:
+		world.position.x = 7.0 - camera_x
+
+func _reset_camera() -> void:
+	camera_x = 0.0
+	_apply_camera()
+
+func _update_minimap() -> void:
+	if minimap == null:
+		return
+	var dots: Array = []
+	for unit in battle_units:
+		if is_instance_valid(unit) and unit.alive:
+			var color := Color("#5fb7ff") if unit.faction == "ally" else Color("#ff5555")
+			dots.append({"x": unit.position.x, "color": color})
+	var towers := [
+		{"x": ALLY_TOWER_X, "color": Color("#7fe0a0")},
+		{"x": ENEMY_TOWER_X, "color": Color("#ffb066")},
+	]
+	minimap.update_map(dots, towers, camera_x)
+
 func _process(delta: float) -> void:
+	_update_minimap()
 	if not pending_era_cards.is_empty():
 		era_card_timer -= delta
 		if era_card_timer <= 0.0:
@@ -173,33 +209,44 @@ func _build_battlefield() -> void:
 	battlefield.position = BATTLE_RECT.position
 	battlefield.size = BATTLE_RECT.size
 	battlefield.add_theme_stylebox_override("panel", _panel_style(Color("#8d5d3f"), Color("#70412c"), 22, 3))
+	battlefield.clip_contents = true
+	battlefield.gui_input.connect(_on_battlefield_input)
 	add_child(battlefield)
+	world = Control.new()
+	world.position = Vector2(7, 7)
+	world.size = Vector2(WORLD_WIDTH, BATTLE_RECT.size.y - 14)
+	world.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	battlefield.add_child(world)
 	battle_bg = TextureRect.new()
-	battle_bg.position = Vector2(7, 7)
-	battle_bg.size = BATTLE_RECT.size - Vector2(14, 14)
+	battle_bg.position = Vector2.ZERO
+	battle_bg.size = Vector2(WORLD_WIDTH, BATTLE_RECT.size.y - 14)
 	battle_bg.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	battle_bg.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 	battle_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	battlefield.add_child(battle_bg)
+	world.add_child(battle_bg)
 	ally_tower_shadow = _create_tower_shadow(true)
 	enemy_tower_shadow = _create_tower_shadow(false)
 	ally_tower_sprite = _create_tower_sprite(true)
 	enemy_tower_sprite = _create_tower_sprite(false)
-	_label(battlefield, "🛡 防御塔战线", Vector2(18, 10), Vector2(210, 28), 18)
-	battle_hint = _label(battlefield, "敌方英雄将从右塔出击", Vector2(250, 14), Vector2(260, 22), 12, Color("#f9deb0"))
 	battle_button = Button.new()
-	battle_button.position = Vector2(514, 12)
-	battle_button.size = Vector2(112, 45)
+	battle_button.position = Vector2(16, 10)
+	battle_button.size = Vector2(120, 44)
 	battle_button.text = "⚔ 开战"
 	battle_button.add_theme_font_size_override("font_size", 17)
 	battle_button.add_theme_stylebox_override("normal", _panel_style(Color("#e4863e"), Color("#713722"), 14, 3))
 	battle_button.add_theme_stylebox_override("hover", _panel_style(Color("#f2a252"), Color("#713722"), 14, 3))
 	battle_button.pressed.connect(_start_battle)
 	battlefield.add_child(battle_button)
+	battle_hint = _label(battlefield, "拖动战场查看双方阵地", Vector2(150, 18), Vector2(300, 22), 12, Color("#f9deb0"))
+	minimap = BattleMinimap.new()
+	minimap.position = Vector2(462, 8)
+	minimap.size = Vector2(176, 46)
+	minimap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	minimap.configure(WORLD_WIDTH, BATTLE_VIEW_W)
+	battlefield.add_child(minimap)
 	_create_tower_ui(true)
 	_create_tower_ui(false)
-	_label(battlefield, "己方英雄", Vector2(26, 245), Vector2(120, 22), 12, Color("#fff0c7"))
-	_label(battlefield, "镜像敌军", Vector2(515, 245), Vector2(110, 22), 12, Color("#ffd5a7"))
+	_apply_camera()
 
 func _create_tower_sprite(ally: bool) -> Sprite2D:
 	var tower := Sprite2D.new()
@@ -209,7 +256,7 @@ func _create_tower_sprite(ally: bool) -> Sprite2D:
 	)
 	tower.z_index = 1
 	tower.flip_h = not ally
-	battlefield.add_child(tower)
+	world.add_child(tower)
 	return tower
 
 func _create_tower_shadow(ally: bool) -> Sprite2D:
@@ -218,7 +265,7 @@ func _create_tower_shadow(ally: bool) -> Sprite2D:
 	shadow.position = Vector2(ALLY_TOWER_X if ally else ENEMY_TOWER_X, BATTLE_GROUND_Y)
 	shadow.scale = Vector2(0.45, 0.4)
 	shadow.z_index = 0
-	battlefield.add_child(shadow)
+	world.add_child(shadow)
 	return shadow
 
 func _refresh_era_visuals(animate := false) -> void:
@@ -351,6 +398,7 @@ func _start_round() -> void:
 		_spawn_card(deck[index], index)
 	_refresh_covered()
 	_refresh_era_visuals(false)
+	_reset_camera()
 
 func _spawn_card(card_id: String, index: int, bottom := false) -> void:
 	var card := CardView.new()
@@ -493,10 +541,10 @@ func _spawn_ally(hero_id: String) -> void:
 		texture = load(path)
 	var unit := BattleUnit.new()
 	unit.setup(hero_id, "ally", data, texture)
-	unit.position = Vector2(126 + (occupied_units % 3) * 68, BATTLE_GROUND_Y - (occupied_units / 3) * 32)
+	unit.position = Vector2(ALLY_TOWER_X + 96 + (occupied_units % 3) * 68, BATTLE_GROUND_Y - (occupied_units / 3) * 32)
 	unit.z_index = 4
 	unit.expired.connect(_on_unit_expired)
-	battlefield.add_child(unit)
+	world.add_child(unit)
 	battle_units.append(unit)
 	occupied_units += 1
 
@@ -530,10 +578,10 @@ func _spawn_enemy(hero_id: String, index: int) -> void:
 		texture = load(path)
 	var unit := BattleUnit.new()
 	unit.setup(hero_id, "enemy", data, texture)
-	unit.position = Vector2(ENEMY_TOWER_X - (index % 2) * 26, BATTLE_GROUND_Y - (index / 2) * 34)
+	unit.position = Vector2(ENEMY_TOWER_X - 96 - (index % 2) * 26, BATTLE_GROUND_Y - (index / 2) * 34)
 	unit.z_index = 4
 	unit.expired.connect(_on_unit_expired)
-	battlefield.add_child(unit)
+	world.add_child(unit)
 	battle_units.append(unit)
 
 func _step_battle(delta: float) -> void:
@@ -605,7 +653,7 @@ func _attack(attacker: BattleUnit, target: BattleUnit) -> void:
 			attacker.stats.color_value,
 			on_hit
 		)
-		battlefield.add_child(projectile)
+		world.add_child(projectile)
 		return
 	target.receive_damage(float(attacker.stats.attack))
 	_spawn_hit_fx(target.position, Color("#ffd273"), "✦")
@@ -637,14 +685,14 @@ func _attack_tower(attacker: BattleUnit) -> void:
 			attacker.stats.color_value,
 			on_hit
 		)
-		battlefield.add_child(projectile)
+		world.add_child(projectile)
 		return
 	if attacker.faction == "ally":
 		enemy_tower_hp = maxf(0.0, enemy_tower_hp - damage)
-		_spawn_hit_fx(Vector2(ENEMY_TOWER_X, 80), Color("#ffd273"), "✦")
+		_spawn_hit_fx(Vector2(ENEMY_TOWER_X, BATTLE_GROUND_Y - 40.0), Color("#ffd273"), "✦")
 	else:
 		ally_tower_hp = maxf(0.0, ally_tower_hp - damage)
-		_spawn_hit_fx(Vector2(ALLY_TOWER_X, 80), Color("#ff8e70"), "✦")
+		_spawn_hit_fx(Vector2(ALLY_TOWER_X, BATTLE_GROUND_Y - 40.0), Color("#ff8e70"), "✦")
 
 func _on_unit_expired(unit: BattleUnit) -> void:
 	if unit.faction == "enemy" and not unit.score_awarded:
@@ -678,11 +726,12 @@ func _add_new_era_cards() -> void:
 
 func _spawn_hit_fx(local_position: Vector2, color: Color, text: String) -> void:
 	var fx := Label.new()
-	fx.position = BATTLE_RECT.position + local_position + Vector2(-14, -130)
+	fx.position = local_position + Vector2(-14, -130)
 	fx.text = text
+	fx.z_index = 6
 	fx.add_theme_font_size_override("font_size", 24)
 	fx.add_theme_color_override("font_color", color)
-	add_child(fx)
+	world.add_child(fx)
 	var tween := create_tween()
 	tween.set_parallel(true)
 	tween.tween_property(fx, "position:y", fx.position.y - 18, 0.3)

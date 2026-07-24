@@ -35,3 +35,12 @@
 - 生成管线：以 idle 帧为参考图（图生图）重摆姿势生成其余 5 帧，角色跨帧一致性显著提升；再经 `build_anim.py` 去背/紧裁/脚部对齐输出到 `assets/anim/<id>/` 并写 `meta.json`。
 - 新增 `tools/shrink_anim.py`：将每个英雄的动画画布高度上限压到 420px，帧与 `meta.json`（anchor/char_height/canvas）按同一比例缩放，属渲染等价变换。导出 pck 从 139MB 降到 84MB。
 - 验证：`godot --headless --import` 全部 66 张新图生成 `.import`；单线程 Web 导出成功；部署到 `https://mingge.asia/deck-and-merge/`，本地/远端 pck sha256 一致，HTTPS 200。
+
+## 2026-07-24：宽版可横移战场 + 右上角小地图
+
+- 战场由单屏定宽改为 `WORLD_WIDTH=1680` 的宽世界，双方防御塔拉远（己方 x=96、敌方 x=WORLD_WIDTH-96），一屏（视窗宽 648）装不下。
+- 新增可滚动的 `world` 容器（`battlefield.clip_contents=true` 裁剪），背景、双塔、阴影、单位、抛射物、命中特效全部挂到 `world`；单位移动/寻敌/攻击逻辑沿用塔 X 常量，无需改动。
+- 用户可在战场按下拖动横移镜头（`_on_battlefield_input` → `camera_x` 夹取到 `[0, WORLD_WIDTH-视窗]`，`_apply_camera` 更新 `world.position.x`）；每局开始 `_reset_camera`。
+- 新增 `scripts/minimap.gd`（`BattleMinimap`，自绘 Control）：右上角小地图实时显示己方蓝点、敌方红点、两端塔标记和当前视窗白框；`main._update_minimap` 每帧按世界坐标映射刷新。
+- HUD 重排：开战按钮移到左上，小地图占右上；塔血条面板保持固定角落 HUD 不随滚动。
+- 验证：`godot --headless --import` 无脚本错误；DISPLAY 实跑确认横移露出远处敌塔、小地图视窗框同步、开战后蓝/红点实时显示并可拖动跟随战斗。
