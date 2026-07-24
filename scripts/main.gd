@@ -55,6 +55,7 @@ var restart_button: Button
 var result_menu_button: Button
 var return_button: Button
 var shop_button: Button
+var pause_button: Button
 var main_menu: Control
 var settings_panel: Panel
 var shop_panel: Panel
@@ -63,6 +64,8 @@ var shop_reinforcement_button: Button
 var shop_repair_button: Button
 var era_select_panel: Panel
 var era_select_buttons: Array[Button] = []
+var pause_overlay: Control
+var tutorial_overlay: Control
 var music_slider: HSlider
 var sfx_slider: HSlider
 var battle_hint: Label
@@ -73,6 +76,7 @@ var enemy_tower_label: Label
 var battle_active := false
 var battle_ended := false
 var battle_won := false
+var paused := false
 var wave_timer := 0.0
 var wave_number := 0
 var ally_tower_cd := 0.0
@@ -85,6 +89,8 @@ var enemy_tower_hp := 1.0
 var era_visual_tween: Tween
 var rng := RandomNumberGenerator.new()
 var hit_fx_pool: Array[Label] = []
+var camera_shake_offset := Vector2.ZERO
+var camera_shake_tween: Tween
 
 func _ready() -> void:
 	_apply_default_font()
@@ -108,11 +114,38 @@ func _on_battlefield_input(event: InputEvent) -> void:
 
 func _apply_camera() -> void:
 	if world != null:
-		world.position.x = 7.0 - camera_x
+		world.position = Vector2(7.0 - camera_x, 7.0) + camera_shake_offset
 
 func _reset_camera() -> void:
 	camera_x = 0.0
 	_apply_camera()
+
+func _set_camera_shake(offset: Vector2) -> void:
+	camera_shake_offset = offset
+	_apply_camera()
+
+func _shake_battlefield() -> void:
+	if camera_shake_tween != null:
+		camera_shake_tween.kill()
+	_set_camera_shake(Vector2.ZERO)
+	var first_offset := Vector2(rng.randf_range(-3.0, 3.0), rng.randf_range(-2.0, 2.0))
+	var second_offset := Vector2(rng.randf_range(-3.0, 3.0), rng.randf_range(-2.0, 2.0))
+	var third_offset := Vector2(rng.randf_range(-2.0, 2.0), rng.randf_range(-1.5, 1.5))
+	camera_shake_tween = create_tween()
+	camera_shake_tween.tween_method(
+		_set_camera_shake,
+		Vector2.ZERO,
+		first_offset,
+		0.04
+	)
+	camera_shake_tween.tween_method(
+		_set_camera_shake,
+		first_offset,
+		second_offset,
+		0.04
+	)
+	camera_shake_tween.tween_method(_set_camera_shake, second_offset, third_offset, 0.04)
+	camera_shake_tween.tween_method(_set_camera_shake, third_offset, Vector2.ZERO, 0.06)
 
 func _update_minimap() -> void:
 	if minimap == null:
@@ -129,6 +162,8 @@ func _update_minimap() -> void:
 	minimap.update_map(dots, towers, camera_x)
 
 func _process(delta: float) -> void:
+	if paused:
+		return
 	_update_minimap()
 	if not pending_era_cards.is_empty():
 		era_card_timer -= delta
@@ -221,10 +256,22 @@ func _build_top_bar() -> void:
 	shop_button.pressed.connect(_show_shop)
 	shop_button.pressed.connect(_play_button_sfx)
 	bar.add_child(shop_button)
+	pause_button = Button.new()
+	pause_button.position = Vector2(540, 12)
+	pause_button.size = Vector2(46, 46)
+	pause_button.text = "⏸"
+	pause_button.tooltip_text = "暂停"
+	pause_button.add_theme_font_size_override("font_size", 20)
+	pause_button.add_theme_stylebox_override("normal", _panel_style(Color("#e4863e"), Color("#713722"), 12, 2))
+	pause_button.add_theme_stylebox_override("hover", _panel_style(Color("#f2a252"), Color("#713722"), 12, 2))
+	pause_button.pressed.connect(_toggle_pause)
+	pause_button.pressed.connect(_play_button_sfx)
+	pause_button.visible = false
+	bar.add_child(pause_button)
 	_label(bar, "🪨 牌桌远征", Vector2(68, 5), Vector2(205, 30), 21)
 	era_label = _label(bar, "", Vector2(70, 38), Vector2(220, 20), 12, Color("#f6d69f"))
-	coin_label = _label(bar, "", Vector2(350, 8), Vector2(120, 28), 16, Color("#fff0c7"))
-	score_label = _label(bar, "", Vector2(350, 37), Vector2(280, 22), 12, Color("#ffe3a5"))
+	coin_label = _label(bar, "", Vector2(350, 8), Vector2(165, 28), 16, Color("#fff0c7"))
+	score_label = _label(bar, "", Vector2(350, 37), Vector2(175, 22), 12, Color("#ffe3a5"))
 	_update_progress_ui()
 	_update_coin_ui()
 
@@ -429,6 +476,77 @@ func _build_overlay() -> void:
 	result_menu_button.pressed.connect(_play_button_sfx)
 	result_menu_button.visible = false
 	add_child(result_menu_button)
+	_build_pause_overlay()
+	_build_tutorial_overlay()
+
+func _build_pause_overlay() -> void:
+	pause_overlay = Control.new()
+	pause_overlay.size = VIEW_SIZE
+	pause_overlay.z_index = 150
+	pause_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	pause_overlay.visible = false
+	add_child(pause_overlay)
+	var shade := ColorRect.new()
+	shade.size = VIEW_SIZE
+	shade.color = Color(0.05, 0.03, 0.02, 0.62)
+	pause_overlay.add_child(shade)
+	var panel := Panel.new()
+	panel.position = Vector2(130, 410)
+	panel.size = Vector2(460, 280)
+	panel.add_theme_stylebox_override("panel", _panel_style(Color("#c58a53"), Color("#70412c"), 24, 3))
+	pause_overlay.add_child(panel)
+	var title := _label(panel, "已暂停", Vector2(0, 38), Vector2(460, 46), 30)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var continue_button := _menu_button(panel, "继续", Vector2(130, 148), Vector2(200, 58), 20)
+	continue_button.pressed.connect(_toggle_pause)
+
+func _build_tutorial_overlay() -> void:
+	tutorial_overlay = Control.new()
+	tutorial_overlay.size = VIEW_SIZE
+	tutorial_overlay.z_index = 160
+	tutorial_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	tutorial_overlay.visible = false
+	add_child(tutorial_overlay)
+	var shade := ColorRect.new()
+	shade.size = VIEW_SIZE
+	shade.color = Color(0.05, 0.03, 0.02, 0.62)
+	tutorial_overlay.add_child(shade)
+	var panel := Panel.new()
+	panel.position = Vector2(54, 190)
+	panel.size = Vector2(612, 900)
+	panel.add_theme_stylebox_override("panel", _panel_style(Color("#c58a53"), Color("#70412c"), 24, 3))
+	tutorial_overlay.add_child(panel)
+	var title := _label(panel, "新手引导", Vector2(0, 34), Vector2(612, 46), 30)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var content := _label(
+		panel,
+		"① 点击没被压住的卡牌，收进合成台\n\n② 3 张同名卡会自动合成英雄出战\n\n③ 拖动战场查看双方阵地，右上角小地图查看红蓝点\n\n④ 金币可在 🛒 商店召唤援军或修复我方塔\n\n⑤ 攒击杀积分，推进时代进阶",
+		Vector2(42, 122),
+		Vector2(528, 500),
+		18,
+		Color("#fff0c7")
+	)
+	content.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	var acknowledge_button := _menu_button(panel, "知道了", Vector2(206, 710), Vector2(200, 58), 20)
+	acknowledge_button.pressed.connect(_hide_tutorial)
+
+func _toggle_pause() -> void:
+	if not battle_active or battle_ended:
+		return
+	paused = not paused
+	if pause_overlay != null:
+		pause_overlay.visible = paused
+
+func _show_tutorial() -> void:
+	paused = true
+	if tutorial_overlay != null:
+		tutorial_overlay.visible = true
+
+func _hide_tutorial() -> void:
+	if tutorial_overlay != null:
+		tutorial_overlay.visible = false
+	SaveManager.set_tutorial_seen(true)
+	paused = false
 
 func _build_main_menu() -> void:
 	main_menu = Control.new()
@@ -660,9 +778,16 @@ func _show_main_menu() -> void:
 	battle_active = false
 	battle_ended = false
 	battle_won = false
+	paused = false
 	_hide_settings()
 	_hide_era_select()
 	_hide_shop()
+	if pause_overlay != null:
+		pause_overlay.visible = false
+	if tutorial_overlay != null:
+		tutorial_overlay.visible = false
+	if pause_button != null:
+		pause_button.visible = false
 	_remove_battle_units()
 	_update_progress_ui()
 	if main_menu != null:
@@ -685,6 +810,13 @@ func _start_round(start_era_index: int = 0) -> void:
 	battle_active = true
 	battle_ended = false
 	battle_won = false
+	paused = false
+	if pause_overlay != null:
+		pause_overlay.visible = false
+	if tutorial_overlay != null:
+		tutorial_overlay.visible = false
+	if pause_button != null:
+		pause_button.visible = true
 	wave_timer = 3.0
 	wave_number = 0
 	ally_tower_cd = 0.0
@@ -711,6 +843,8 @@ func _start_round(start_era_index: int = 0) -> void:
 	_refresh_covered()
 	_refresh_era_visuals(false)
 	_reset_camera()
+	if not SaveManager.get_tutorial_seen():
+		_show_tutorial()
 
 func _spawn_card(card_id: String, index: int, bottom := false) -> void:
 	var card := CardView.new()
@@ -1075,10 +1209,12 @@ func _attack_tower(attacker: BattleUnit) -> void:
 				enemy_tower_hp = maxf(0.0, enemy_tower_hp - damage)
 				_spawn_hit_fx(tower_point, Color("#ffd273"), "✦")
 				AudioManager.play_sfx("tower")
+				_shake_battlefield()
 			else:
 				ally_tower_hp = maxf(0.0, ally_tower_hp - damage)
 				_spawn_hit_fx(tower_point, Color("#ff8e70"), "✦")
 				AudioManager.play_sfx("tower")
+				_shake_battlefield()
 		var projectile := Projectile.new()
 		projectile.setup(
 			start_pos,
@@ -1094,10 +1230,12 @@ func _attack_tower(attacker: BattleUnit) -> void:
 		enemy_tower_hp = maxf(0.0, enemy_tower_hp - damage)
 		_spawn_hit_fx(Vector2(ENEMY_TOWER_X, BATTLE_GROUND_Y - 40.0), Color("#ffd273"), "✦")
 		AudioManager.play_sfx("tower")
+		_shake_battlefield()
 	else:
 		ally_tower_hp = maxf(0.0, ally_tower_hp - damage)
 		_spawn_hit_fx(Vector2(ALLY_TOWER_X, BATTLE_GROUND_Y - 40.0), Color("#ff8e70"), "✦")
 		AudioManager.play_sfx("tower")
+		_shake_battlefield()
 
 func _on_unit_expired(unit: BattleUnit) -> void:
 	if unit.faction == "enemy" and not unit.score_awarded:

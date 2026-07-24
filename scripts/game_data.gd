@@ -7,11 +7,6 @@ const LEGACY_CARD_TEXTURES := {
 	"兽皮": "pelt",
 	"木棒": "club",
 	"投石": "sling",
-	"兽骨": "bone",
-	"石斧": "stone_axe",
-	"长矛": "spear",
-	"篝火": "campfire",
-	"金块": "gold",
 }
 
 static var _manifest: Dictionary = {}
