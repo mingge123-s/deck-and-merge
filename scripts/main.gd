@@ -70,6 +70,7 @@ var era_visual_tween: Tween
 var rng := RandomNumberGenerator.new()
 
 func _ready() -> void:
+	_apply_default_font()
 	GameData.initialize()
 	rng.randomize()
 	_build_background()
@@ -146,6 +147,13 @@ func _label(parent: Node, text: String, position: Vector2, size: Vector2, font_s
 	label.add_theme_color_override("font_color", color)
 	parent.add_child(label)
 	return label
+
+func _apply_default_font() -> void:
+	var font_path := "res://assets/fonts/ui_cjk.ttf"
+	if ResourceLoader.exists(font_path):
+		var font := load(font_path)
+		if font is Font:
+			ThemeDB.fallback_font = font
 
 func _build_background() -> void:
 	var background := ColorRect.new()
