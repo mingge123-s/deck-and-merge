@@ -9,6 +9,15 @@ const BATTLE_GROUND_Y := 222.0
 const ALLY_TOWER_X := 64.0
 const ENEMY_TOWER_X := 610.0
 const TOWER_RANGE := 82.0
+const TOWER_HEIGHT := 160.0
+const TOWER_GROUND_NUDGE := 3.0
+const ERA_TOWER_TINTS := {
+	"stone": Color(1.0, 0.93, 0.82),
+	"iron": Color(0.92, 0.96, 1.0),
+	"industrial": Color(1.0, 0.9, 0.76),
+	"modern": Color(0.84, 0.89, 0.95),
+	"future": Color(0.7, 0.88, 0.94),
+}
 
 var board: Control
 var tray: Control
@@ -17,6 +26,8 @@ var card_layer: Control
 var battle_bg: TextureRect
 var ally_tower_sprite: Sprite2D
 var enemy_tower_sprite: Sprite2D
+var ally_tower_shadow: Sprite2D
+var enemy_tower_shadow: Sprite2D
 var tray_cards: Array[String] = []
 var tray_views: Array[Control] = []
 var deck_cards: Array[CardView] = []
@@ -44,6 +55,7 @@ var pending_era_cards: Array[String] = []
 var era_card_timer := 0.0
 var ally_tower_hp := 1.0
 var enemy_tower_hp := 1.0
+var era_visual_tween: Tween
 var rng := RandomNumberGenerator.new()
 
 func _ready() -> void:
@@ -169,6 +181,8 @@ func _build_battlefield() -> void:
 	battle_bg.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 	battle_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	battlefield.add_child(battle_bg)
+	ally_tower_shadow = _create_tower_shadow(true)
+	enemy_tower_shadow = _create_tower_shadow(false)
 	ally_tower_sprite = _create_tower_sprite(true)
 	enemy_tower_sprite = _create_tower_sprite(false)
 	_label(battlefield, "🛡 防御塔战线", Vector2(18, 10), Vector2(210, 28), 18)
@@ -189,13 +203,52 @@ func _build_battlefield() -> void:
 
 func _create_tower_sprite(ally: bool) -> Sprite2D:
 	var tower := Sprite2D.new()
-	tower.position = Vector2(ALLY_TOWER_X if ally else ENEMY_TOWER_X, BATTLE_GROUND_Y - 80.0)
+	tower.position = Vector2(
+		ALLY_TOWER_X if ally else ENEMY_TOWER_X,
+		BATTLE_GROUND_Y - TOWER_HEIGHT * 0.5 + TOWER_GROUND_NUDGE
+	)
 	tower.z_index = 1
 	tower.flip_h = not ally
 	battlefield.add_child(tower)
 	return tower
 
-func _refresh_era_visuals() -> void:
+func _create_tower_shadow(ally: bool) -> Sprite2D:
+	var shadow := Sprite2D.new()
+	shadow.texture = load("res://assets/fx/shadow.png")
+	shadow.position = Vector2(ALLY_TOWER_X if ally else ENEMY_TOWER_X, BATTLE_GROUND_Y)
+	shadow.scale = Vector2(0.45, 0.4)
+	shadow.z_index = 0
+	battlefield.add_child(shadow)
+	return shadow
+
+func _refresh_era_visuals(animate := false) -> void:
+	if era_visual_tween != null:
+		era_visual_tween.kill()
+	if not animate:
+		_apply_era_visuals()
+		return
+	var visuals: Array[CanvasItem] = [
+		battle_bg,
+		ally_tower_sprite,
+		enemy_tower_sprite,
+		ally_tower_shadow,
+		enemy_tower_shadow,
+	]
+	era_visual_tween = create_tween()
+	era_visual_tween.set_parallel(true)
+	for visual in visuals:
+		era_visual_tween.tween_property(visual, "modulate:a", 0.0, 0.3)
+	era_visual_tween.chain().tween_callback(func() -> void:
+		_apply_era_visuals()
+		for visual in visuals:
+			visual.modulate.a = 0.0
+		era_visual_tween = create_tween()
+		era_visual_tween.set_parallel(true)
+		for visual in visuals:
+			era_visual_tween.tween_property(visual, "modulate:a", 1.0, 0.3)
+	)
+
+func _apply_era_visuals() -> void:
 	var bg_path := "res://assets/bg_battle_%s.png" % current_era
 	if not ResourceLoader.exists(bg_path):
 		bg_path = "res://assets/bg_battle_stone.png"
@@ -203,10 +256,22 @@ func _refresh_era_visuals() -> void:
 	var tower_path := "res://assets/towers/%s.png" % current_era
 	if not ResourceLoader.exists(tower_path):
 		tower_path = "res://assets/towers/stone.png"
+	var tower_tint: Color = ERA_TOWER_TINTS.get(current_era, ERA_TOWER_TINTS.stone)
 	for tower in [ally_tower_sprite, enemy_tower_sprite]:
 		tower.texture = load(tower_path)
-		var factor := 160.0 / maxf(1.0, float(tower.texture.get_height()))
+		var factor := TOWER_HEIGHT / maxf(1.0, float(tower.texture.get_height()))
 		tower.scale = Vector2(factor, factor)
+		tower.modulate = tower_tint
+	_sync_tower_shadow(ally_tower_sprite, ally_tower_shadow)
+	_sync_tower_shadow(enemy_tower_sprite, enemy_tower_shadow)
+	battle_bg.modulate = Color.WHITE
+	ally_tower_shadow.modulate = Color.WHITE
+	enemy_tower_shadow.modulate = Color.WHITE
+
+func _sync_tower_shadow(tower: Sprite2D, shadow: Sprite2D) -> void:
+	shadow.position = Vector2(tower.position.x, BATTLE_GROUND_Y)
+	var footprint := float(tower.texture.get_width()) * tower.scale.x
+	shadow.scale = Vector2(clampf(footprint / 256.0 * 1.15, 0.32, 0.7), 0.4)
 
 func _create_tower_ui(ally: bool) -> void:
 	var x := 18.0 if ally else 524.0
@@ -285,7 +350,7 @@ func _start_round() -> void:
 	for index in range(deck.size()):
 		_spawn_card(deck[index], index)
 	_refresh_covered()
-	_refresh_era_visuals()
+	_refresh_era_visuals(false)
 
 func _spawn_card(card_id: String, index: int, bottom := false) -> void:
 	var card := CardView.new()
@@ -601,7 +666,7 @@ func _check_era_upgrade() -> void:
 	_add_new_era_cards()
 	_update_progress_ui()
 	battle_hint.text = "文明进阶：%s！新时代卡牌已从牌堆底部加入" % GameData.ERA_NAMES[current_era]
-	_refresh_era_visuals()
+	_refresh_era_visuals(true)
 	print("时代进阶: %s" % current_era)
 
 func _add_new_era_cards() -> void:
