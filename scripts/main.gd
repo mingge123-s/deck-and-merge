@@ -15,6 +15,8 @@ const ENEMY_TOWER_X := WORLD_WIDTH - 96.0
 const TOWER_RANGE := 82.0
 const TOWER_HEIGHT := 160.0
 const TOWER_GROUND_NUDGE := 3.0
+const TOWER_ATTACK_RANGE := 420.0
+const TOWER_ATTACK_CD := 1.1
 const ERA_TOWER_TINTS := {
 	"stone": Color(1.0, 0.93, 0.82),
 	"iron": Color(0.92, 0.96, 1.0),
@@ -52,8 +54,15 @@ var status_label: Label
 var restart_button: Button
 var result_menu_button: Button
 var return_button: Button
+var shop_button: Button
 var main_menu: Control
 var settings_panel: Panel
+var shop_panel: Panel
+var shop_coin_label: Label
+var shop_reinforcement_button: Button
+var shop_repair_button: Button
+var era_select_panel: Panel
+var era_select_buttons: Array[Button] = []
 var music_slider: HSlider
 var sfx_slider: HSlider
 var battle_hint: Label
@@ -63,7 +72,11 @@ var ally_tower_label: Label
 var enemy_tower_label: Label
 var battle_active := false
 var battle_ended := false
+var battle_won := false
 var wave_timer := 0.0
+var wave_number := 0
+var ally_tower_cd := 0.0
+var enemy_tower_cd := 0.0
 var refill_timer := 0.0
 var pending_era_cards: Array[String] = []
 var era_card_timer := 0.0
@@ -194,7 +207,19 @@ func _build_top_bar() -> void:
 	return_button.add_theme_stylebox_override("normal", _panel_style(Color("#e4863e"), Color("#713722"), 12, 2))
 	return_button.add_theme_stylebox_override("hover", _panel_style(Color("#f2a252"), Color("#713722"), 12, 2))
 	return_button.pressed.connect(_show_main_menu)
+	return_button.pressed.connect(_play_button_sfx)
 	bar.add_child(return_button)
+	shop_button = Button.new()
+	shop_button.position = Vector2(594, 12)
+	shop_button.size = Vector2(54, 46)
+	shop_button.text = "🛒"
+	shop_button.tooltip_text = "商店"
+	shop_button.add_theme_font_size_override("font_size", 22)
+	shop_button.add_theme_stylebox_override("normal", _panel_style(Color("#e4863e"), Color("#713722"), 12, 2))
+	shop_button.add_theme_stylebox_override("hover", _panel_style(Color("#f2a252"), Color("#713722"), 12, 2))
+	shop_button.pressed.connect(_show_shop)
+	shop_button.pressed.connect(_play_button_sfx)
+	bar.add_child(shop_button)
 	_label(bar, "🪨 牌桌远征", Vector2(68, 5), Vector2(205, 30), 21)
 	era_label = _label(bar, "", Vector2(70, 38), Vector2(220, 20), 12, Color("#f6d69f"))
 	coin_label = _label(bar, "", Vector2(350, 8), Vector2(120, 28), 16, Color("#fff0c7"))
@@ -389,6 +414,7 @@ func _build_overlay() -> void:
 	restart_button.add_theme_stylebox_override("normal", _panel_style(Color("#d77a3d"), Color("#6d3724"), 15, 3))
 	restart_button.add_theme_stylebox_override("hover", _panel_style(Color("#ec994d"), Color("#6d3724"), 15, 3))
 	restart_button.pressed.connect(_start_round)
+	restart_button.pressed.connect(_play_button_sfx)
 	restart_button.visible = false
 	add_child(restart_button)
 	result_menu_button = Button.new()
@@ -399,6 +425,7 @@ func _build_overlay() -> void:
 	result_menu_button.add_theme_stylebox_override("normal", _panel_style(Color("#a75d38"), Color("#6d3724"), 15, 3))
 	result_menu_button.add_theme_stylebox_override("hover", _panel_style(Color("#c87845"), Color("#6d3724"), 15, 3))
 	result_menu_button.pressed.connect(_show_main_menu)
+	result_menu_button.pressed.connect(_play_button_sfx)
 	result_menu_button.visible = false
 	add_child(result_menu_button)
 
@@ -441,7 +468,7 @@ func _build_main_menu() -> void:
 	var start_button := _menu_button(card, "开始游戏", Vector2(144, 330), Vector2(300, 68), 24)
 	start_button.pressed.connect(_enter_game)
 	var solo_button := _menu_button(card, "单机闯关", Vector2(144, 430), Vector2(300, 56), 19)
-	solo_button.pressed.connect(_enter_game)
+	solo_button.pressed.connect(_show_era_select)
 	var online_button := _menu_button(card, "联机匹配", Vector2(144, 508), Vector2(300, 56), 19)
 	online_button.disabled = true
 	online_button.tooltip_text = "敬请期待"
@@ -451,6 +478,8 @@ func _build_main_menu() -> void:
 	settings_button.pressed.connect(_show_settings)
 	_label(card, "点击开始，自动进入战斗", Vector2(0, 735), Vector2(588, 28), 14, Color("#e6c199")).horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_build_settings_panel(card)
+	_build_era_select_panel()
+	_build_shop_panel()
 
 func _menu_button(parent: Control, text: String, position: Vector2, size: Vector2, font_size: int) -> Button:
 	var button := Button.new()
@@ -461,6 +490,7 @@ func _menu_button(parent: Control, text: String, position: Vector2, size: Vector
 	button.add_theme_stylebox_override("normal", _panel_style(Color("#b86a3e"), Color("#713722"), 16, 3))
 	button.add_theme_stylebox_override("hover", _panel_style(Color("#d5864b"), Color("#713722"), 16, 3))
 	button.add_theme_stylebox_override("disabled", _panel_style(Color("#8c735f"), Color("#6b5548"), 16, 3))
+	button.pressed.connect(_play_button_sfx)
 	parent.add_child(button)
 	return button
 
@@ -479,6 +509,9 @@ func _build_settings_panel(parent: Control) -> void:
 	sfx_slider = _volume_slider(settings_panel, Vector2(172, 202), "SFX")
 	var close_button := _menu_button(settings_panel, "关闭", Vector2(110, 310), Vector2(200, 54), 18)
 	close_button.pressed.connect(_hide_settings)
+
+func _play_button_sfx() -> void:
+	AudioManager.play_sfx("button")
 
 func _volume_slider(parent: Control, position: Vector2, bus_name: String) -> HSlider:
 	var slider := HSlider.new()
@@ -502,8 +535,122 @@ func _hide_settings() -> void:
 	if settings_panel != null:
 		settings_panel.visible = false
 
+func _build_shop_panel() -> void:
+	shop_panel = Panel.new()
+	shop_panel.position = Vector2(100, 280)
+	shop_panel.size = Vector2(520, 490)
+	shop_panel.z_index = 120
+	shop_panel.add_theme_stylebox_override("panel", _panel_style(Color("#c58a53"), Color("#70412c"), 24, 3))
+	shop_panel.visible = false
+	add_child(shop_panel)
+	var title := _label(shop_panel, "战斗商店", Vector2(0, 28), Vector2(520, 42), 28)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	shop_coin_label = _label(shop_panel, "", Vector2(52, 92), Vector2(180, 30), 18, Color("#fff0c7"))
+	var reinforcement_label := _label(shop_panel, "召唤援军\n当前时代随机英雄", Vector2(52, 148), Vector2(230, 60), 17, Color("#fff0c7"))
+	reinforcement_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	shop_reinforcement_button = _menu_button(shop_panel, "召唤援军  200", Vector2(296, 148), Vector2(170, 60), 16)
+	shop_reinforcement_button.pressed.connect(_buy_reinforcement)
+	var repair_label := _label(shop_panel, "修复我方塔\n恢复当前时代满血的 25%", Vector2(52, 248), Vector2(230, 60), 17, Color("#fff0c7"))
+	repair_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	shop_repair_button = _menu_button(shop_panel, "修复我方塔  150", Vector2(296, 248), Vector2(170, 60), 16)
+	shop_repair_button.pressed.connect(_buy_repair)
+	var close_button := _menu_button(shop_panel, "关闭", Vector2(160, 370), Vector2(200, 56), 18)
+	close_button.pressed.connect(_hide_shop)
+	_update_shop_ui()
+
+func _show_shop() -> void:
+	if shop_panel != null:
+		shop_panel.visible = true
+		_update_shop_ui()
+
+func _hide_shop() -> void:
+	if shop_panel != null:
+		shop_panel.visible = false
+
+func _update_shop_ui() -> void:
+	if shop_reinforcement_button == null:
+		return
+	shop_coin_label.text = "金币：%d" % coin_count
+	shop_reinforcement_button.disabled = not battle_active or battle_ended or coin_count < 200
+	shop_repair_button.disabled = not battle_active or battle_ended or coin_count < 150
+
+func _buy_reinforcement() -> void:
+	if not battle_active or battle_ended or coin_count < 200:
+		return
+	var ids := GameData.heroes_for_era(current_era)
+	if ids.is_empty():
+		return
+	coin_count -= 200
+	_spawn_ally(ids[rng.randi_range(0, ids.size() - 1)])
+	_update_coin_ui()
+	SaveManager.set_coins(coin_count)
+	_update_shop_ui()
+
+func _buy_repair() -> void:
+	if not battle_active or battle_ended or coin_count < 150:
+		return
+	coin_count -= 150
+	ally_tower_hp = minf(
+		ally_tower_hp + GameData.tower_hp(current_era) * 0.25,
+		GameData.tower_hp(current_era)
+	)
+	_update_coin_ui()
+	_update_tower_ui()
+	SaveManager.set_coins(coin_count)
+	_update_shop_ui()
+
+func _build_era_select_panel() -> void:
+	era_select_panel = Panel.new()
+	era_select_panel.position = Vector2(84, 220)
+	era_select_panel.size = Vector2(552, 730)
+	era_select_panel.z_index = 10
+	era_select_panel.add_theme_stylebox_override("panel", _panel_style(Color("#c58a53"), Color("#70412c"), 24, 3))
+	era_select_panel.visible = false
+	main_menu.add_child(era_select_panel)
+	var title := _label(era_select_panel, "选择时代", Vector2(0, 28), Vector2(552, 42), 28)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	for index in range(GameData.ERAS.size()):
+		var era: String = GameData.ERAS[index]
+		var unlocked := index <= SaveManager.get_unlocked_era_index()
+		var text := str(GameData.ERA_NAMES.get(era, era))
+		if not unlocked:
+			text += "（未解锁）"
+		var button := _menu_button(era_select_panel, text, Vector2(86, 94 + index * 88), Vector2(380, 60), 19)
+		button.disabled = not unlocked
+		era_select_buttons.append(button)
+		if unlocked:
+			button.pressed.connect(_select_start_era.bind(index))
+	var close_button := _menu_button(era_select_panel, "关闭", Vector2(176, 570), Vector2(200, 54), 18)
+	close_button.pressed.connect(_hide_era_select)
+
+func _show_era_select() -> void:
+	_hide_settings()
+	_refresh_era_select_ui()
+	if era_select_panel != null:
+		era_select_panel.visible = true
+
+func _refresh_era_select_ui() -> void:
+	var unlocked_index := SaveManager.get_unlocked_era_index()
+	for index in range(era_select_buttons.size()):
+		var unlocked := index <= unlocked_index
+		era_select_buttons[index].disabled = not unlocked
+		era_select_buttons[index].text = str(GameData.ERA_NAMES.get(GameData.ERAS[index], GameData.ERAS[index]))
+		if not unlocked:
+			era_select_buttons[index].text += "（未解锁）"
+
+func _hide_era_select() -> void:
+	if era_select_panel != null:
+		era_select_panel.visible = false
+
+func _select_start_era(index: int) -> void:
+	_hide_era_select()
+	if main_menu != null:
+		main_menu.visible = false
+	_start_round(index)
+
 func _enter_game() -> void:
 	_hide_settings()
+	_hide_era_select()
 	if main_menu != null:
 		main_menu.visible = false
 	_start_round()
@@ -511,11 +658,16 @@ func _enter_game() -> void:
 func _show_main_menu() -> void:
 	battle_active = false
 	battle_ended = false
+	battle_won = false
+	_hide_settings()
+	_hide_era_select()
+	_hide_shop()
 	_remove_battle_units()
+	_update_progress_ui()
 	if main_menu != null:
 		main_menu.visible = true
 
-func _start_round() -> void:
+func _start_round(start_era_index: int = 0) -> void:
 	for card in deck_cards:
 		if is_instance_valid(card):
 			card.queue_free()
@@ -526,12 +678,16 @@ func _start_round() -> void:
 	tray_views.clear()
 	tray_cards.clear()
 	occupied_units = 0
-	current_era = GameData.ERAS[0]
-	era_index = 0
+	era_index = clampi(start_era_index, 0, GameData.ERAS.size() - 1)
+	current_era = GameData.ERAS[era_index]
 	kill_score = 0
 	battle_active = true
 	battle_ended = false
+	battle_won = false
 	wave_timer = 3.0
+	wave_number = 0
+	ally_tower_cd = 0.0
+	enemy_tower_cd = 0.0
 	refill_timer = REFILL_INTERVAL
 	pending_era_cards.clear()
 	era_card_timer = 0.0
@@ -610,12 +766,14 @@ func _card_has_exposed_area(card: CardView) -> bool:
 func _on_card_clicked(card: CardView) -> void:
 	if card.locked or card.claimed:
 		return
+	var target_index := _first_open_slot()
+	if target_index < 0:
+		battle_hint.text = "合成台已满，先合成三张"
+		return
+	AudioManager.play_sfx("click")
 	card.claimed = true
 	deck_cards.erase(card)
 	_refresh_covered()
-	var target_index := _first_open_slot()
-	if target_index < 0:
-		return
 	var selected_id := card.card_id
 	card.reparent(self)
 	card.z_index = 30
@@ -627,6 +785,7 @@ func _on_card_clicked(card: CardView) -> void:
 		if is_instance_valid(card):
 			card.queue_free()
 		_add_to_tray(selected_id)
+		AudioManager.play_sfx("place")
 	)
 
 func _first_open_slot() -> int:
@@ -642,10 +801,6 @@ func _add_to_tray(card_id: String) -> void:
 	)
 	_rebuild_tray_visuals()
 	_check_merges()
-	if deck_cards.is_empty() and tray_cards.is_empty() and not battle_active:
-		battle_hint.text = "牌堆清空！合成英雄迎击敌军"
-	elif tray_cards.size() == 7 and not _has_triple():
-		_finish_round("卡住了！合成台已满")
 
 func _card_sort_key(card_id: String) -> int:
 	return GameData.cards_for_era(current_era).find(card_id)
@@ -675,6 +830,7 @@ func _check_merges() -> void:
 				tray_cards.erase(card_id)
 			var hero_id: String = GameData.CARDS[card_id].hero
 			print("合成成功: 3 x %s -> %s" % [card_id, hero_id])
+			AudioManager.play_sfx("merge")
 			_rebuild_tray_visuals()
 			_spawn_ally(hero_id)
 			_check_merges()
@@ -707,8 +863,18 @@ func _spawn_wave() -> void:
 	var ids := GameData.heroes_for_era(current_era)
 	if ids.is_empty():
 		return
-	var count := rng.randi_range(3, 5)
-	for index in range(count):
+	wave_number += 1
+	var count := clampi(3 + wave_number / 3, 3, 7)
+	var spawn_index := 0
+	if wave_number % 4 == 0:
+		var boss_ids: Array[String] = []
+		for hero_id in ids:
+			if str(GameData.HEROES[hero_id].get("role", "")) == "boss":
+				boss_ids.append(hero_id)
+		if not boss_ids.is_empty():
+			_spawn_enemy(boss_ids[rng.randi_range(0, boss_ids.size() - 1)], spawn_index)
+			spawn_index += 1
+	for index in range(spawn_index, count):
 		_spawn_enemy(ids[rng.randi_range(0, ids.size() - 1)], index)
 
 func _spawn_enemy(hero_id: String, index: int) -> void:
@@ -743,10 +909,54 @@ func _step_battle(delta: float) -> void:
 				_move_unit(unit, tower_x, delta)
 			elif unit.attack_cooldown <= 0.0:
 				_attack_tower(unit)
+	ally_tower_cd = maxf(0.0, ally_tower_cd - delta)
+	enemy_tower_cd = maxf(0.0, enemy_tower_cd - delta)
+	_process_tower_attack(true)
+	_process_tower_attack(false)
 	if enemy_tower_hp <= 0.0:
 		_finish_battle(true, "胜利！敌方防御塔已摧毁")
 	elif ally_tower_hp <= 0.0:
 		_finish_battle(false, "失败！己方防御塔被摧毁")
+
+func _find_tower_target(ally: bool) -> BattleUnit:
+	var faction := "enemy" if ally else "ally"
+	var tower_x := ALLY_TOWER_X if ally else ENEMY_TOWER_X
+	var nearest: BattleUnit
+	var nearest_distance := TOWER_ATTACK_RANGE + 1.0
+	for unit in _living_units(faction):
+		var distance := absf(unit.position.x - tower_x)
+		if distance <= TOWER_ATTACK_RANGE and distance < nearest_distance:
+			nearest = unit
+			nearest_distance = distance
+	return nearest
+
+func _process_tower_attack(ally: bool) -> void:
+	var cooldown := ally_tower_cd if ally else enemy_tower_cd
+	if cooldown > 0.0:
+		return
+	var target := _find_tower_target(ally)
+	if target == null:
+		return
+	var tower_x := ALLY_TOWER_X if ally else ENEMY_TOWER_X
+	var start_pos := Vector2(tower_x, BATTLE_GROUND_Y - TOWER_HEIGHT)
+	var target_pos := func() -> Variant:
+		if is_instance_valid(target) and target.alive:
+			return target.position + Vector2(0, -56.0)
+		return null
+	var damage := 30.0 * float(GameData.ERA_MULT.get(current_era, 1.0))
+	var on_hit := func() -> void:
+		if not is_instance_valid(target) or not target.alive:
+			return
+		target.receive_damage(damage)
+		_spawn_hit_fx(target.position, Color("#ffd273"), "✦")
+		AudioManager.play_sfx("hit")
+	var projectile := Projectile.new()
+	projectile.setup(start_pos, target_pos, 300.0, current_era, Color("#ffd273"), on_hit)
+	world.add_child(projectile)
+	if ally:
+		ally_tower_cd = TOWER_ATTACK_CD
+	else:
+		enemy_tower_cd = TOWER_ATTACK_CD
 
 func _move_unit(unit: BattleUnit, target_x: float, delta: float) -> void:
 	var direction := signf(target_x - unit.position.x)
@@ -783,6 +993,7 @@ func _attack(attacker: BattleUnit, target: BattleUnit) -> void:
 			if is_instance_valid(target) and target.alive:
 				target.receive_damage(float(attacker.stats.attack))
 				_spawn_hit_fx(target.position, Color("#ffd273"), "✦")
+				AudioManager.play_sfx("hit")
 		var projectile := Projectile.new()
 		projectile.setup(
 			start_pos,
@@ -796,6 +1007,7 @@ func _attack(attacker: BattleUnit, target: BattleUnit) -> void:
 		return
 	target.receive_damage(float(attacker.stats.attack))
 	_spawn_hit_fx(target.position, Color("#ffd273"), "✦")
+	AudioManager.play_sfx("hit")
 
 func _attack_tower(attacker: BattleUnit) -> void:
 	attacker.spend_attack_time()
@@ -812,9 +1024,11 @@ func _attack_tower(attacker: BattleUnit) -> void:
 			if attacker.faction == "ally":
 				enemy_tower_hp = maxf(0.0, enemy_tower_hp - damage)
 				_spawn_hit_fx(tower_point, Color("#ffd273"), "✦")
+				AudioManager.play_sfx("tower")
 			else:
 				ally_tower_hp = maxf(0.0, ally_tower_hp - damage)
 				_spawn_hit_fx(tower_point, Color("#ff8e70"), "✦")
+				AudioManager.play_sfx("tower")
 		var projectile := Projectile.new()
 		projectile.setup(
 			start_pos,
@@ -829,14 +1043,17 @@ func _attack_tower(attacker: BattleUnit) -> void:
 	if attacker.faction == "ally":
 		enemy_tower_hp = maxf(0.0, enemy_tower_hp - damage)
 		_spawn_hit_fx(Vector2(ENEMY_TOWER_X, BATTLE_GROUND_Y - 40.0), Color("#ffd273"), "✦")
+		AudioManager.play_sfx("tower")
 	else:
 		ally_tower_hp = maxf(0.0, ally_tower_hp - damage)
 		_spawn_hit_fx(Vector2(ALLY_TOWER_X, BATTLE_GROUND_Y - 40.0), Color("#ff8e70"), "✦")
+		AudioManager.play_sfx("tower")
 
 func _on_unit_expired(unit: BattleUnit) -> void:
 	if unit.faction == "enemy" and not unit.score_awarded:
 		unit.score_awarded = true
 		kill_score += int(unit.stats.get("kill_score", 0))
+		_change_coins(4 + era_index * 3)
 		_check_era_upgrade()
 		_update_progress_ui()
 
@@ -848,6 +1065,8 @@ func _check_era_upgrade() -> void:
 		return
 	era_index += 1
 	current_era = GameData.ERAS[era_index]
+	SaveManager.unlock_era(era_index)
+	AudioManager.play_sfx("era")
 	ally_tower_hp = minf(ally_tower_hp + GameData.tower_hp(current_era) * 0.25, GameData.tower_hp(current_era))
 	enemy_tower_hp = minf(enemy_tower_hp + GameData.tower_hp(current_era) * 0.25, GameData.tower_hp(current_era))
 	_add_new_era_cards()
@@ -882,14 +1101,20 @@ func _finish_battle(won: bool, message: String) -> void:
 		return
 	battle_ended = true
 	battle_active = false
+	battle_won = won
+	_update_progress_ui()
+	AudioManager.play_sfx("victory" if won else "defeat")
 	print("战斗结束: %s" % message)
 	if won:
-		coin_count += 120
-		_update_coin_ui()
-		SaveManager.set_coins(coin_count)
+		_change_coins(120)
 		_finish_round("%s\n获得 +120 金币" % message)
 	else:
 		_finish_round(message)
+
+func _change_coins(amount: int) -> void:
+	coin_count = maxi(0, coin_count + amount)
+	_update_coin_ui()
+	_update_shop_ui()
 
 func _living_units(side: String) -> Array[BattleUnit]:
 	var result: Array[BattleUnit] = []
@@ -905,7 +1130,10 @@ func _remove_battle_units() -> void:
 	battle_units.clear()
 
 func _finish_round(message: String) -> void:
-	status_label.text = message
+	var best_score := maxi(SaveManager.get_best_score(), kill_score)
+	SaveManager.set_best_score(best_score)
+	SaveManager.set_coins(coin_count)
+	status_label.text = "%s\n本局积分 %d（最高 %d）" % [message, kill_score, best_score]
 	status_label.visible = true
 	restart_button.visible = true
 	result_menu_button.visible = true
@@ -913,7 +1141,12 @@ func _finish_round(message: String) -> void:
 func _update_progress_ui() -> void:
 	if era_label == null:
 		return
-	era_label.text = "%s · %s" % [GameData.ERA_NAMES.get(current_era, current_era), "备战"]
+	var state := "备战"
+	if battle_ended:
+		state = "已通关" if battle_won else "已失守"
+	elif battle_active:
+		state = "战斗中"
+	era_label.text = "%s · %s" % [GameData.ERA_NAMES.get(current_era, current_era), state]
 	var threshold := int(GameData.ERA_UPGRADE_SCORE.get(current_era, 999999))
 	score_label.text = "击杀积分 %d / %d" % [kill_score, threshold]
 
