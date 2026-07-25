@@ -8,8 +8,6 @@ const CARD_SIZE := Vector2(138, 166)
 const BATTLE_GROUND_Y := 222.0
 const WORLD_WIDTH := 1680.0
 const BATTLE_VIEW_W := 648.0
-const DECK_MAX := 26
-const REFILL_INTERVAL := 0.7
 const ALLY_TOWER_X := 96.0
 const ENEMY_TOWER_X := WORLD_WIDTH - 96.0
 const TOWER_RANGE := 82.0
@@ -81,8 +79,8 @@ var wave_timer := 0.0
 var wave_number := 0
 var ally_tower_cd := 0.0
 var enemy_tower_cd := 0.0
-var refill_timer := 0.0
 var card_z_top := 0
+var card_z_bottom := 0
 var pending_era_cards: Array[String] = []
 var era_card_timer := 0.0
 var ally_tower_hp := 1.0
@@ -169,18 +167,9 @@ func _process(delta: float) -> void:
 	if not pending_era_cards.is_empty():
 		era_card_timer -= delta
 		if era_card_timer <= 0.0:
-			_spawn_card(pending_era_cards.pop_front(), deck_cards.size(), true)
+			_spawn_card(pending_era_cards.pop_front(), deck_cards.size())
 			era_card_timer = 0.32
 			_refresh_covered()
-	if not battle_ended and main_menu != null and not main_menu.visible:
-		refill_timer -= delta
-		if refill_timer <= 0.0:
-			refill_timer = REFILL_INTERVAL
-			if deck_cards.size() < DECK_MAX:
-				var pool := GameData.cards_for_era(current_era)
-				if not pool.is_empty():
-					_spawn_card(pool[rng.randi() % pool.size()], deck_cards.size(), true)
-					_refresh_covered()
 	if not battle_active or battle_ended:
 		return
 	wave_timer -= delta
@@ -822,8 +811,8 @@ func _start_round(start_era_index: int = 0) -> void:
 	wave_number = 0
 	ally_tower_cd = 0.0
 	enemy_tower_cd = 0.0
-	refill_timer = REFILL_INTERVAL
 	card_z_top = 0
+	card_z_bottom = 0
 	pending_era_cards.clear()
 	era_card_timer = 0.0
 	ally_tower_hp = GameData.tower_hp(current_era)
@@ -848,30 +837,27 @@ func _start_round(start_era_index: int = 0) -> void:
 	if not SaveManager.get_tutorial_seen():
 		_show_tutorial()
 
-func _spawn_card(card_id: String, index: int, on_top := false) -> void:
+func _spawn_card(card_id: String, index: int, from_bottom := false) -> void:
 	var card := CardView.new()
 	var texture: Texture2D
 	var path := GameData.card_texture_path(card_id)
 	if path != "" and ResourceLoader.exists(path):
 		texture = load(path)
 	card.setup(card_id, texture, GameData.CARDS[card_id].color)
-	card.position = _random_pile_position() if on_top else _pile_position(index)
+	card.position = _random_pile_position() if from_bottom else _pile_position(index)
 	card.rotation = rng.randf_range(-0.30, 0.30)
-	if on_top:
-		card_z_top += 1
-		card.z_index = card_z_top
+	if from_bottom:
+		card_z_bottom -= 1
+		card.z_index = card_z_bottom
 	else:
 		card.z_index = index
 		card_z_top = maxi(card_z_top, index)
 	card_layer.add_child(card)
 	deck_cards.append(card)
-	if on_top:
-		card.scale = Vector2(1.18, 1.18)
-		card.modulate.a = 0.0
+	if from_bottom:
+		card.scale = Vector2(0.82, 0.82)
 		var tween := create_tween()
-		tween.set_parallel(true)
-		tween.tween_property(card, "scale", Vector2.ONE, 0.18)
-		tween.tween_property(card, "modulate:a", 1.0, 0.18)
+		tween.tween_property(card, "scale", Vector2.ONE, 0.2).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 func _pile_position(index: int) -> Vector2:
 	var columns := 5
@@ -977,6 +963,9 @@ func _on_card_clicked(card: CardView) -> void:
 	AudioManager.play_sfx("click")
 	card.claimed = true
 	deck_cards.erase(card)
+	var pool := GameData.cards_for_era(current_era)
+	if not pool.is_empty():
+		_spawn_card(pool[rng.randi() % pool.size()], deck_cards.size(), true)
 	_refresh_covered()
 	var selected_id := card.card_id
 	card.reparent(self)
@@ -1005,6 +994,13 @@ func _add_to_tray(card_id: String) -> void:
 	)
 	_rebuild_tray_visuals()
 	_check_merges()
+	_check_stuck()
+
+func _check_stuck() -> void:
+	if battle_ended or not battle_active:
+		return
+	if tray_cards.size() >= 7 and not _has_triple():
+		_finish_battle(false, "失败！合成台已满且无法继续合成")
 
 func _card_sort_key(card_id: String) -> int:
 	return GameData.cards_for_era(current_era).find(card_id)
