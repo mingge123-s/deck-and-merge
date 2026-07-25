@@ -82,6 +82,7 @@ var wave_number := 0
 var ally_tower_cd := 0.0
 var enemy_tower_cd := 0.0
 var refill_timer := 0.0
+var card_z_top := 0
 var pending_era_cards: Array[String] = []
 var era_card_timer := 0.0
 var ally_tower_hp := 1.0
@@ -822,6 +823,7 @@ func _start_round(start_era_index: int = 0) -> void:
 	ally_tower_cd = 0.0
 	enemy_tower_cd = 0.0
 	refill_timer = REFILL_INTERVAL
+	card_z_top = 0
 	pending_era_cards.clear()
 	era_card_timer = 0.0
 	ally_tower_hp = GameData.tower_hp(current_era)
@@ -846,24 +848,44 @@ func _start_round(start_era_index: int = 0) -> void:
 	if not SaveManager.get_tutorial_seen():
 		_show_tutorial()
 
-func _spawn_card(card_id: String, index: int, bottom := false) -> void:
+func _spawn_card(card_id: String, index: int, on_top := false) -> void:
 	var card := CardView.new()
 	var texture: Texture2D
 	var path := GameData.card_texture_path(card_id)
 	if path != "" and ResourceLoader.exists(path):
 		texture = load(path)
 	card.setup(card_id, texture, GameData.CARDS[card_id].color)
-	card.position = _pile_position(index)
+	card.position = _random_pile_position() if on_top else _pile_position(index)
 	card.rotation = rng.randf_range(-0.30, 0.30)
-	card.z_index = -index if bottom else index
+	if on_top:
+		card_z_top += 1
+		card.z_index = card_z_top
+	else:
+		card.z_index = index
+		card_z_top = maxi(card_z_top, index)
 	card_layer.add_child(card)
 	deck_cards.append(card)
+	if on_top:
+		card.scale = Vector2(1.18, 1.18)
+		card.modulate.a = 0.0
+		var tween := create_tween()
+		tween.set_parallel(true)
+		tween.tween_property(card, "scale", Vector2.ONE, 0.18)
+		tween.tween_property(card, "modulate:a", 1.0, 0.18)
 
 func _pile_position(index: int) -> Vector2:
 	var columns := 5
 	var column := index % columns
 	var row := index / columns
-	return Vector2(8.0 + column * 92.0 + rng.randf_range(-28.0, 28.0), 3.0 + row * 86.0 + rng.randf_range(-28.0, 28.0))
+	var spot := Vector2(8.0 + column * 92.0 + rng.randf_range(-28.0, 28.0), 3.0 + row * 86.0 + rng.randf_range(-28.0, 28.0))
+	return _clamp_pile_position(spot)
+
+func _random_pile_position() -> Vector2:
+	return _clamp_pile_position(Vector2(rng.randf_range(0.0, 596.0), rng.randf_range(0.0, 526.0)))
+
+func _clamp_pile_position(spot: Vector2) -> Vector2:
+	var limit := card_layer.size - CARD_SIZE
+	return Vector2(clampf(spot.x, 0.0, maxf(limit.x, 0.0)), clampf(spot.y, 0.0, maxf(limit.y, 0.0)))
 
 func _refresh_covered() -> void:
 	var snapshots: Array[Dictionary] = []
