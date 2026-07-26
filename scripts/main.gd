@@ -24,7 +24,6 @@ const TOWER_GROUND_NUDGE := 3.0
 const TOWER_ATTACK_RANGE := 420.0
 const TOWER_ATTACK_CD := 1.1
 const TANK_AGGRO_RADIUS := 150.0
-const KILL_COIN_BASE := 4
 const VICTORY_REWARD_BASE := 120
 const REINFORCEMENT_PRICE_BASE := 200
 const REPAIR_PRICE_BASE := 150
@@ -78,9 +77,11 @@ var shop_coin_label: Label
 var shop_reinforcement_button: Button
 var shop_repair_button: Button
 var shop_clear_tray_button: Button
+var shop_era_button: Button
 var era_select_panel: Panel
 var era_select_buttons: Array[Button] = []
 var pause_overlay: Control
+var pause_shop_button: Button
 var tutorial_overlay: Control
 var result_overlay: Control
 var music_slider: HSlider
@@ -508,9 +509,12 @@ func _build_pause_overlay() -> void:
 	panel.size = Vector2(460, 280)
 	panel.add_theme_stylebox_override("panel", _panel_style(Color("#c58a53"), Color("#70412c"), 24, 3))
 	pause_overlay.add_child(panel)
-	var title := _label(panel, "已暂停", Vector2(0, 38), Vector2(460, 46), 30)
+	var title := _label(panel, "整备时间", Vector2(0, 30), Vector2(460, 46), 30)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	var continue_button := _menu_button(panel, "继续", Vector2(130, 148), Vector2(200, 58), 20)
+	_label(panel, "战斗、出兵和牌堆均已冻结", Vector2(0, 92), Vector2(460, 28), 16, Color("#ffe3a5")).horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	pause_shop_button = _menu_button(panel, "打开商店", Vector2(130, 140), Vector2(200, 58), 20)
+	pause_shop_button.pressed.connect(_show_shop)
+	var continue_button := _menu_button(panel, "确认再战", Vector2(130, 214), Vector2(200, 58), 20)
 	continue_button.pressed.connect(_toggle_pause)
 
 func _build_tutorial_overlay() -> void:
@@ -533,7 +537,7 @@ func _build_tutorial_overlay() -> void:
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	var content := _label(
 		panel,
-		"① 点击没被压住的卡牌，收进合成台\n\n② 3 张同名卡会自动合成英雄出战\n\n③ 拖动战场查看双方阵地，右上角小地图查看红蓝点\n\n④ 金币可在 🛒 商店召唤援军或修复我方塔\n\n⑤ 攒击杀积分，推进时代进阶",
+		"① 点击没被压住的卡牌，收进合成台\n\n② 3 张同名卡会自动合成英雄出战\n\n③ 拖动战场查看双方阵地，右上角小地图查看红蓝点\n\n④ 金币可在 🛒 商店召唤援军或修复我方塔\n\n⑤ 攒金币，在商店购买时代进阶",
 		Vector2(42, 122),
 		Vector2(528, 500),
 		18,
@@ -692,7 +696,7 @@ func _hide_settings() -> void:
 func _build_shop_panel() -> void:
 	shop_panel = Panel.new()
 	shop_panel.position = Vector2(100, 280)
-	shop_panel.size = Vector2(520, 590)
+	shop_panel.size = Vector2(520, 690)
 	shop_panel.z_index = 120
 	shop_panel.add_theme_stylebox_override("panel", _panel_style(Color("#c58a53"), Color("#70412c"), 24, 3))
 	shop_panel.visible = false
@@ -712,18 +716,26 @@ func _build_shop_panel() -> void:
 	clear_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	shop_clear_tray_button = _menu_button(shop_panel, "", Vector2(296, 348), Vector2(170, 60), 16)
 	shop_clear_tray_button.pressed.connect(_buy_clear_tray)
-	var close_button := _menu_button(shop_panel, "关闭", Vector2(160, 470), Vector2(200, 56), 18)
+	var era_label := _label(shop_panel, "时代进阶\n花金币解锁下一个时代", Vector2(52, 448), Vector2(230, 60), 17, Color("#fff0c7"))
+	era_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	shop_era_button = _menu_button(shop_panel, "", Vector2(296, 448), Vector2(170, 60), 16)
+	shop_era_button.pressed.connect(_buy_era_upgrade)
+	var close_button := _menu_button(shop_panel, "关闭", Vector2(160, 570), Vector2(200, 56), 18)
 	close_button.pressed.connect(_hide_shop)
 	_update_shop_ui()
 
 func _show_shop() -> void:
 	if shop_panel != null:
+		if paused and pause_overlay != null:
+			pause_overlay.visible = false
 		shop_panel.visible = true
 		_update_shop_ui()
 
 func _hide_shop() -> void:
 	if shop_panel != null:
 		shop_panel.visible = false
+		if paused and pause_overlay != null:
+			pause_overlay.visible = true
 
 func _update_shop_ui() -> void:
 	if shop_reinforcement_button == null:
@@ -735,6 +747,14 @@ func _update_shop_ui() -> void:
 	shop_reinforcement_button.text = "召唤援军  %d" % reinforcement_price
 	shop_repair_button.text = "修复我方塔  %d" % repair_price
 	shop_clear_tray_button.text = "清理合成台  %d" % clear_tray_price
+	var next_era_index := era_index + 1
+	var can_upgrade := next_era_index < GameData.ERAS.size()
+	var era_cost := int(GameData.ERA_UPGRADE_COST.get(current_era, 0))
+	if can_upgrade:
+		var next_era: String = GameData.ERAS[next_era_index]
+		shop_era_button.text = "%s  %d" % [GameData.ERA_NAMES.get(next_era, next_era), era_cost]
+	else:
+		shop_era_button.text = "已是最终时代"
 	shop_reinforcement_button.disabled = not battle_active or battle_ended or coin_count < reinforcement_price
 	shop_repair_button.disabled = not battle_active or battle_ended or coin_count < repair_price
 	shop_clear_tray_button.disabled = (
@@ -743,6 +763,7 @@ func _update_shop_ui() -> void:
 		or tray_cards.size() < 3
 		or coin_count < clear_tray_price
 	)
+	shop_era_button.disabled = not battle_active or battle_ended or not can_upgrade or coin_count < era_cost
 
 func _era_amount(base_amount: int) -> int:
 	return maxi(1, roundi(float(base_amount) * float(GameData.ERA_MULT.get(current_era, 1.0))))
@@ -790,6 +811,19 @@ func _buy_clear_tray() -> void:
 	for index in range(mini(3, removals.size())):
 		tray_cards.erase(removals[index])
 	_rebuild_tray_visuals()
+	_update_coin_ui()
+	SaveManager.set_coins(coin_count)
+	_update_shop_ui()
+
+func _buy_era_upgrade() -> void:
+	var next_era_index := era_index + 1
+	if not battle_active or battle_ended or next_era_index >= GameData.ERAS.size():
+		return
+	var cost := int(GameData.ERA_UPGRADE_COST.get(current_era, 0))
+	if cost <= 0 or coin_count < cost:
+		return
+	coin_count -= cost
+	_advance_era()
 	_update_coin_ui()
 	SaveManager.set_coins(coin_count)
 	_update_shop_ui()
@@ -1068,6 +1102,8 @@ func _refresh_covered() -> void:
 			card.set_locked(not _card_has_exposed_area(snapshot, snapshots))
 
 func _on_card_layer_input(event: InputEvent) -> void:
+	if paused:
+		return
 	if not event is InputEventMouseButton or event.button_index != MOUSE_BUTTON_LEFT or not event.pressed:
 		return
 	var canvas_point: Vector2 = card_layer.get_global_transform_with_canvas() * event.position
@@ -1110,7 +1146,7 @@ func _card_has_exposed_area(snapshot: Dictionary, snapshots: Array[Dictionary]) 
 	return false
 
 func _on_card_clicked(card: CardView) -> void:
-	if card.locked or card.claimed:
+	if paused or card.locked or card.claimed:
 		return
 	var target_index := _first_open_slot()
 	if target_index < 0:
@@ -1453,17 +1489,14 @@ func _attack_tower(attacker: BattleUnit) -> void:
 func _on_unit_expired(unit: BattleUnit) -> void:
 	if unit.faction == "enemy" and not unit.score_awarded:
 		unit.score_awarded = true
-		_change_coins(_era_amount(KILL_COIN_BASE))
+		var kill_score_value := int(unit.stats.get("kill_score", 0))
+		_change_coins(_era_amount(kill_score_value))
 		if unit.last_damage_source != "tower":
-			kill_score += int(unit.stats.get("kill_score", 0))
-			_check_era_upgrade()
+			kill_score += kill_score_value
 		_update_progress_ui()
 
-func _check_era_upgrade() -> void:
+func _advance_era() -> void:
 	if era_index >= GameData.ERAS.size() - 1:
-		return
-	var threshold := int(GameData.ERA_UPGRADE_SCORE.get(current_era, 999999))
-	if kill_score < threshold:
 		return
 	era_index += 1
 	current_era = GameData.ERAS[era_index]
@@ -1567,8 +1600,7 @@ func _update_progress_ui() -> void:
 	elif battle_active:
 		state = "战斗中"
 	era_label.text = "%s · %s" % [GameData.ERA_NAMES.get(current_era, current_era), state]
-	var threshold := int(GameData.ERA_UPGRADE_SCORE.get(current_era, 999999))
-	score_label.text = "击杀积分 %d / %d" % [kill_score, threshold]
+	score_label.text = "击杀积分 %d" % kill_score
 
 func _update_tower_ui() -> void:
 	if ally_tower_bar == null:

@@ -20,7 +20,6 @@ TOWER_ATTACK_CD = 1.1
 TOWER_ATTACK_RANGE = 420.0
 TOWER_MELEE_RANGE = 82.0
 TOWER_REPAIR_RATIO = 0.25
-KILL_COIN_BASE = 4
 VICTORY_REWARD_BASE = 120
 REINFORCEMENT_PRICE_BASE = 200
 REPAIR_PRICE_BASE = 150
@@ -32,11 +31,12 @@ DIFFICULTIES = {
 }
 ECONOMY = [
     ("初始金币（存档默认）", 300),
-    ("英雄/塔击杀敌人金币", "4 × 时代倍率（塔击杀不给击杀积分）"),
+    ("英雄/塔击杀敌人金币", "敌方定位击杀积分 × 时代倍率（塔击杀不给击杀积分）"),
     ("战斗胜利", "120 × 时代倍率"),
     ("商店：召唤援军（当前时代随机英雄）", "200 × 时代倍率"),
     ("商店：修复我方塔（+25% 最大生命）", "150 × 时代倍率"),
     ("商店：清理合成台（移除 3 张牌）", "120 × 时代倍率"),
+    ("商店：时代进阶", "石器→铁器 200；铁器→工业 360；工业→现代 600；现代→未来 950"),
 ]
 BOARD = [
     ("逻辑分辨率", "720 × 1280（竖屏）"),
@@ -83,7 +83,7 @@ def main():
     era_mult = data["era_mult"]
     era_tempo = data["era_tempo"]
     era_range_mult = data["era_range_mult"]
-    era_score = data["era_upgrade_score"]
+    era_cost = data["era_upgrade_cost"]
     roles = data["roles"]
     role_names = data["role_names"]
     role_base = data["role_base"]
@@ -113,10 +113,10 @@ def main():
                   role_base[r]["move_speed"], role_base[r]["cooldown"], role_base[r]["kill_score"],
                   role_scale[r]] for r in roles]
 
-    era_headers = ["时代", "数值倍率", "节奏系数", "射程系数", "进阶所需击杀积分"]
+    era_headers = ["时代", "数值倍率", "节奏系数", "射程系数", "进阶金币价格"]
     era_rows = [[era_names[e], era_mult[e],
                  era_tempo[e], era_range_mult[e],
-                 "—（最终时代）" if era_score[e] >= 999999 else era_score[e]] for e in eras]
+                 "—（最终时代）" if e == eras[-1] else era_cost[e]] for e in eras]
 
     tower_headers = ["时代", "塔生命", "单次伤害", "攻击间隔", "DPS", "攻击射程", "抛射物外观",
                      "抛射速度", "修复一次回血(25%)"]
@@ -150,7 +150,7 @@ def main():
     sections = [
         ("英雄数值总表（我方合成 / 敌方同池）", hero_headers, hero_rows, "heroes.csv"),
         ("定位基础模板（乘时代倍率前）", role_headers, role_rows, "roles.csv"),
-        ("时代倍率与进阶门槛", era_headers, era_rows, "eras.csv"),
+        ("时代倍率与进阶金币价格", era_headers, era_rows, "eras.csv"),
         ("防御塔数值（双方共用）", tower_headers, tower_rows, "towers.csv"),
         ("难度与出兵节奏", diff_headers, diff_rows, "difficulty.csv"),
         ("敌方实际数值（含难度倍率）", enemy_headers, enemy_rows, "enemies.csv"),
@@ -168,8 +168,10 @@ def main():
             "- 移速与攻速乘节奏系数（攻击间隔除以节奏系数）；射程乘射程系数。",
               "- 敌方单位 = 上述数值 × 难度倍率（生命与攻击都乘）。",
               "- 防御塔生命 = 1800 × 时代倍率；塔伤害 = 30 × 时代倍率，间隔 1.1 秒，射程 420。",
-              "- 击杀金币 = 4 × 时代倍率；胜利奖励 = 120 × 时代倍率；商店价格均乘时代倍率。",
-              "- 防御塔击杀敌人给金币但不给击杀积分，因此时代进阶只由英雄击杀推进。",
+              "- 击杀金币 = 敌方定位击杀积分 × 时代倍率；胜利奖励 = 120 × 时代倍率；商店价格均乘时代倍率。",
+              "- 防御塔击杀敌人给金币但不给击杀积分；击杀积分只用于本局结算和最高分显示。",
+              "- 时代进阶由商店花金币购买：石器→铁器 200、铁器→工业 360、工业→现代 600、现代→未来 950。",
+              "- 暂停即整备时间：战斗、出兵、塔攻击和牌堆冻结，玩家可打开商店购买后确认再战。",
               "- 清理合成台移除 3 张同名数量最少的牌，价格 = 120 × 时代倍率。", ""]
 
     md_path = os.path.join(OUT_DIR, "README.md")

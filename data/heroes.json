@@ -8,7 +8,7 @@
     "future": "未来时代"
   },
   "era_mult": { "stone": 1.0, "iron": 1.7, "industrial": 2.8, "modern": 4.5, "future": 7.2 },
-  "era_upgrade_score": { "stone": 180, "iron": 320, "industrial": 520, "modern": 820, "future": 999999 },
+  "era_upgrade_cost": { "stone": 200, "iron": 360, "industrial": 600, "modern": 950, "future": 0 },
   "roles": ["tank", "warrior", "assassin", "ranged", "boss"],
   "role_names": {
     "tank": "肉盾",

@@ -14,7 +14,7 @@ static var _initialized := false
 static var ERAS: Array[String] = []
 static var ERA_NAMES: Dictionary = {}
 static var ERA_MULT: Dictionary = {}
-static var ERA_UPGRADE_SCORE: Dictionary = {}
+static var ERA_UPGRADE_COST: Dictionary = {}
 static var ERA_TEMPO: Dictionary = {}
 static var ERA_RANGE_MULT: Dictionary = {}
 static var ROLES: Array[String] = []
@@ -32,7 +32,7 @@ static func initialize() -> void:
 	ERAS = _string_array(_manifest.get("eras", []))
 	ERA_NAMES = _manifest.get("era_names", {})
 	ERA_MULT = _manifest.get("era_mult", {})
-	ERA_UPGRADE_SCORE = _manifest.get("era_upgrade_score", {})
+	ERA_UPGRADE_COST = _manifest.get("era_upgrade_cost", {})
 	ERA_TEMPO = _manifest.get("era_tempo", {})
 	ERA_RANGE_MULT = _manifest.get("era_range_mult", {})
 	ROLES = _string_array(_manifest.get("roles", []))
