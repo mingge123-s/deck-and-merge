@@ -907,17 +907,18 @@ func _spawn_card(card_id: String, index: int, from_bottom := false) -> void:
 	deck_cards.append(card)
 
 func _pile_position(index: int) -> Vector2:
-	if deck_cards.is_empty():
-		return _random_pile_position()
-	var best_position := _random_pile_position()
+	var limit := card_layer.size - CARD_SIZE
+	var center := limit * 0.5
+	var spread := Vector2(limit.x * 0.38, limit.y * 0.38)
+	var best_position := center
 	var best_score := -INF
-	for _candidate_index in range(20):
-		var candidate := _random_pile_position()
-		var nearest_distance := INF
-		for existing in deck_cards:
-			if is_instance_valid(existing) and not existing.claimed:
-				nearest_distance = minf(nearest_distance, candidate.distance_to(existing.position))
-		var score := nearest_distance + rng.randf_range(-18.0, 18.0)
+	for _candidate_index in range(18):
+		var candidate := _clamp_pile_position(center + Vector2(
+			rng.randf_range(-spread.x, spread.x),
+			rng.randf_range(-spread.y, spread.y)
+		))
+		var center_bias := -candidate.distance_to(center)
+		var score := center_bias + rng.randf_range(-42.0, 42.0)
 		if score > best_score:
 			best_score = score
 			best_position = candidate
@@ -1032,6 +1033,9 @@ func _refresh_covered() -> void:
 			if not candidate["aabb"].intersects(snapshot["aabb"]):
 				continue
 			blockers.append(candidate)
+		blockers.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+			return a["z_index"] > b["z_index"]
+		)
 		snapshots[snapshot_index]["blockers"] = blockers
 	for card in deck_cards:
 		if is_instance_valid(card):
