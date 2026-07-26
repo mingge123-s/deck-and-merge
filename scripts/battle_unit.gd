@@ -24,6 +24,7 @@ var _moving := false
 var score_awarded := false
 var visual_base_scale := Vector2.ONE
 var hit_punch_tween: Tween
+var last_damage_source := "hero"
 
 func setup(id: String, side: String, data: Dictionary, texture: Texture2D) -> void:
 	unit_id = id
@@ -148,9 +149,10 @@ func _process(delta: float) -> void:
 		flash_time -= delta
 		visual.modulate = Color(1.0, 0.7, 0.5) if flash_time > 0.0 else Color.WHITE
 
-func receive_damage(amount: float) -> void:
+func receive_damage(amount: float, source := "hero") -> void:
 	if not alive:
 		return
+	last_damage_source = str(source)
 	hp = max(0.0, hp - amount)
 	flash_time = 0.12
 	_play_hit_punch()

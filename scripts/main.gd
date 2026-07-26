@@ -79,10 +79,8 @@ var result_overlay: Control
 var music_slider: HSlider
 var sfx_slider: HSlider
 var battle_hint: Label
-var ally_tower_bar: ProgressBar
-var enemy_tower_bar: ProgressBar
-var ally_tower_label: Label
-var enemy_tower_label: Label
+var ally_tower_bar: TowerHealthBar
+var enemy_tower_bar: TowerHealthBar
 var battle_active := false
 var battle_ended := false
 var battle_won := false
@@ -430,28 +428,18 @@ func _sync_tower_shadow(tower: Sprite2D, shadow: Sprite2D) -> void:
 	shadow.scale = Vector2(clampf(footprint / 256.0 * 1.15, 0.32, 0.7), 0.4)
 
 func _create_tower_ui(ally: bool) -> void:
-	var x := 18.0 if ally else 524.0
-	var title := "己方塔" if ally else "敌方塔"
-	var panel := Panel.new()
-	panel.position = Vector2(x, 62)
-	panel.size = Vector2(100, 70)
-	panel.z_index = 2
-	panel.add_theme_stylebox_override("panel", _panel_style(Color("#51362d", 0.82), Color("#f3ca74"), 10, 2))
-	battlefield.add_child(panel)
-	_label(panel, title, Vector2(8, 5), Vector2(84, 20), 13)
-	var bar := ProgressBar.new()
-	bar.position = Vector2(8, 29)
-	bar.size = Vector2(84, 14)
-	bar.max_value = 100.0
-	bar.show_percentage = false
-	panel.add_child(bar)
-	var hp_label := _label(panel, "", Vector2(8, 46), Vector2(84, 18), 11, Color("#ffe8b0"))
+	var bar := TowerHealthBar.new()
+	bar.position = Vector2(
+		ALLY_TOWER_X if ally else ENEMY_TOWER_X,
+		BATTLE_GROUND_Y - TOWER_HEIGHT - 12.0
+	)
+	bar.bar_color = Color("#7fd65e") if ally else Color("#ef6a4f")
+	bar.z_index = 5
+	world.add_child(bar)
 	if ally:
 		ally_tower_bar = bar
-		ally_tower_label = hp_label
 	else:
 		enemy_tower_bar = bar
-		enemy_tower_label = hp_label
 
 func _build_overlay() -> void:
 	result_overlay = Control.new()
@@ -1288,7 +1276,7 @@ func _process_tower_attack(ally: bool, candidates: Array[BattleUnit]) -> void:
 	var on_hit := func() -> void:
 		if not is_instance_valid(target) or not target.alive:
 			return
-		target.receive_damage(damage)
+		target.receive_damage(damage, "tower")
 		_spawn_hit_fx(target.position, Color("#ffd273"), "✦")
 		AudioManager.play_sfx("hit")
 	var projectile := Projectile.new()
@@ -1331,7 +1319,7 @@ func _attack(attacker: BattleUnit, target: BattleUnit) -> void:
 			return null
 		var on_hit := func() -> void:
 			if is_instance_valid(target) and target.alive:
-				target.receive_damage(float(attacker.stats.attack))
+				target.receive_damage(float(attacker.stats.attack), "hero")
 				_spawn_hit_fx(target.position, Color("#ffd273"), "✦")
 				AudioManager.play_sfx("hit")
 		var projectile := Projectile.new()
@@ -1345,7 +1333,7 @@ func _attack(attacker: BattleUnit, target: BattleUnit) -> void:
 		)
 		world.add_child(projectile)
 		return
-	target.receive_damage(float(attacker.stats.attack))
+	target.receive_damage(float(attacker.stats.attack), "hero")
 	_spawn_hit_fx(target.position, Color("#ffd273"), "✦")
 	AudioManager.play_sfx("hit")
 
@@ -1396,9 +1384,10 @@ func _attack_tower(attacker: BattleUnit) -> void:
 func _on_unit_expired(unit: BattleUnit) -> void:
 	if unit.faction == "enemy" and not unit.score_awarded:
 		unit.score_awarded = true
-		kill_score += int(unit.stats.get("kill_score", 0))
 		_change_coins(4 + era_index * 3)
-		_check_era_upgrade()
+		if unit.last_damage_source != "tower":
+			kill_score += int(unit.stats.get("kill_score", 0))
+			_check_era_upgrade()
 		_update_progress_ui()
 
 func _check_era_upgrade() -> void:
@@ -1512,7 +1501,5 @@ func _update_tower_ui() -> void:
 		return
 	var ally_max := GameData.tower_hp(current_era)
 	var enemy_max := GameData.tower_hp(current_era)
-	ally_tower_bar.value = ally_tower_hp / ally_max * 100.0
-	enemy_tower_bar.value = enemy_tower_hp / enemy_max * 100.0
-	ally_tower_label.text = "%d / %d" % [int(ally_tower_hp), int(ally_max)]
-	enemy_tower_label.text = "%d / %d" % [int(enemy_tower_hp), int(enemy_max)]
+	ally_tower_bar.set_health(ally_tower_hp, ally_max)
+	enemy_tower_bar.set_health(enemy_tower_hp, enemy_max)
