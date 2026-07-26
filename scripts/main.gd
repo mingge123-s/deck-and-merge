@@ -728,9 +728,9 @@ func _hide_shop() -> void:
 func _update_shop_ui() -> void:
 	if shop_reinforcement_button == null:
 		return
-	var reinforcement_price := _era_price(REINFORCEMENT_PRICE_BASE)
-	var repair_price := _era_price(REPAIR_PRICE_BASE)
-	var clear_tray_price := _era_price(CLEAR_TRAY_PRICE_BASE)
+	var reinforcement_price := _era_amount(REINFORCEMENT_PRICE_BASE)
+	var repair_price := _era_amount(REPAIR_PRICE_BASE)
+	var clear_tray_price := _era_amount(CLEAR_TRAY_PRICE_BASE)
 	shop_coin_label.text = "金币：%d" % coin_count
 	shop_reinforcement_button.text = "召唤援军  %d" % reinforcement_price
 	shop_repair_button.text = "修复我方塔  %d" % repair_price
@@ -744,11 +744,11 @@ func _update_shop_ui() -> void:
 		or coin_count < clear_tray_price
 	)
 
-func _era_price(base_price: int) -> int:
-	return maxi(1, roundi(float(base_price) * float(GameData.ERA_MULT.get(current_era, 1.0))))
+func _era_amount(base_amount: int) -> int:
+	return maxi(1, roundi(float(base_amount) * float(GameData.ERA_MULT.get(current_era, 1.0))))
 
 func _buy_reinforcement() -> void:
-	var price := _era_price(REINFORCEMENT_PRICE_BASE)
+	var price := _era_amount(REINFORCEMENT_PRICE_BASE)
 	if not battle_active or battle_ended or coin_count < price:
 		return
 	var ids := GameData.heroes_for_era(current_era)
@@ -761,7 +761,7 @@ func _buy_reinforcement() -> void:
 	_update_shop_ui()
 
 func _buy_repair() -> void:
-	var price := _era_price(REPAIR_PRICE_BASE)
+	var price := _era_amount(REPAIR_PRICE_BASE)
 	if not battle_active or battle_ended or coin_count < price:
 		return
 	coin_count -= price
@@ -775,7 +775,7 @@ func _buy_repair() -> void:
 	_update_shop_ui()
 
 func _buy_clear_tray() -> void:
-	var price := _era_price(CLEAR_TRAY_PRICE_BASE)
+	var price := _era_amount(CLEAR_TRAY_PRICE_BASE)
 	if not battle_active or battle_ended or tray_cards.size() < 3 or coin_count < price:
 		return
 	coin_count -= price
@@ -1247,7 +1247,7 @@ func _spawn_wave() -> void:
 	var spawn_ids: Array[String] = []
 	if spawn_index > 0:
 		spawn_ids.append(boss_ids[rng.randi_range(0, boss_ids.size() - 1)])
-	for _index in range(count):
+	for _index in range(count - spawn_index):
 		spawn_ids.append(ids[rng.randi_range(0, ids.size() - 1)])
 	for index in range(spawn_ids.size()):
 		_spawn_enemy(spawn_ids[index], index, spawn_ids.size())
@@ -1453,7 +1453,7 @@ func _attack_tower(attacker: BattleUnit) -> void:
 func _on_unit_expired(unit: BattleUnit) -> void:
 	if unit.faction == "enemy" and not unit.score_awarded:
 		unit.score_awarded = true
-		_change_coins(_era_price(KILL_COIN_BASE))
+		_change_coins(_era_amount(KILL_COIN_BASE))
 		if unit.last_damage_source != "tower":
 			kill_score += int(unit.stats.get("kill_score", 0))
 			_check_era_upgrade()
@@ -1522,7 +1522,7 @@ func _finish_battle(won: bool, message: String) -> void:
 	AudioManager.play_sfx("victory" if won else "defeat")
 	print("战斗结束: %s" % message)
 	if won:
-		var reward := _era_price(VICTORY_REWARD_BASE)
+		var reward := _era_amount(VICTORY_REWARD_BASE)
 		_change_coins(reward)
 		_finish_round("%s\n获得 +%d 金币" % [message, reward])
 	else:
