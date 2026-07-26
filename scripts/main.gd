@@ -23,6 +23,12 @@ const TOWER_HEIGHT := 160.0
 const TOWER_GROUND_NUDGE := 3.0
 const TOWER_ATTACK_RANGE := 420.0
 const TOWER_ATTACK_CD := 1.1
+const TANK_AGGRO_RADIUS := 150.0
+const KILL_COIN_BASE := 4
+const VICTORY_REWARD_BASE := 120
+const REINFORCEMENT_PRICE_BASE := 200
+const REPAIR_PRICE_BASE := 150
+const CLEAR_TRAY_PRICE_BASE := 120
 const ERA_TOWER_TINTS := {
 	"stone": Color(1.0, 0.93, 0.82),
 	"iron": Color(0.92, 0.96, 1.0),
@@ -50,7 +56,7 @@ var tray_views: Array[Control] = []
 var deck_cards: Array[CardView] = []
 var battle_units: Array[BattleUnit] = []
 var occupied_units := 0
-var coin_count := 2480
+var coin_count := 300
 var current_era := "stone"
 var current_difficulty := "normal"
 var difficulty_buttons: Dictionary = {}
@@ -71,6 +77,7 @@ var shop_panel: Panel
 var shop_coin_label: Label
 var shop_reinforcement_button: Button
 var shop_repair_button: Button
+var shop_clear_tray_button: Button
 var era_select_panel: Panel
 var era_select_buttons: Array[Button] = []
 var pause_overlay: Control
@@ -685,7 +692,7 @@ func _hide_settings() -> void:
 func _build_shop_panel() -> void:
 	shop_panel = Panel.new()
 	shop_panel.position = Vector2(100, 280)
-	shop_panel.size = Vector2(520, 490)
+	shop_panel.size = Vector2(520, 590)
 	shop_panel.z_index = 120
 	shop_panel.add_theme_stylebox_override("panel", _panel_style(Color("#c58a53"), Color("#70412c"), 24, 3))
 	shop_panel.visible = false
@@ -695,13 +702,17 @@ func _build_shop_panel() -> void:
 	shop_coin_label = _label(shop_panel, "", Vector2(52, 92), Vector2(180, 30), 18, Color("#fff0c7"))
 	var reinforcement_label := _label(shop_panel, "召唤援军\n当前时代随机英雄", Vector2(52, 148), Vector2(230, 60), 17, Color("#fff0c7"))
 	reinforcement_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	shop_reinforcement_button = _menu_button(shop_panel, "召唤援军  200", Vector2(296, 148), Vector2(170, 60), 16)
+	shop_reinforcement_button = _menu_button(shop_panel, "", Vector2(296, 148), Vector2(170, 60), 16)
 	shop_reinforcement_button.pressed.connect(_buy_reinforcement)
 	var repair_label := _label(shop_panel, "修复我方塔\n恢复当前时代满血的 25%", Vector2(52, 248), Vector2(230, 60), 17, Color("#fff0c7"))
 	repair_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	shop_repair_button = _menu_button(shop_panel, "修复我方塔  150", Vector2(296, 248), Vector2(170, 60), 16)
+	shop_repair_button = _menu_button(shop_panel, "", Vector2(296, 248), Vector2(170, 60), 16)
 	shop_repair_button.pressed.connect(_buy_repair)
-	var close_button := _menu_button(shop_panel, "关闭", Vector2(160, 370), Vector2(200, 56), 18)
+	var clear_label := _label(shop_panel, "清理合成台\n移除 3 张最难凑成三连的牌", Vector2(52, 348), Vector2(230, 60), 17, Color("#fff0c7"))
+	clear_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	shop_clear_tray_button = _menu_button(shop_panel, "", Vector2(296, 348), Vector2(170, 60), 16)
+	shop_clear_tray_button.pressed.connect(_buy_clear_tray)
+	var close_button := _menu_button(shop_panel, "关闭", Vector2(160, 470), Vector2(200, 56), 18)
 	close_button.pressed.connect(_hide_shop)
 	_update_shop_ui()
 
@@ -717,32 +728,69 @@ func _hide_shop() -> void:
 func _update_shop_ui() -> void:
 	if shop_reinforcement_button == null:
 		return
+	var reinforcement_price := _era_price(REINFORCEMENT_PRICE_BASE)
+	var repair_price := _era_price(REPAIR_PRICE_BASE)
+	var clear_tray_price := _era_price(CLEAR_TRAY_PRICE_BASE)
 	shop_coin_label.text = "金币：%d" % coin_count
-	shop_reinforcement_button.disabled = not battle_active or battle_ended or coin_count < 200
-	shop_repair_button.disabled = not battle_active or battle_ended or coin_count < 150
+	shop_reinforcement_button.text = "召唤援军  %d" % reinforcement_price
+	shop_repair_button.text = "修复我方塔  %d" % repair_price
+	shop_clear_tray_button.text = "清理合成台  %d" % clear_tray_price
+	shop_reinforcement_button.disabled = not battle_active or battle_ended or coin_count < reinforcement_price
+	shop_repair_button.disabled = not battle_active or battle_ended or coin_count < repair_price
+	shop_clear_tray_button.disabled = (
+		not battle_active
+		or battle_ended
+		or tray_cards.size() < 3
+		or coin_count < clear_tray_price
+	)
+
+func _era_price(base_price: int) -> int:
+	return maxi(1, roundi(float(base_price) * float(GameData.ERA_MULT.get(current_era, 1.0))))
 
 func _buy_reinforcement() -> void:
-	if not battle_active or battle_ended or coin_count < 200:
+	var price := _era_price(REINFORCEMENT_PRICE_BASE)
+	if not battle_active or battle_ended or coin_count < price:
 		return
 	var ids := GameData.heroes_for_era(current_era)
 	if ids.is_empty():
 		return
-	coin_count -= 200
+	coin_count -= price
 	_spawn_ally(ids[rng.randi_range(0, ids.size() - 1)])
 	_update_coin_ui()
 	SaveManager.set_coins(coin_count)
 	_update_shop_ui()
 
 func _buy_repair() -> void:
-	if not battle_active or battle_ended or coin_count < 150:
+	var price := _era_price(REPAIR_PRICE_BASE)
+	if not battle_active or battle_ended or coin_count < price:
 		return
-	coin_count -= 150
+	coin_count -= price
 	ally_tower_hp = minf(
 		ally_tower_hp + GameData.tower_hp(current_era) * 0.25,
 		GameData.tower_hp(current_era)
 	)
 	_update_coin_ui()
 	_update_tower_ui()
+	SaveManager.set_coins(coin_count)
+	_update_shop_ui()
+
+func _buy_clear_tray() -> void:
+	var price := _era_price(CLEAR_TRAY_PRICE_BASE)
+	if not battle_active or battle_ended or tray_cards.size() < 3 or coin_count < price:
+		return
+	coin_count -= price
+	var removals: Array[String] = tray_cards.duplicate()
+	removals.sort_custom(func(a: String, b: String) -> bool:
+		var count_a := tray_cards.count(a)
+		var count_b := tray_cards.count(b)
+		if count_a == count_b:
+			return _card_sort_key(a) < _card_sort_key(b)
+		return count_a < count_b
+	)
+	for index in range(mini(3, removals.size())):
+		tray_cards.erase(removals[index])
+	_rebuild_tray_visuals()
+	_update_coin_ui()
 	SaveManager.set_coins(coin_count)
 	_update_shop_ui()
 
@@ -1189,18 +1237,22 @@ func _spawn_wave() -> void:
 	var d := _diff()
 	var count := clampi(int(d.count_base) + wave_number / int(d.count_step), int(d.count_base), int(d.count_max))
 	var spawn_index := 0
+	var boss_ids: Array[String] = []
 	if wave_number % 5 == 0:
-		var boss_ids: Array[String] = []
 		for hero_id in ids:
 			if str(GameData.HEROES[hero_id].get("role", "")) == "boss":
 				boss_ids.append(hero_id)
 		if not boss_ids.is_empty():
-			_spawn_enemy(boss_ids[rng.randi_range(0, boss_ids.size() - 1)], spawn_index)
 			spawn_index += 1
-	for index in range(spawn_index, count):
-		_spawn_enemy(ids[rng.randi_range(0, ids.size() - 1)], index)
+	var spawn_ids: Array[String] = []
+	if spawn_index > 0:
+		spawn_ids.append(boss_ids[rng.randi_range(0, boss_ids.size() - 1)])
+	for _index in range(count):
+		spawn_ids.append(ids[rng.randi_range(0, ids.size() - 1)])
+	for index in range(spawn_ids.size()):
+		_spawn_enemy(spawn_ids[index], index, spawn_ids.size())
 
-func _spawn_enemy(hero_id: String, index: int) -> void:
+func _spawn_enemy(hero_id: String, index: int, total_count: int) -> void:
 	var data: Dictionary = GameData.HEROES[hero_id].duplicate(true)
 	var mult := float(_diff().enemy_mult)
 	data["hp"] = float(data.hp) * mult
@@ -1211,7 +1263,11 @@ func _spawn_enemy(hero_id: String, index: int) -> void:
 		texture = load(path)
 	var unit := BattleUnit.new()
 	unit.setup(hero_id, "enemy", data, texture)
-	unit.position = Vector2(ENEMY_TOWER_X - 96 - (index % 3) * 60, BATTLE_GROUND_Y - (index % 3) * 6)
+	var spacing := minf(78.0, 300.0 / maxf(1.0, float(total_count - 1)))
+	unit.position = Vector2(
+		ENEMY_TOWER_X - 70.0 - index * spacing,
+		BATTLE_GROUND_Y - (index % 2) * 6.0
+	)
 	unit.z_index = 4
 	unit.expired.connect(_on_unit_expired)
 	world.add_child(unit)
@@ -1296,6 +1352,19 @@ func _find_target(unit: BattleUnit, ally_units: Array[BattleUnit], enemy_units: 
 	var candidates := enemy_units if unit.faction == "ally" else ally_units
 	if candidates.is_empty():
 		return null
+	var aggro_tanks: Array[BattleUnit] = []
+	for candidate in candidates:
+		if not is_instance_valid(candidate) or not candidate.alive:
+			continue
+		if str(candidate.stats.get("role", "")) != "tank":
+			continue
+		if absf(candidate.position.x - unit.position.x) <= TANK_AGGRO_RADIUS:
+			aggro_tanks.append(candidate)
+	if not aggro_tanks.is_empty():
+		return _nearest_unit(unit, aggro_tanks)
+	return _nearest_unit(unit, candidates)
+
+func _nearest_unit(unit: BattleUnit, candidates: Array[BattleUnit]) -> BattleUnit:
 	var nearest: BattleUnit
 	var nearest_distance := INF
 	for candidate in candidates:
@@ -1384,7 +1453,7 @@ func _attack_tower(attacker: BattleUnit) -> void:
 func _on_unit_expired(unit: BattleUnit) -> void:
 	if unit.faction == "enemy" and not unit.score_awarded:
 		unit.score_awarded = true
-		_change_coins(4 + era_index * 3)
+		_change_coins(_era_price(KILL_COIN_BASE))
 		if unit.last_damage_source != "tower":
 			kill_score += int(unit.stats.get("kill_score", 0))
 			_check_era_upgrade()
@@ -1453,8 +1522,9 @@ func _finish_battle(won: bool, message: String) -> void:
 	AudioManager.play_sfx("victory" if won else "defeat")
 	print("战斗结束: %s" % message)
 	if won:
-		_change_coins(120)
-		_finish_round("%s\n获得 +120 金币" % message)
+		var reward := _era_price(VICTORY_REWARD_BASE)
+		_change_coins(reward)
+		_finish_round("%s\n获得 +%d 金币" % [message, reward])
 	else:
 		_finish_round(message)
 
@@ -1475,6 +1545,10 @@ func _remove_battle_units() -> void:
 		if is_instance_valid(unit):
 			unit.queue_free()
 	battle_units.clear()
+	if world != null:
+		for child in world.get_children():
+			if child is Projectile:
+				child.queue_free()
 
 func _finish_round(message: String) -> void:
 	var best_score := maxi(SaveManager.get_best_score(), kill_score)

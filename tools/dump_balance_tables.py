@@ -20,18 +20,23 @@ TOWER_ATTACK_CD = 1.1
 TOWER_ATTACK_RANGE = 420.0
 TOWER_MELEE_RANGE = 82.0
 TOWER_REPAIR_RATIO = 0.25
+KILL_COIN_BASE = 4
+VICTORY_REWARD_BASE = 120
+REINFORCEMENT_PRICE_BASE = 200
+REPAIR_PRICE_BASE = 150
+CLEAR_TRAY_PRICE_BASE = 120
 DIFFICULTIES = {
     "easy": {"name": "简单", "wave_interval": 12.0, "first_delay": 6.0, "count_base": 1, "count_step": 5, "count_max": 3, "enemy_mult": 0.7},
     "normal": {"name": "普通", "wave_interval": 9.0, "first_delay": 4.0, "count_base": 2, "count_step": 4, "count_max": 5, "enemy_mult": 1.0},
     "hard": {"name": "困难", "wave_interval": 6.0, "first_delay": 3.0, "count_base": 3, "count_step": 3, "count_max": 7, "enemy_mult": 1.3},
 }
 ECONOMY = [
-    ("初始金币（存档默认）", 2480),
-    ("英雄击杀敌人", "4 + 3 × 时代序号（石器 4 / 铁器 7 / 工业 10 / 现代 13 / 未来 16）"),
-    ("防御塔击杀敌人", "同上金币，但不加击杀积分"),
-    ("战斗胜利", 120),
-    ("商店：召唤援军（当前时代随机英雄）", -200),
-    ("商店：修复我方塔（+25% 最大生命）", -150),
+    ("初始金币（存档默认）", 300),
+    ("英雄/塔击杀敌人金币", "4 × 时代倍率（塔击杀不给击杀积分）"),
+    ("战斗胜利", "120 × 时代倍率"),
+    ("商店：召唤援军（当前时代随机英雄）", "200 × 时代倍率"),
+    ("商店：修复我方塔（+25% 最大生命）", "150 × 时代倍率"),
+    ("商店：清理合成台（移除 3 张牌）", "120 × 时代倍率"),
 ]
 BOARD = [
     ("逻辑分辨率", "720 × 1280（竖屏）"),
@@ -63,7 +68,7 @@ def table(headers, rows):
 def write_csv(name, headers, rows):
     path = os.path.join(OUT_DIR, name)
     with open(path, "w", newline="", encoding="utf-8-sig") as handle:
-        writer = csv.writer(handle)
+        writer = csv.writer(handle, lineterminator="\n")
         writer.writerow(headers)
         for row in rows:
             writer.writerow([fmt(cell) for cell in row])
@@ -76,6 +81,8 @@ def main():
     eras = data["eras"]
     era_names = data["era_names"]
     era_mult = data["era_mult"]
+    era_tempo = data["era_tempo"]
+    era_range_mult = data["era_range_mult"]
     era_score = data["era_upgrade_score"]
     roles = data["roles"]
     role_names = data["role_names"]
@@ -89,12 +96,15 @@ def main():
         for hero in [h for h in data["heroes"] if h["era"] == era]:
             base = role_base[hero["role"]]
             mult = era_mult[era]
-            cd = base["cooldown"]
+            tempo = era_tempo[era]
+            cd = base["cooldown"] / tempo
             attack = base["attack"] * mult
+            move_speed = base["move_speed"] * tempo
+            range_value = base["range"] * era_range_mult[era]
             hero_rows.append([
                 era_names[era], hero["name"], hero["card"], role_names[hero["role"]],
                 round(base["hp"] * mult), round(attack, 1), round(1.0 / cd, 2),
-                round(attack / cd, 1), base["range"], base["move_speed"], cd,
+                round(attack / cd, 1), round(range_value, 1), round(move_speed, 1), cd,
                 base["kill_score"], role_scale[hero["role"]],
             ])
 
@@ -103,8 +113,9 @@ def main():
                   role_base[r]["move_speed"], role_base[r]["cooldown"], role_base[r]["kill_score"],
                   role_scale[r]] for r in roles]
 
-    era_headers = ["时代", "数值倍率", "进阶所需击杀积分"]
+    era_headers = ["时代", "数值倍率", "节奏系数", "射程系数", "进阶所需击杀积分"]
     era_rows = [[era_names[e], era_mult[e],
+                 era_tempo[e], era_range_mult[e],
                  "—（最终时代）" if era_score[e] >= 999999 else era_score[e]] for e in eras]
 
     tower_headers = ["时代", "塔生命", "单次伤害", "攻击间隔", "DPS", "攻击射程", "抛射物外观",
@@ -154,10 +165,12 @@ def main():
         write_csv(csv_name, headers, rows)
     lines += ["## 计算公式", "",
               "- 英雄生命 = 定位基础生命 × 时代倍率；英雄攻击 = 定位基础攻击 × 时代倍率。",
-              "- 射程 / 移速 / 攻击间隔 / 击杀积分只看定位，不随时代变化。",
+            "- 移速与攻速乘节奏系数（攻击间隔除以节奏系数）；射程乘射程系数。",
               "- 敌方单位 = 上述数值 × 难度倍率（生命与攻击都乘）。",
               "- 防御塔生命 = 1800 × 时代倍率；塔伤害 = 30 × 时代倍率，间隔 1.1 秒，射程 420。",
-              "- 防御塔击杀敌人给金币但不给击杀积分，因此时代进阶只由英雄击杀推进。", ""]
+              "- 击杀金币 = 4 × 时代倍率；胜利奖励 = 120 × 时代倍率；商店价格均乘时代倍率。",
+              "- 防御塔击杀敌人给金币但不给击杀积分，因此时代进阶只由英雄击杀推进。",
+              "- 清理合成台移除 3 张同名数量最少的牌，价格 = 120 × 时代倍率。", ""]
 
     md_path = os.path.join(OUT_DIR, "README.md")
     with open(md_path, "w", encoding="utf-8") as handle:
