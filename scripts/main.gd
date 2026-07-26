@@ -5,6 +5,8 @@ const BOARD_RECT := Rect2(36, 116, 648, 628)
 const TRAY_RECT := Rect2(36, 766, 648, 156)
 const BATTLE_RECT := Rect2(36, 944, 648, 280)
 const CARD_SIZE := Vector2(138, 166)
+const DECK_LOW := 6
+const DECK_REFILL_TO := 15
 const BATTLE_GROUND_Y := 222.0
 const WORLD_WIDTH := 1680.0
 const BATTLE_VIEW_W := 648.0
@@ -80,7 +82,6 @@ var wave_number := 0
 var ally_tower_cd := 0.0
 var enemy_tower_cd := 0.0
 var card_z_top := 0
-var card_z_bottom := 0
 var pending_era_cards: Array[String] = []
 var era_card_timer := 0.0
 var ally_tower_hp := 1.0
@@ -812,7 +813,6 @@ func _start_round(start_era_index: int = 0) -> void:
 	ally_tower_cd = 0.0
 	enemy_tower_cd = 0.0
 	card_z_top = 0
-	card_z_bottom = 0
 	pending_era_cards.clear()
 	era_card_timer = 0.0
 	ally_tower_hp = GameData.tower_hp(current_era)
@@ -847,8 +847,10 @@ func _spawn_card(card_id: String, index: int, from_bottom := false) -> void:
 	card.position = _random_pile_position() if from_bottom else _pile_position(index)
 	card.rotation = rng.randf_range(-0.30, 0.30)
 	if from_bottom:
-		card_z_bottom -= 1
-		card.z_index = card_z_bottom
+		for existing in deck_cards:
+			if is_instance_valid(existing):
+				existing.z_index += 1
+		card.z_index = 0
 	else:
 		card.z_index = index
 		card_z_top = maxi(card_z_top, index)
@@ -963,9 +965,7 @@ func _on_card_clicked(card: CardView) -> void:
 	AudioManager.play_sfx("click")
 	card.claimed = true
 	deck_cards.erase(card)
-	var pool := GameData.cards_for_era(current_era)
-	if not pool.is_empty():
-		_spawn_card(pool[rng.randi() % pool.size()], deck_cards.size(), true)
+	_refill_deck_if_low()
 	_refresh_covered()
 	var selected_id := card.card_id
 	card.reparent(self)
@@ -980,6 +980,15 @@ func _on_card_clicked(card: CardView) -> void:
 		_add_to_tray(selected_id)
 		AudioManager.play_sfx("place")
 	)
+
+func _refill_deck_if_low() -> void:
+	if deck_cards.size() > DECK_LOW:
+		return
+	var pool := GameData.cards_for_era(current_era)
+	if pool.is_empty():
+		return
+	while deck_cards.size() < DECK_REFILL_TO:
+		_spawn_card(pool[rng.randi() % pool.size()], deck_cards.size(), true)
 
 func _first_open_slot() -> int:
 	return tray_cards.size() if tray_cards.size() < 7 else -1
