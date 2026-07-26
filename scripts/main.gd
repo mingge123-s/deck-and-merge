@@ -5,8 +5,8 @@ const BATTLE_RECT := Rect2(36, 116, 648, 300)
 const TRAY_RECT := Rect2(36, 432, 648, 156)
 const BOARD_RECT := Rect2(36, 604, 648, 636)
 const CARD_SIZE := Vector2(138, 166)
-const DECK_LOW := 6
-const DECK_REFILL_TO := 15
+const DECK_LOW := 12
+const DECK_REFILL_TO := 30
 const TRAY_SLOTS := 7
 const DIFFICULTIES := {
 	"easy": {"name": "简单", "wave_interval": 12.0, "first_delay": 6.0, "count_base": 1, "count_step": 5, "count_max": 3, "enemy_mult": 0.7},
@@ -893,8 +893,8 @@ func _spawn_card(card_id: String, index: int, from_bottom := false) -> void:
 	if path != "" and ResourceLoader.exists(path):
 		texture = load(path)
 	card.setup(card_id, texture, GameData.CARDS[card_id].color)
-	card.position = _random_pile_position() if from_bottom else _pile_position(index)
-	card.rotation = rng.randf_range(-0.30, 0.30)
+	card.rotation = rng.randf_range(-0.45, 0.45)
+	card.position = _hidden_pile_position(card.rotation) if from_bottom else _pile_position(index)
 	if from_bottom:
 		for existing in deck_cards:
 			if is_instance_valid(existing):
@@ -905,20 +905,56 @@ func _spawn_card(card_id: String, index: int, from_bottom := false) -> void:
 		card_z_top = maxi(card_z_top, index)
 	card_layer.add_child(card)
 	deck_cards.append(card)
-	if from_bottom:
-		card.scale = Vector2(0.82, 0.82)
-		var tween := create_tween()
-		tween.tween_property(card, "scale", Vector2.ONE, 0.2).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 func _pile_position(index: int) -> Vector2:
 	var columns := 5
 	var column := index % columns
 	var row := index / columns
-	var spot := Vector2(8.0 + column * 92.0 + rng.randf_range(-28.0, 28.0), 3.0 + row * 86.0 + rng.randf_range(-28.0, 28.0))
+	var spot := Vector2(
+		8.0 + column * 112.0 + rng.randf_range(-52.0, 52.0),
+		3.0 + row * 91.0 + rng.randf_range(-48.0, 48.0)
+	)
 	return _clamp_pile_position(spot)
 
 func _random_pile_position() -> Vector2:
 	return _clamp_pile_position(Vector2(rng.randf_range(0.0, 596.0), rng.randf_range(0.0, 526.0)))
+
+func _hidden_pile_position(rotation: float) -> Vector2:
+	if deck_cards.is_empty():
+		return _random_pile_position()
+	var best_position := _random_pile_position()
+	var best_coverage := -1.0
+	for _candidate_index in range(24):
+		var candidate := _random_pile_position()
+		var candidate_rect := _card_aabb(candidate, rotation)
+		var covered_area := 0.0
+		for existing in deck_cards:
+			if not is_instance_valid(existing) or existing.claimed:
+				continue
+			var existing_rect := _card_aabb(existing.position, existing.rotation)
+			covered_area = maxf(covered_area, candidate_rect.intersection(existing_rect).get_area())
+		var coverage := covered_area / (CARD_SIZE.x * CARD_SIZE.y)
+		if coverage > best_coverage:
+			best_coverage = coverage
+			best_position = candidate
+	return best_position
+
+func _card_aabb(position: Vector2, rotation: float) -> Rect2:
+	var transform := Transform2D(rotation, position)
+	var corners := [
+		transform * Vector2.ZERO,
+		transform * Vector2(CARD_SIZE.x, 0.0),
+		transform * Vector2(0.0, CARD_SIZE.y),
+		transform * CARD_SIZE,
+	]
+	var min_point: Vector2 = corners[0]
+	var max_point: Vector2 = corners[0]
+	for corner in corners:
+		min_point.x = minf(min_point.x, corner.x)
+		min_point.y = minf(min_point.y, corner.y)
+		max_point.x = maxf(max_point.x, corner.x)
+		max_point.y = maxf(max_point.y, corner.y)
+	return Rect2(min_point, max_point - min_point)
 
 func _clamp_pile_position(spot: Vector2) -> Vector2:
 	var limit := card_layer.size - CARD_SIZE
@@ -951,6 +987,16 @@ func _refresh_covered() -> void:
 			"aabb": Rect2(min_point, max_point - min_point),
 			"transform": transform,
 		})
+	for snapshot_index in range(snapshots.size()):
+		var snapshot: Dictionary = snapshots[snapshot_index]
+		var blockers: Array[Dictionary] = []
+		for candidate in snapshots:
+			if candidate["z_index"] <= snapshot["z_index"]:
+				continue
+			if not candidate["aabb"].intersects(snapshot["aabb"]):
+				continue
+			blockers.append(candidate)
+		snapshots[snapshot_index]["blockers"] = blockers
 	for card in deck_cards:
 		if is_instance_valid(card):
 			var snapshot: Dictionary = {}
@@ -985,14 +1031,12 @@ func _card_has_exposed_area(snapshot: Dictionary, snapshots: Array[Dictionary]) 
 	if snapshot.is_empty():
 		return false
 	var transform: Transform2D = snapshot["transform"]
-	var z_index: int = snapshot["z_index"]
+	var blockers: Array[Dictionary] = snapshot["blockers"]
 	for y in range(1, int(CARD_SIZE.y), 16):
 		for x in range(1, int(CARD_SIZE.x), 16):
 			var canvas_point := transform * Vector2(x, y)
 			var covered := false
-			for candidate in snapshots:
-				if candidate["z_index"] <= z_index:
-					continue
+			for candidate in blockers:
 				var aabb: Rect2 = candidate["aabb"]
 				if not aabb.has_point(canvas_point):
 					continue
@@ -1037,8 +1081,10 @@ func _refill_deck_if_low() -> void:
 	var pool := GameData.cards_for_era(current_era)
 	if pool.is_empty():
 		return
-	while deck_cards.size() < DECK_REFILL_TO:
-		_spawn_card(pool[rng.randi() % pool.size()], deck_cards.size(), true)
+	while deck_cards.size() + 3 <= DECK_REFILL_TO:
+		var card_id := pool[rng.randi() % pool.size()]
+		for _copy in range(3):
+			_spawn_card(card_id, deck_cards.size(), true)
 
 func _first_open_slot() -> int:
 	var used := tray_cards.size() + tray_incoming
