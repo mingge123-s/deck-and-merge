@@ -1,15 +1,18 @@
 extends Node2D
 
 const VIEW_SIZE := Vector2(720, 1280)
-const BOARD_RECT := Rect2(36, 116, 648, 628)
-const TRAY_RECT := Rect2(36, 766, 648, 156)
-const BATTLE_RECT := Rect2(36, 944, 648, 280)
+const BATTLE_RECT := Rect2(36, 116, 648, 300)
+const TRAY_RECT := Rect2(36, 432, 648, 156)
+const BOARD_RECT := Rect2(36, 604, 648, 636)
 const CARD_SIZE := Vector2(138, 166)
 const DECK_LOW := 6
 const DECK_REFILL_TO := 15
 const TRAY_SLOTS := 7
-const WAVE_INTERVAL := 9.0
-const FIRST_WAVE_DELAY := 4.0
+const DIFFICULTIES := {
+	"easy": {"name": "简单", "wave_interval": 12.0, "first_delay": 6.0, "count_base": 1, "count_step": 5, "count_max": 3, "enemy_mult": 0.7},
+	"normal": {"name": "普通", "wave_interval": 9.0, "first_delay": 4.0, "count_base": 2, "count_step": 4, "count_max": 5, "enemy_mult": 1.0},
+	"hard": {"name": "困难", "wave_interval": 6.0, "first_delay": 3.0, "count_base": 3, "count_step": 3, "count_max": 7, "enemy_mult": 1.3},
+}
 const BATTLE_GROUND_Y := 222.0
 const WORLD_WIDTH := 1680.0
 const BATTLE_VIEW_W := 648.0
@@ -49,6 +52,8 @@ var battle_units: Array[BattleUnit] = []
 var occupied_units := 0
 var coin_count := 2480
 var current_era := "stone"
+var current_difficulty := "normal"
+var difficulty_buttons: Dictionary = {}
 var era_index := 0
 var kill_score := 0
 var coin_label: Label
@@ -96,6 +101,9 @@ var rng := RandomNumberGenerator.new()
 var hit_fx_pool: Array[Label] = []
 var camera_shake_offset := Vector2.ZERO
 var camera_shake_tween: Tween
+
+func _diff() -> Dictionary:
+	return DIFFICULTIES[current_difficulty]
 
 func _ready() -> void:
 	_apply_default_font()
@@ -181,7 +189,7 @@ func _process(delta: float) -> void:
 	wave_timer -= delta
 	if wave_timer <= 0.0:
 		_spawn_wave()
-		wave_timer = WAVE_INTERVAL
+		wave_timer = _diff().wave_interval
 	_step_battle(delta)
 	_update_tower_ui()
 
@@ -605,7 +613,17 @@ func _build_main_menu() -> void:
 	soon.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	var settings_button := _menu_button(card, "设置", Vector2(144, 586), Vector2(300, 56), 19)
 	settings_button.pressed.connect(_show_settings)
-	_label(card, "点击开始，自动进入战斗", Vector2(0, 735), Vector2(588, 28), 14, Color("#e6c199")).horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var difficulty_label := _label(card, "难度", Vector2(0, 650), Vector2(588, 26), 15, Color("#fff0c7"))
+	difficulty_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var difficulty_keys := ["easy", "normal", "hard"]
+	var difficulty_x_positions := [150, 250, 350]
+	for index in range(difficulty_keys.size()):
+		var key: String = difficulty_keys[index]
+		var button := _menu_button(card, DIFFICULTIES[key].name, Vector2(difficulty_x_positions[index], 684), Vector2(92, 46), 15)
+		button.pressed.connect(_set_difficulty.bind(key))
+		difficulty_buttons[key] = button
+	_set_difficulty("normal")
+	_label(card, "点击开始，自动进入战斗", Vector2(0, 746), Vector2(588, 28), 14, Color("#e6c199")).horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_build_settings_panel(card)
 	_build_era_select_panel()
 	_build_shop_panel()
@@ -622,6 +640,18 @@ func _menu_button(parent: Control, text: String, position: Vector2, size: Vector
 	button.pressed.connect(_play_button_sfx)
 	parent.add_child(button)
 	return button
+
+func _set_difficulty(key: String) -> void:
+	if not DIFFICULTIES.has(key):
+		return
+	current_difficulty = key
+	for difficulty_key in difficulty_buttons:
+		var button: Button = difficulty_buttons[difficulty_key]
+		var selected: bool = difficulty_key == current_difficulty
+		var normal_color := Color("#e0a34d") if selected else Color("#b86a3e")
+		var hover_color := Color("#f0b962") if selected else Color("#d5864b")
+		button.add_theme_stylebox_override("normal", _panel_style(normal_color, Color("#713722"), 16, 3))
+		button.add_theme_stylebox_override("hover", _panel_style(hover_color, Color("#713722"), 16, 3))
 
 func _build_settings_panel(parent: Control) -> void:
 	settings_panel = Panel.new()
@@ -828,7 +858,7 @@ func _start_round(start_era_index: int = 0) -> void:
 		tutorial_overlay.visible = false
 	if pause_button != null:
 		pause_button.visible = true
-	wave_timer = FIRST_WAVE_DELAY
+	wave_timer = _diff().first_delay
 	wave_number = 0
 	ally_tower_cd = 0.0
 	enemy_tower_cd = 0.0
@@ -837,7 +867,7 @@ func _start_round(start_era_index: int = 0) -> void:
 	era_card_timer = 0.0
 	ally_tower_hp = GameData.tower_hp(current_era)
 	enemy_tower_hp = GameData.tower_hp(current_era)
-	battle_hint.text = "备战 4 秒，敌方部队即将出击"
+	battle_hint.text = "备战 %d 秒，敌方部队即将出击" % int(_diff().first_delay)
 	if result_overlay != null:
 		result_overlay.visible = false
 	_remove_battle_units()
@@ -1097,7 +1127,8 @@ func _spawn_wave() -> void:
 	if ids.is_empty():
 		return
 	wave_number += 1
-	var count := clampi(2 + wave_number / 4, 2, 5)
+	var d := _diff()
+	var count := clampi(int(d.count_base) + wave_number / int(d.count_step), int(d.count_base), int(d.count_max))
 	var spawn_index := 0
 	if wave_number % 5 == 0:
 		var boss_ids: Array[String] = []
@@ -1111,7 +1142,10 @@ func _spawn_wave() -> void:
 		_spawn_enemy(ids[rng.randi_range(0, ids.size() - 1)], index)
 
 func _spawn_enemy(hero_id: String, index: int) -> void:
-	var data: Dictionary = GameData.HEROES[hero_id]
+	var data: Dictionary = GameData.HEROES[hero_id].duplicate(true)
+	var mult := float(_diff().enemy_mult)
+	data["hp"] = float(data.hp) * mult
+	data["attack"] = float(data.attack) * mult
 	var texture: Texture2D
 	var path := GameData.hero_texture_path(hero_id)
 	if path != "":
