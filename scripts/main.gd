@@ -5,8 +5,8 @@ const BATTLE_RECT := Rect2(36, 116, 648, 300)
 const TRAY_RECT := Rect2(36, 432, 648, 156)
 const BOARD_RECT := Rect2(36, 604, 648, 636)
 const CARD_SIZE := Vector2(138, 166)
-const DECK_LOW := 12
-const DECK_REFILL_TO := 30
+const DECK_LOW := 33
+const DECK_REFILL_TO := 45
 const TRAY_SLOTS := 7
 const DIFFICULTIES := {
 	"easy": {"name": "简单", "wave_interval": 12.0, "first_delay": 6.0, "count_base": 1, "count_step": 5, "count_max": 3, "enemy_mult": 0.7},
@@ -875,7 +875,7 @@ func _start_round(start_era_index: int = 0) -> void:
 	_update_tower_ui()
 	var deck: Array[String] = []
 	for card_id in GameData.cards_for_era(current_era):
-		for _count in range(6):
+		for _count in range(9):
 			deck.append(card_id)
 	deck.shuffle()
 	for index in range(deck.size()):
@@ -907,22 +907,7 @@ func _spawn_card(card_id: String, index: int, from_bottom := false) -> void:
 	deck_cards.append(card)
 
 func _pile_position(index: int) -> Vector2:
-	var limit := card_layer.size - CARD_SIZE
-	var center := limit * 0.5
-	var spread := Vector2(limit.x * 0.38, limit.y * 0.38)
-	var best_position := center
-	var best_score := -INF
-	for _candidate_index in range(18):
-		var candidate := _clamp_pile_position(center + Vector2(
-			rng.randf_range(-spread.x, spread.x),
-			rng.randf_range(-spread.y, spread.y)
-		))
-		var center_bias := -candidate.distance_to(center)
-		var score := center_bias + rng.randf_range(-42.0, 42.0)
-		if score > best_score:
-			best_score = score
-			best_position = candidate
-	return best_position
+	return _random_pile_position()
 
 func _random_pile_position() -> Vector2:
 	var limit := card_layer.size - CARD_SIZE
