@@ -875,7 +875,7 @@ func _start_round(start_era_index: int = 0) -> void:
 	_update_tower_ui()
 	var deck: Array[String] = []
 	for card_id in GameData.cards_for_era(current_era):
-		for _count in range(3):
+		for _count in range(6):
 			deck.append(card_id)
 	deck.shuffle()
 	for index in range(deck.size()):
@@ -907,37 +907,73 @@ func _spawn_card(card_id: String, index: int, from_bottom := false) -> void:
 	deck_cards.append(card)
 
 func _pile_position(index: int) -> Vector2:
-	var columns := 5
-	var column := index % columns
-	var row := index / columns
-	var spot := Vector2(
-		8.0 + column * 112.0 + rng.randf_range(-52.0, 52.0),
-		3.0 + row * 91.0 + rng.randf_range(-48.0, 48.0)
-	)
-	return _clamp_pile_position(spot)
+	if deck_cards.is_empty():
+		return _random_pile_position()
+	var best_position := _random_pile_position()
+	var best_score := -INF
+	for _candidate_index in range(20):
+		var candidate := _random_pile_position()
+		var nearest_distance := INF
+		for existing in deck_cards:
+			if is_instance_valid(existing) and not existing.claimed:
+				nearest_distance = minf(nearest_distance, candidate.distance_to(existing.position))
+		var score := nearest_distance + rng.randf_range(-18.0, 18.0)
+		if score > best_score:
+			best_score = score
+			best_position = candidate
+	return best_position
 
 func _random_pile_position() -> Vector2:
-	return _clamp_pile_position(Vector2(rng.randf_range(0.0, 596.0), rng.randf_range(0.0, 526.0)))
+	var limit := card_layer.size - CARD_SIZE
+	return Vector2(
+		rng.randf_range(0.0, maxf(limit.x, 0.0)),
+		rng.randf_range(0.0, maxf(limit.y, 0.0))
+	)
 
 func _hidden_pile_position(rotation: float) -> Vector2:
 	if deck_cards.is_empty():
 		return _random_pile_position()
 	var best_position := _random_pile_position()
 	var best_coverage := -1.0
+	var existing_cards: Array[Dictionary] = []
+	for existing in deck_cards:
+		if not is_instance_valid(existing) or existing.claimed:
+			continue
+		var existing_transform := Transform2D(existing.rotation, existing.position)
+		existing_cards.append({
+			"inverse": existing_transform.affine_inverse(),
+			"aabb": _card_aabb(existing.position, existing.rotation),
+		})
 	for _candidate_index in range(24):
 		var candidate := _random_pile_position()
-		var candidate_rect := _card_aabb(candidate, rotation)
-		var covered_area := 0.0
-		for existing in deck_cards:
-			if not is_instance_valid(existing) or existing.claimed:
-				continue
-			var existing_rect := _card_aabb(existing.position, existing.rotation)
-			covered_area = maxf(covered_area, candidate_rect.intersection(existing_rect).get_area())
-		var coverage := covered_area / (CARD_SIZE.x * CARD_SIZE.y)
+		var coverage := _pile_coverage(candidate, rotation, existing_cards)
 		if coverage > best_coverage:
 			best_coverage = coverage
 			best_position = candidate
+	if best_coverage < 0.9:
+		for _candidate_index in range(72):
+			var candidate := _random_pile_position()
+			var coverage := _pile_coverage(candidate, rotation, existing_cards)
+			if coverage > best_coverage:
+				best_coverage = coverage
+				best_position = candidate
 	return best_position
+
+func _pile_coverage(position: Vector2, rotation: float, existing_cards: Array[Dictionary]) -> float:
+	var transform := Transform2D(rotation, position)
+	var covered := 0
+	var samples := 0
+	for y in range(9, int(CARD_SIZE.y), 18):
+		for x in range(9, int(CARD_SIZE.x), 18):
+			samples += 1
+			var canvas_point := transform * Vector2(x, y)
+			for existing in existing_cards:
+				if not existing["aabb"].has_point(canvas_point):
+					continue
+				if Rect2(Vector2.ZERO, CARD_SIZE).has_point(existing["inverse"] * canvas_point):
+					covered += 1
+					break
+	return float(covered) / float(samples) if samples > 0 else 0.0
 
 func _card_aabb(position: Vector2, rotation: float) -> Rect2:
 	var transform := Transform2D(rotation, position)
