@@ -1,12 +1,18 @@
 extends Node2D
 
 const VIEW_SIZE := Vector2(720, 1280)
-const BOARD_RECT := Rect2(36, 116, 648, 628)
-const TRAY_RECT := Rect2(36, 766, 648, 156)
-const BATTLE_RECT := Rect2(36, 944, 648, 280)
+const BATTLE_RECT := Rect2(36, 116, 648, 300)
+const TRAY_RECT := Rect2(36, 432, 648, 156)
+const BOARD_RECT := Rect2(36, 604, 648, 636)
 const CARD_SIZE := Vector2(138, 166)
 const DECK_LOW := 6
 const DECK_REFILL_TO := 15
+const TRAY_SLOTS := 7
+const DIFFICULTIES := {
+	"easy": {"name": "简单", "wave_interval": 12.0, "first_delay": 6.0, "count_base": 1, "count_step": 5, "count_max": 3, "enemy_mult": 0.7},
+	"normal": {"name": "普通", "wave_interval": 9.0, "first_delay": 4.0, "count_base": 2, "count_step": 4, "count_max": 5, "enemy_mult": 1.0},
+	"hard": {"name": "困难", "wave_interval": 6.0, "first_delay": 3.0, "count_base": 3, "count_step": 3, "count_max": 7, "enemy_mult": 1.3},
+}
 const BATTLE_GROUND_Y := 222.0
 const WORLD_WIDTH := 1680.0
 const BATTLE_VIEW_W := 648.0
@@ -39,12 +45,15 @@ var enemy_tower_sprite: Sprite2D
 var ally_tower_shadow: Sprite2D
 var enemy_tower_shadow: Sprite2D
 var tray_cards: Array[String] = []
+var tray_incoming := 0
 var tray_views: Array[Control] = []
 var deck_cards: Array[CardView] = []
 var battle_units: Array[BattleUnit] = []
 var occupied_units := 0
 var coin_count := 2480
 var current_era := "stone"
+var current_difficulty := "normal"
+var difficulty_buttons: Dictionary = {}
 var era_index := 0
 var kill_score := 0
 var coin_label: Label
@@ -66,6 +75,7 @@ var era_select_panel: Panel
 var era_select_buttons: Array[Button] = []
 var pause_overlay: Control
 var tutorial_overlay: Control
+var result_overlay: Control
 var music_slider: HSlider
 var sfx_slider: HSlider
 var battle_hint: Label
@@ -91,6 +101,9 @@ var rng := RandomNumberGenerator.new()
 var hit_fx_pool: Array[Label] = []
 var camera_shake_offset := Vector2.ZERO
 var camera_shake_tween: Tween
+
+func _diff() -> Dictionary:
+	return DIFFICULTIES[current_difficulty]
 
 func _ready() -> void:
 	_apply_default_font()
@@ -176,7 +189,7 @@ func _process(delta: float) -> void:
 	wave_timer -= delta
 	if wave_timer <= 0.0:
 		_spawn_wave()
-		wave_timer = 6.0
+		wave_timer = _diff().wave_interval
 	_step_battle(delta)
 	_update_tower_ui()
 
@@ -441,32 +454,46 @@ func _create_tower_ui(ally: bool) -> void:
 		enemy_tower_label = hp_label
 
 func _build_overlay() -> void:
-	status_label = _label(self, "", Vector2(75, 365), Vector2(570, 64), 22, Color("#fff2c4"))
+	result_overlay = Control.new()
+	result_overlay.size = VIEW_SIZE
+	result_overlay.z_index = 155
+	result_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	result_overlay.visible = false
+	add_child(result_overlay)
+	var dim := ColorRect.new()
+	dim.size = VIEW_SIZE
+	dim.color = Color(0, 0, 0, 0.55)
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	result_overlay.add_child(dim)
+	var panel := Panel.new()
+	panel.size = Vector2(540, 330)
+	panel.position = (VIEW_SIZE - panel.size) / 2.0
+	panel.add_theme_stylebox_override("panel", _panel_style(Color("#c58a53"), Color("#70412c"), 24, 3))
+	result_overlay.add_child(panel)
+	status_label = _label(panel, "", Vector2(30, 40), Vector2(480, 140), 24, Color("#fff2c4"))
 	status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	status_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	status_label.visible = false
+	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	restart_button = Button.new()
-	restart_button.position = Vector2(275, 430)
-	restart_button.size = Vector2(170, 52)
+	restart_button.position = Vector2((panel.size.x - 200) / 2.0, 196)
+	restart_button.size = Vector2(200, 54)
 	restart_button.text = "重新开始"
 	restart_button.add_theme_font_size_override("font_size", 19)
 	restart_button.add_theme_stylebox_override("normal", _panel_style(Color("#d77a3d"), Color("#6d3724"), 15, 3))
 	restart_button.add_theme_stylebox_override("hover", _panel_style(Color("#ec994d"), Color("#6d3724"), 15, 3))
 	restart_button.pressed.connect(_start_round)
 	restart_button.pressed.connect(_play_button_sfx)
-	restart_button.visible = false
-	add_child(restart_button)
+	panel.add_child(restart_button)
 	result_menu_button = Button.new()
-	result_menu_button.position = Vector2(275, 494)
-	result_menu_button.size = Vector2(170, 48)
+	result_menu_button.position = Vector2((panel.size.x - 200) / 2.0, 260)
+	result_menu_button.size = Vector2(200, 50)
 	result_menu_button.text = "返回主界面"
 	result_menu_button.add_theme_font_size_override("font_size", 17)
 	result_menu_button.add_theme_stylebox_override("normal", _panel_style(Color("#a75d38"), Color("#6d3724"), 15, 3))
 	result_menu_button.add_theme_stylebox_override("hover", _panel_style(Color("#c87845"), Color("#6d3724"), 15, 3))
 	result_menu_button.pressed.connect(_show_main_menu)
 	result_menu_button.pressed.connect(_play_button_sfx)
-	result_menu_button.visible = false
-	add_child(result_menu_button)
+	panel.add_child(result_menu_button)
 	_build_pause_overlay()
 	_build_tutorial_overlay()
 
@@ -586,7 +613,17 @@ func _build_main_menu() -> void:
 	soon.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	var settings_button := _menu_button(card, "设置", Vector2(144, 586), Vector2(300, 56), 19)
 	settings_button.pressed.connect(_show_settings)
-	_label(card, "点击开始，自动进入战斗", Vector2(0, 735), Vector2(588, 28), 14, Color("#e6c199")).horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var difficulty_label := _label(card, "难度", Vector2(0, 650), Vector2(588, 26), 15, Color("#fff0c7"))
+	difficulty_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var difficulty_keys := ["easy", "normal", "hard"]
+	var difficulty_x_positions := [150, 250, 350]
+	for index in range(difficulty_keys.size()):
+		var key: String = difficulty_keys[index]
+		var button := _menu_button(card, DIFFICULTIES[key].name, Vector2(difficulty_x_positions[index], 684), Vector2(92, 46), 15)
+		button.pressed.connect(_set_difficulty.bind(key))
+		difficulty_buttons[key] = button
+	_set_difficulty("normal")
+	_label(card, "点击开始，自动进入战斗", Vector2(0, 746), Vector2(588, 28), 14, Color("#e6c199")).horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_build_settings_panel(card)
 	_build_era_select_panel()
 	_build_shop_panel()
@@ -603,6 +640,18 @@ func _menu_button(parent: Control, text: String, position: Vector2, size: Vector
 	button.pressed.connect(_play_button_sfx)
 	parent.add_child(button)
 	return button
+
+func _set_difficulty(key: String) -> void:
+	if not DIFFICULTIES.has(key):
+		return
+	current_difficulty = key
+	for difficulty_key in difficulty_buttons:
+		var button: Button = difficulty_buttons[difficulty_key]
+		var selected: bool = difficulty_key == current_difficulty
+		var normal_color := Color("#e0a34d") if selected else Color("#b86a3e")
+		var hover_color := Color("#f0b962") if selected else Color("#d5864b")
+		button.add_theme_stylebox_override("normal", _panel_style(normal_color, Color("#713722"), 16, 3))
+		button.add_theme_stylebox_override("hover", _panel_style(hover_color, Color("#713722"), 16, 3))
 
 func _build_settings_panel(parent: Control) -> void:
 	settings_panel = Panel.new()
@@ -794,6 +843,7 @@ func _start_round(start_era_index: int = 0) -> void:
 			view.queue_free()
 	tray_views.clear()
 	tray_cards.clear()
+	tray_incoming = 0
 	occupied_units = 0
 	era_index = clampi(start_era_index, 0, GameData.ERAS.size() - 1)
 	current_era = GameData.ERAS[era_index]
@@ -808,7 +858,7 @@ func _start_round(start_era_index: int = 0) -> void:
 		tutorial_overlay.visible = false
 	if pause_button != null:
 		pause_button.visible = true
-	wave_timer = 3.0
+	wave_timer = _diff().first_delay
 	wave_number = 0
 	ally_tower_cd = 0.0
 	enemy_tower_cd = 0.0
@@ -817,10 +867,9 @@ func _start_round(start_era_index: int = 0) -> void:
 	era_card_timer = 0.0
 	ally_tower_hp = GameData.tower_hp(current_era)
 	enemy_tower_hp = GameData.tower_hp(current_era)
-	battle_hint.text = "备战 3 秒，敌方部队即将出击"
-	status_label.visible = false
-	restart_button.visible = false
-	result_menu_button.visible = false
+	battle_hint.text = "备战 %d 秒，敌方部队即将出击" % int(_diff().first_delay)
+	if result_overlay != null:
+		result_overlay.visible = false
 	_remove_battle_units()
 	_update_progress_ui()
 	_update_tower_ui()
@@ -964,6 +1013,7 @@ func _on_card_clicked(card: CardView) -> void:
 		return
 	AudioManager.play_sfx("click")
 	card.claimed = true
+	tray_incoming += 1
 	deck_cards.erase(card)
 	_refill_deck_if_low()
 	_refresh_covered()
@@ -991,12 +1041,14 @@ func _refill_deck_if_low() -> void:
 		_spawn_card(pool[rng.randi() % pool.size()], deck_cards.size(), true)
 
 func _first_open_slot() -> int:
-	return tray_cards.size() if tray_cards.size() < 7 else -1
+	var used := tray_cards.size() + tray_incoming
+	return used if used < TRAY_SLOTS else -1
 
 func _slot_position(index: int) -> Vector2:
 	return tray.global_position + Vector2(16 + index * 89 + 40, 48 + 44)
 
 func _add_to_tray(card_id: String) -> void:
+	tray_incoming = maxi(0, tray_incoming - 1)
 	tray_cards.append(card_id)
 	tray_cards.sort_custom(func(a: String, b: String) -> bool:
 		return _card_sort_key(a) < _card_sort_key(b)
@@ -1008,7 +1060,9 @@ func _add_to_tray(card_id: String) -> void:
 func _check_stuck() -> void:
 	if battle_ended or not battle_active:
 		return
-	if tray_cards.size() >= 7 and not _has_triple():
+	if tray_incoming > 0:
+		return
+	if tray_cards.size() >= TRAY_SLOTS and not _has_triple():
 		_finish_battle(false, "失败！合成台已满且无法继续合成")
 
 func _card_sort_key(card_id: String) -> int:
@@ -1061,7 +1115,7 @@ func _spawn_ally(hero_id: String) -> void:
 		texture = load(path)
 	var unit := BattleUnit.new()
 	unit.setup(hero_id, "ally", data, texture)
-	unit.position = Vector2(ALLY_TOWER_X + 96 + (occupied_units % 3) * 68, BATTLE_GROUND_Y - (occupied_units / 3) * 32)
+	unit.position = Vector2(ALLY_TOWER_X + 96 + (occupied_units % 3) * 60, BATTLE_GROUND_Y - (occupied_units % 3) * 6)
 	unit.z_index = 4
 	unit.expired.connect(_on_unit_expired)
 	world.add_child(unit)
@@ -1073,9 +1127,10 @@ func _spawn_wave() -> void:
 	if ids.is_empty():
 		return
 	wave_number += 1
-	var count := clampi(3 + wave_number / 3, 3, 7)
+	var d := _diff()
+	var count := clampi(int(d.count_base) + wave_number / int(d.count_step), int(d.count_base), int(d.count_max))
 	var spawn_index := 0
-	if wave_number % 4 == 0:
+	if wave_number % 5 == 0:
 		var boss_ids: Array[String] = []
 		for hero_id in ids:
 			if str(GameData.HEROES[hero_id].get("role", "")) == "boss":
@@ -1087,14 +1142,17 @@ func _spawn_wave() -> void:
 		_spawn_enemy(ids[rng.randi_range(0, ids.size() - 1)], index)
 
 func _spawn_enemy(hero_id: String, index: int) -> void:
-	var data: Dictionary = GameData.HEROES[hero_id]
+	var data: Dictionary = GameData.HEROES[hero_id].duplicate(true)
+	var mult := float(_diff().enemy_mult)
+	data["hp"] = float(data.hp) * mult
+	data["attack"] = float(data.attack) * mult
 	var texture: Texture2D
 	var path := GameData.hero_texture_path(hero_id)
 	if path != "":
 		texture = load(path)
 	var unit := BattleUnit.new()
 	unit.setup(hero_id, "enemy", data, texture)
-	unit.position = Vector2(ENEMY_TOWER_X - 96 - (index % 2) * 26, BATTLE_GROUND_Y - (index / 2) * 34)
+	unit.position = Vector2(ENEMY_TOWER_X - 96 - (index % 3) * 60, BATTLE_GROUND_Y - (index % 3) * 6)
 	unit.z_index = 4
 	unit.expired.connect(_on_unit_expired)
 	world.add_child(unit)
@@ -1363,9 +1421,8 @@ func _finish_round(message: String) -> void:
 	SaveManager.set_best_score(best_score)
 	SaveManager.set_coins(coin_count)
 	status_label.text = "%s\n本局积分 %d（最高 %d）" % [message, kill_score, best_score]
-	status_label.visible = true
-	restart_button.visible = true
-	result_menu_button.visible = true
+	if result_overlay != null:
+		result_overlay.visible = true
 
 func _update_progress_ui() -> void:
 	if era_label == null:
