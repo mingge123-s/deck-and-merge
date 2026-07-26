@@ -24,6 +24,7 @@ const TOWER_GROUND_NUDGE := 3.0
 const TOWER_ATTACK_RANGE := 420.0
 const TOWER_ATTACK_CD := 1.1
 const TANK_AGGRO_RADIUS := 150.0
+const PROJECTILE_RANGE_THRESHOLD := 100.0
 const UNIT_CAP := 30
 const VICTORY_REWARD_BASE := 120
 const REINFORCEMENT_PRICE_BASE := 200
@@ -99,8 +100,6 @@ var wave_number := 0
 var ally_tower_cd := 0.0
 var enemy_tower_cd := 0.0
 var card_z_top := 0
-var pending_era_cards: Array[String] = []
-var era_card_timer := 0.0
 var ally_tower_hp := 1.0
 var enemy_tower_hp := 1.0
 var ally_tower_max_hp := 1.0
@@ -187,12 +186,6 @@ func _process(delta: float) -> void:
 	if paused:
 		return
 	_update_minimap()
-	if not pending_era_cards.is_empty():
-		era_card_timer -= delta
-		if era_card_timer <= 0.0:
-			_spawn_card(pending_era_cards.pop_front(), deck_cards.size())
-			era_card_timer = 0.32
-			_refresh_covered()
 	if not battle_active or battle_ended:
 		return
 	wave_timer -= delta
@@ -936,8 +929,6 @@ func _start_round(start_era_index: int = 0) -> void:
 	ally_tower_cd = 0.0
 	enemy_tower_cd = 0.0
 	card_z_top = 0
-	pending_era_cards.clear()
-	era_card_timer = 0.0
 	ally_tower_hp = GameData.tower_hp(current_era)
 	enemy_tower_hp = GameData.tower_hp(current_era)
 	ally_tower_max_hp = ally_tower_hp
@@ -1264,8 +1255,14 @@ func _spawn_ally(hero_id: String) -> BattleUnit:
 	var unit := BattleUnit.new()
 	unit.setup(hero_id, "ally", data, texture)
 	var ally_count := _living_units("ally").size()
-	var spacing := minf(54.0, 300.0 / maxf(1.0, float(UNIT_CAP - 1)))
-	unit.position = Vector2(ALLY_TOWER_X + 96 + ally_count * spacing, BATTLE_GROUND_Y)
+	var units_per_row := 6
+	var row := ally_count / units_per_row
+	var column := ally_count % units_per_row
+	var spacing := 48.0
+	unit.position = Vector2(
+		ALLY_TOWER_X + 96 + column * spacing + row * 28.0,
+		BATTLE_GROUND_Y - (row % 3) * 12.0
+	)
 	unit.z_index = 4
 	unit.expired.connect(_on_unit_expired)
 	world.add_child(unit)
@@ -1430,7 +1427,7 @@ func _nearest_unit(unit: BattleUnit, candidates: Array[BattleUnit]) -> BattleUni
 func _attack(attacker: BattleUnit, target: BattleUnit) -> void:
 	attacker.spend_attack_time()
 	attacker.play_attack()
-	if float(attacker.stats.get("range", 0.0)) > 100.0:
+	if float(attacker.stats.get("range", 0.0)) >= PROJECTILE_RANGE_THRESHOLD:
 		var facing := 1.0 if attacker.faction == "ally" else -1.0
 		var start_pos := attacker.position + Vector2(facing * 30.0, -56.0)
 		var target_pos := func() -> Variant:
@@ -1462,7 +1459,7 @@ func _attack_tower(attacker: BattleUnit) -> void:
 	attacker.play_attack()
 	var damage := float(attacker.stats.attack)
 	var tower_x := ENEMY_TOWER_X if attacker.faction == "ally" else ALLY_TOWER_X
-	if float(attacker.stats.get("range", 0.0)) > 100.0:
+	if float(attacker.stats.get("range", 0.0)) >= PROJECTILE_RANGE_THRESHOLD:
 		var facing := 1.0 if attacker.faction == "ally" else -1.0
 		var start_pos := attacker.position + Vector2(facing * 30.0, -56.0)
 		var tower_point := Vector2(tower_x, BATTLE_GROUND_Y - 56.0)
@@ -1517,22 +1514,23 @@ func _advance_era() -> void:
 	current_era = GameData.ERAS[era_index]
 	SaveManager.unlock_era(era_index)
 	AudioManager.play_sfx("era")
-	_add_new_era_cards()
+	_replace_remaining_cards_for_era()
 	_update_progress_ui()
 	battle_hint.text = "文明进阶：%s！牌堆中的卡牌已悄然换新" % GameData.ERA_NAMES[current_era]
 	_refresh_era_visuals(true)
 	print("时代进阶: %s" % current_era)
 
-func _add_new_era_cards() -> void:
-	pending_era_cards.clear()
+func _replace_remaining_cards_for_era() -> void:
 	var new_cards := GameData.cards_for_era(current_era)
 	if new_cards.is_empty():
 		return
 	var old_cards := deck_cards.duplicate()
-	var replacement_index := 0
+	var replaceable_cards: Array[CardView] = []
 	for old_card in old_cards:
-		if not is_instance_valid(old_card):
-			continue
+		if is_instance_valid(old_card) and not old_card.claimed:
+			replaceable_cards.append(old_card)
+	var replacement_index := 0
+	for old_card in replaceable_cards:
 		var old_index := deck_cards.find(old_card)
 		if old_index < 0:
 			continue
@@ -1550,7 +1548,12 @@ func _add_new_era_cards() -> void:
 		card_layer.add_child(replacement)
 		deck_cards[old_index] = replacement
 		old_card.queue_free()
-	era_card_timer = 0.0
+	var remainder := replaceable_cards.size() % 3
+	if remainder != 0:
+		var extra_count := 3 - remainder
+		for extra_index in range(extra_count):
+			var card_id: String = new_cards[((replaceable_cards.size() + extra_index) / 3) % new_cards.size()]
+			_spawn_card(card_id, deck_cards.size(), true)
 	_refresh_covered()
 
 func _spawn_hit_fx(local_position: Vector2, color: Color, text: String) -> void:
