@@ -24,6 +24,7 @@ const TOWER_GROUND_NUDGE := 3.0
 const TOWER_ATTACK_RANGE := 420.0
 const TOWER_ATTACK_CD := 1.1
 const TANK_AGGRO_RADIUS := 150.0
+const UNIT_CAP := 30
 const VICTORY_REWARD_BASE := 120
 const REINFORCEMENT_PRICE_BASE := 200
 const REPAIR_PRICE_BASE := 150
@@ -102,6 +103,8 @@ var pending_era_cards: Array[String] = []
 var era_card_timer := 0.0
 var ally_tower_hp := 1.0
 var enemy_tower_hp := 1.0
+var ally_tower_max_hp := 1.0
+var enemy_tower_max_hp := 1.0
 var era_visual_tween: Tween
 var rng := RandomNumberGenerator.new()
 var hit_fx_pool: Array[Label] = []
@@ -114,7 +117,7 @@ func _diff() -> Dictionary:
 func _ready() -> void:
 	_apply_default_font()
 	GameData.initialize()
-	coin_count = SaveManager.get_coins()
+	coin_count = 300
 	rng.randomize()
 	_build_background()
 	_build_top_bar()
@@ -750,12 +753,15 @@ func _update_shop_ui() -> void:
 	var next_era_index := era_index + 1
 	var can_upgrade := next_era_index < GameData.ERAS.size()
 	var era_cost := int(GameData.ERA_UPGRADE_COST.get(current_era, 0))
+	var ally_cap_reached := _living_units("ally").size() >= UNIT_CAP
 	if can_upgrade:
 		var next_era: String = GameData.ERAS[next_era_index]
 		shop_era_button.text = "%s  %d" % [GameData.ERA_NAMES.get(next_era, next_era), era_cost]
 	else:
 		shop_era_button.text = "已是最终时代"
-	shop_reinforcement_button.disabled = not battle_active or battle_ended or coin_count < reinforcement_price
+	shop_reinforcement_button.text = "援军已满  %d" % reinforcement_price if ally_cap_reached else "召唤援军  %d" % reinforcement_price
+	shop_reinforcement_button.tooltip_text = "己方单位已达上限" if ally_cap_reached else ""
+	shop_reinforcement_button.disabled = not battle_active or battle_ended or ally_cap_reached or coin_count < reinforcement_price
 	shop_repair_button.disabled = not battle_active or battle_ended or coin_count < repair_price
 	shop_clear_tray_button.disabled = (
 		not battle_active
@@ -770,7 +776,7 @@ func _era_amount(base_amount: int) -> int:
 
 func _buy_reinforcement() -> void:
 	var price := _era_amount(REINFORCEMENT_PRICE_BASE)
-	if not battle_active or battle_ended or coin_count < price:
+	if not battle_active or battle_ended or _living_units("ally").size() >= UNIT_CAP or coin_count < price:
 		return
 	var ids := GameData.heroes_for_era(current_era)
 	if ids.is_empty():
@@ -778,7 +784,6 @@ func _buy_reinforcement() -> void:
 	coin_count -= price
 	_spawn_ally(ids[rng.randi_range(0, ids.size() - 1)])
 	_update_coin_ui()
-	SaveManager.set_coins(coin_count)
 	_update_shop_ui()
 
 func _buy_repair() -> void:
@@ -787,12 +792,11 @@ func _buy_repair() -> void:
 		return
 	coin_count -= price
 	ally_tower_hp = minf(
-		ally_tower_hp + GameData.tower_hp(current_era) * 0.25,
-		GameData.tower_hp(current_era)
+		ally_tower_hp + ally_tower_max_hp * 0.25,
+		ally_tower_max_hp
 	)
 	_update_coin_ui()
 	_update_tower_ui()
-	SaveManager.set_coins(coin_count)
 	_update_shop_ui()
 
 func _buy_clear_tray() -> void:
@@ -812,7 +816,6 @@ func _buy_clear_tray() -> void:
 		tray_cards.erase(removals[index])
 	_rebuild_tray_visuals()
 	_update_coin_ui()
-	SaveManager.set_coins(coin_count)
 	_update_shop_ui()
 
 func _buy_era_upgrade() -> void:
@@ -825,7 +828,6 @@ func _buy_era_upgrade() -> void:
 	coin_count -= cost
 	_advance_era()
 	_update_coin_ui()
-	SaveManager.set_coins(coin_count)
 	_update_shop_ui()
 
 func _build_era_select_panel() -> void:
@@ -917,6 +919,7 @@ func _start_round(start_era_index: int = 0) -> void:
 	occupied_units = 0
 	era_index = clampi(start_era_index, 0, GameData.ERAS.size() - 1)
 	current_era = GameData.ERAS[era_index]
+	coin_count = 300
 	kill_score = 0
 	battle_active = true
 	battle_ended = false
@@ -937,6 +940,8 @@ func _start_round(start_era_index: int = 0) -> void:
 	era_card_timer = 0.0
 	ally_tower_hp = GameData.tower_hp(current_era)
 	enemy_tower_hp = GameData.tower_hp(current_era)
+	ally_tower_max_hp = ally_tower_hp
+	enemy_tower_max_hp = enemy_tower_hp
 	battle_hint.text = "备战 %d 秒，敌方部队即将出击" % int(_diff().first_delay)
 	if result_overlay != null:
 		result_overlay.visible = false
@@ -1248,26 +1253,31 @@ func _has_triple() -> bool:
 			return true
 	return false
 
-func _spawn_ally(hero_id: String) -> void:
+func _spawn_ally(hero_id: String) -> BattleUnit:
 	var data: Dictionary = GameData.HEROES.get(hero_id, {})
-	if data.is_empty():
-		return
+	if data.is_empty() or _living_units("ally").size() >= UNIT_CAP:
+		return null
 	var texture: Texture2D
 	var path := GameData.hero_texture_path(hero_id)
 	if path != "":
 		texture = load(path)
 	var unit := BattleUnit.new()
 	unit.setup(hero_id, "ally", data, texture)
-	unit.position = Vector2(ALLY_TOWER_X + 96 + (occupied_units % 3) * 60, BATTLE_GROUND_Y - (occupied_units % 3) * 6)
+	var ally_count := _living_units("ally").size()
+	var spacing := minf(54.0, 300.0 / maxf(1.0, float(UNIT_CAP - 1)))
+	unit.position = Vector2(ALLY_TOWER_X + 96 + ally_count * spacing, BATTLE_GROUND_Y)
 	unit.z_index = 4
 	unit.expired.connect(_on_unit_expired)
 	world.add_child(unit)
 	battle_units.append(unit)
 	occupied_units += 1
+	return unit
 
 func _spawn_wave() -> void:
 	var ids := GameData.heroes_for_era(current_era)
 	if ids.is_empty():
+		return
+	if _living_units("enemy").size() >= UNIT_CAP:
 		return
 	wave_number += 1
 	var d := _diff()
@@ -1284,11 +1294,15 @@ func _spawn_wave() -> void:
 	if spawn_index > 0:
 		spawn_ids.append(boss_ids[rng.randi_range(0, boss_ids.size() - 1)])
 	for _index in range(count - spawn_index):
+		if _living_units("enemy").size() + spawn_ids.size() >= UNIT_CAP:
+			break
 		spawn_ids.append(ids[rng.randi_range(0, ids.size() - 1)])
 	for index in range(spawn_ids.size()):
 		_spawn_enemy(spawn_ids[index], index, spawn_ids.size())
 
-func _spawn_enemy(hero_id: String, index: int, total_count: int) -> void:
+func _spawn_enemy(hero_id: String, index: int, total_count: int) -> BattleUnit:
+	if _living_units("enemy").size() >= UNIT_CAP:
+		return null
 	var data: Dictionary = GameData.HEROES[hero_id].duplicate(true)
 	var mult := float(_diff().enemy_mult)
 	data["hp"] = float(data.hp) * mult
@@ -1308,6 +1322,7 @@ func _spawn_enemy(hero_id: String, index: int, total_count: int) -> void:
 	unit.expired.connect(_on_unit_expired)
 	world.add_child(unit)
 	battle_units.append(unit)
+	return unit
 
 func _step_battle(delta: float) -> void:
 	var ally_units := _living_units("ally")
@@ -1415,7 +1430,7 @@ func _nearest_unit(unit: BattleUnit, candidates: Array[BattleUnit]) -> BattleUni
 func _attack(attacker: BattleUnit, target: BattleUnit) -> void:
 	attacker.spend_attack_time()
 	attacker.play_attack()
-	if attacker.stats.role == "ranged":
+	if float(attacker.stats.get("range", 0.0)) > 100.0:
 		var facing := 1.0 if attacker.faction == "ally" else -1.0
 		var start_pos := attacker.position + Vector2(facing * 30.0, -56.0)
 		var target_pos := func() -> Variant:
@@ -1447,7 +1462,7 @@ func _attack_tower(attacker: BattleUnit) -> void:
 	attacker.play_attack()
 	var damage := float(attacker.stats.attack)
 	var tower_x := ENEMY_TOWER_X if attacker.faction == "ally" else ALLY_TOWER_X
-	if attacker.stats.role == "ranged":
+	if float(attacker.stats.get("range", 0.0)) > 100.0:
 		var facing := 1.0 if attacker.faction == "ally" else -1.0
 		var start_pos := attacker.position + Vector2(facing * 30.0, -56.0)
 		var tower_point := Vector2(tower_x, BATTLE_GROUND_Y - 56.0)
@@ -1502,20 +1517,41 @@ func _advance_era() -> void:
 	current_era = GameData.ERAS[era_index]
 	SaveManager.unlock_era(era_index)
 	AudioManager.play_sfx("era")
-	ally_tower_hp = minf(ally_tower_hp + GameData.tower_hp(current_era) * 0.25, GameData.tower_hp(current_era))
-	enemy_tower_hp = minf(enemy_tower_hp + GameData.tower_hp(current_era) * 0.25, GameData.tower_hp(current_era))
 	_add_new_era_cards()
 	_update_progress_ui()
-	battle_hint.text = "文明进阶：%s！新时代卡牌已从牌堆底部加入" % GameData.ERA_NAMES[current_era]
+	battle_hint.text = "文明进阶：%s！牌堆中的卡牌已悄然换新" % GameData.ERA_NAMES[current_era]
 	_refresh_era_visuals(true)
 	print("时代进阶: %s" % current_era)
 
 func _add_new_era_cards() -> void:
 	pending_era_cards.clear()
-	for card_id in GameData.cards_for_era(current_era):
-		for _count in range(3):
-			pending_era_cards.append(card_id)
+	var new_cards := GameData.cards_for_era(current_era)
+	if new_cards.is_empty():
+		return
+	var old_cards := deck_cards.duplicate()
+	var replacement_index := 0
+	for old_card in old_cards:
+		if not is_instance_valid(old_card):
+			continue
+		var old_index := deck_cards.find(old_card)
+		if old_index < 0:
+			continue
+		var card_id: String = new_cards[(replacement_index / 3) % new_cards.size()]
+		replacement_index += 1
+		var replacement := CardView.new()
+		var texture: Texture2D
+		var path := GameData.card_texture_path(card_id)
+		if path != "" and ResourceLoader.exists(path):
+			texture = load(path)
+		replacement.setup(card_id, texture, GameData.CARDS[card_id].color)
+		replacement.position = old_card.position
+		replacement.rotation = old_card.rotation
+		replacement.z_index = old_card.z_index
+		card_layer.add_child(replacement)
+		deck_cards[old_index] = replacement
+		old_card.queue_free()
 	era_card_timer = 0.0
+	_refresh_covered()
 
 func _spawn_hit_fx(local_position: Vector2, color: Color, text: String) -> void:
 	var fx: Label
@@ -1586,7 +1622,6 @@ func _remove_battle_units() -> void:
 func _finish_round(message: String) -> void:
 	var best_score := maxi(SaveManager.get_best_score(), kill_score)
 	SaveManager.set_best_score(best_score)
-	SaveManager.set_coins(coin_count)
 	status_label.text = "%s\n本局积分 %d（最高 %d）" % [message, kill_score, best_score]
 	if result_overlay != null:
 		result_overlay.visible = true
@@ -1605,7 +1640,5 @@ func _update_progress_ui() -> void:
 func _update_tower_ui() -> void:
 	if ally_tower_bar == null:
 		return
-	var ally_max := GameData.tower_hp(current_era)
-	var enemy_max := GameData.tower_hp(current_era)
-	ally_tower_bar.set_health(ally_tower_hp, ally_max)
-	enemy_tower_bar.set_health(enemy_tower_hp, enemy_max)
+	ally_tower_bar.set_health(ally_tower_hp, ally_tower_max_hp)
+	enemy_tower_bar.set_health(enemy_tower_hp, enemy_tower_max_hp)

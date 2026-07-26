@@ -30,7 +30,7 @@ DIFFICULTIES = {
     "hard": {"name": "困难", "wave_interval": 6.0, "first_delay": 3.0, "count_base": 3, "count_step": 3, "count_max": 7, "enemy_mult": 1.3},
 }
 ECONOMY = [
-    ("初始金币（存档默认）", 300),
+    ("局内固定初始金币", 300),
     ("英雄/塔击杀敌人金币", "敌方定位击杀积分 × 时代倍率（塔击杀不给击杀积分）"),
     ("战斗胜利", "120 × 时代倍率"),
     ("商店：召唤援军（当前时代随机英雄）", "200 × 时代倍率"),
@@ -48,6 +48,7 @@ BOARD = [
     ("战场世界宽度", "1680（可视 648，可横移）"),
     ("我方塔 X / 敌方塔 X", "96 / 1584"),
     ("单位近塔攻击距离", TOWER_MELEE_RANGE),
+    ("双方单位上限", 30),
 ]
 
 
@@ -97,15 +98,15 @@ def main():
             base = role_base[hero["role"]]
             mult = era_mult[era]
             tempo = era_tempo[era]
-            cd = base["cooldown"] / tempo
-            attack = base["attack"] * mult
+            cd = base["cooldown"] * hero.get("cooldown_mult", 1.0) / tempo
+            attack = base["attack"] * mult * hero.get("attack_mult", 1.0)
             move_speed = base["move_speed"] * tempo
-            range_value = base["range"] * era_range_mult[era]
+            range_value = hero.get("range", base["range"]) * era_range_mult[era]
             hero_rows.append([
                 era_names[era], hero["name"], hero["card"], role_names[hero["role"]],
                 round(base["hp"] * mult), round(attack, 1), round(1.0 / cd, 2),
                 round(attack / cd, 1), round(range_value, 1), round(move_speed, 1), cd,
-                base["kill_score"], role_scale[hero["role"]],
+                base["kill_score"], hero.get("scale", role_scale[hero["role"]]),
             ])
 
     role_headers = ["定位", "基础生命", "基础攻击", "射程", "移速", "攻击间隔", "击杀积分", "体型缩放"]
@@ -118,7 +119,7 @@ def main():
                  era_tempo[e], era_range_mult[e],
                  "—（最终时代）" if e == eras[-1] else era_cost[e]] for e in eras]
 
-    tower_headers = ["时代", "塔生命", "单次伤害", "攻击间隔", "DPS", "攻击射程", "抛射物外观",
+    tower_headers = ["时代", "塔生命（整局固定上限）", "单次伤害", "攻击间隔", "DPS", "攻击射程", "抛射物外观",
                      "抛射速度", "修复一次回血(25%)"]
     tower_art = {"stone": "投石", "iron": "箭", "industrial": "子弹", "modern": "子弹", "future": "能量弹"}
     tower_rows = [[era_names[e], round(TOWER_BASE_HP * era_mult[e]), round(TOWER_ATTACK * era_mult[e], 1),
@@ -141,7 +142,8 @@ def main():
             cells = []
             for key in ("easy", "normal", "hard"):
                 m = DIFFICULTIES[key]["enemy_mult"]
-                cells.append("%d / %.1f" % (round(base["hp"] * mult * m), base["attack"] * mult * m))
+                attack = base["attack"] * mult * hero.get("attack_mult", 1.0)
+                cells.append("%d / %.1f" % (round(base["hp"] * mult * m), attack * m))
             enemy_rows.append([era_names[era], hero["name"], role_names[hero["role"]]] + cells)
 
     econ_headers = ["项目", "数值"]
@@ -164,14 +166,16 @@ def main():
         lines += ["## " + title, "", table(headers, rows), ""]
         write_csv(csv_name, headers, rows)
     lines += ["## 计算公式", "",
-              "- 英雄生命 = 定位基础生命 × 时代倍率；英雄攻击 = 定位基础攻击 × 时代倍率。",
-            "- 移速与攻速乘节奏系数（攻击间隔除以节奏系数）；射程乘射程系数。",
+              "- 英雄生命 = 定位基础生命 × 时代倍率；英雄攻击 = 定位基础攻击 × 时代倍率 × 英雄攻击修正。",
+            "- 英雄移速乘节奏系数；最终攻击间隔 = 定位基础间隔 × 英雄间隔修正 ÷ 节奏系数；射程 = 英雄基础射程 × 射程系数；体型按英雄覆盖值。",
               "- 敌方单位 = 上述数值 × 难度倍率（生命与攻击都乘）。",
-              "- 防御塔生命 = 1800 × 时代倍率；塔伤害 = 30 × 时代倍率，间隔 1.1 秒，射程 420。",
+              "- 防御塔开局按所选时代设置最大生命（1800 × 时代倍率），整局固定；进阶不改上限也不回血，修塔恢复固定上限的 25%。",
               "- 击杀金币 = 敌方定位击杀积分 × 时代倍率；胜利奖励 = 120 × 时代倍率；商店价格均乘时代倍率。",
               "- 防御塔击杀敌人给金币但不给击杀积分；击杀积分只用于本局结算和最高分显示。",
               "- 时代进阶由商店花金币购买：石器→铁器 200、铁器→工业 360、工业→现代 600、现代→未来 950。",
               "- 暂停即整备时间：战斗、出兵、塔攻击和牌堆冻结，玩家可打开商店购买后确认再战。",
+              "- 射程、体型、攻击和攻击间隔支持逐英雄覆盖；实际射程超过 100 的单位使用时代对应抛射物。",
+              "- 进阶时牌堆中剩余旧时代卡按原位置与层次替换为新时代卡，不新增可见牌数量。",
               "- 清理合成台移除 3 张同名数量最少的牌，价格 = 120 × 时代倍率。", ""]
 
     md_path = os.path.join(OUT_DIR, "README.md")
