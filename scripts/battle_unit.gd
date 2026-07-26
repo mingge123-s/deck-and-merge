@@ -3,6 +3,9 @@ extends Node2D
 
 signal expired(unit: BattleUnit)
 
+static var _meta_cache: Dictionary = {}
+static var _frames_cache: Dictionary = {}
+
 var unit_id := ""
 var faction := ""
 var stats: Dictionary = {}
@@ -19,6 +22,8 @@ var animated := false
 var _attacking := false
 var _moving := false
 var score_awarded := false
+var visual_base_scale := Vector2.ONE
+var hit_punch_tween: Tween
 
 func setup(id: String, side: String, data: Dictionary, texture: Texture2D) -> void:
 	unit_id = id
@@ -39,15 +44,26 @@ func _setup_animated(id: String, side: String, desired_height: float) -> bool:
 	var meta_path := "%s/meta.json" % dir
 	if not ResourceLoader.exists("%s/idle.png" % dir) or not FileAccess.file_exists(meta_path):
 		return false
-	var meta: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(meta_path))
-	if meta == null:
-		return false
-	var frames := SpriteFrames.new()
-	frames.remove_animation("default")
-	_add_anim(frames, dir, "idle", ["idle"], 4.0, true)
-	_add_anim(frames, dir, "walk", ["walk_a", "walk_b"], 7.0, true)
-	_add_anim(frames, dir, "attack", ["atk_a", "atk_b"], 11.0, false)
-	_add_anim(frames, dir, "die", ["die"], 1.0, false)
+	var meta: Dictionary
+	if _meta_cache.has(id):
+		meta = _meta_cache[id]
+	else:
+		var parsed_meta = JSON.parse_string(FileAccess.get_file_as_string(meta_path))
+		if not parsed_meta is Dictionary:
+			return false
+		meta = parsed_meta
+		_meta_cache[id] = meta
+	var frames: SpriteFrames
+	if _frames_cache.has(id):
+		frames = _frames_cache[id]
+	else:
+		frames = SpriteFrames.new()
+		frames.remove_animation("default")
+		_add_anim(frames, dir, "idle", ["idle"], 4.0, true)
+		_add_anim(frames, dir, "walk", ["walk_a", "walk_b"], 7.0, true)
+		_add_anim(frames, dir, "attack", ["atk_a", "atk_b"], 11.0, false)
+		_add_anim(frames, dir, "die", ["die"], 1.0, false)
+		_frames_cache[id] = frames
 	anim = AnimatedSprite2D.new()
 	anim.sprite_frames = frames
 	anim.centered = false
@@ -59,6 +75,7 @@ func _setup_animated(id: String, side: String, desired_height: float) -> bool:
 	anim.animation_finished.connect(_on_anim_finished)
 	add_child(anim)
 	visual = anim
+	visual_base_scale = anim.scale
 	anim.play("idle")
 	return true
 
@@ -92,6 +109,7 @@ func _setup_static(side: String, desired_height: float, texture: Texture2D) -> v
 		label.add_theme_color_override("font_color", Color("#fff0c7"))
 		add_child(label)
 		visual = placeholder
+		visual_base_scale = placeholder.scale
 		sprite = null
 		return
 	sprite = Sprite2D.new()
@@ -102,6 +120,7 @@ func _setup_static(side: String, desired_height: float, texture: Texture2D) -> v
 	sprite.position.y = -desired_height * 0.5
 	add_child(sprite)
 	visual = sprite
+	visual_base_scale = sprite.scale
 
 func set_moving(moving: bool) -> void:
 	if not animated or not alive or _attacking:
@@ -134,9 +153,20 @@ func receive_damage(amount: float) -> void:
 		return
 	hp = max(0.0, hp - amount)
 	flash_time = 0.12
+	_play_hit_punch()
 	queue_redraw()
 	if hp <= 0.0:
 		_die()
+
+func _play_hit_punch() -> void:
+	if not is_instance_valid(visual):
+		return
+	if hit_punch_tween != null:
+		hit_punch_tween.kill()
+	visual.scale = visual_base_scale
+	hit_punch_tween = create_tween()
+	hit_punch_tween.tween_property(visual, "scale", visual_base_scale * 1.06, 0.045)
+	hit_punch_tween.tween_property(visual, "scale", visual_base_scale, 0.055)
 
 func _die() -> void:
 	alive = false

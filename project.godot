@@ -6,6 +6,13 @@ config_version=5
 config/name="牌桌远征：石器时代"
 run/main_scene="res://scenes/main.tscn"
 
+[audio]
+default_bus_layout="res://default_bus_layout.tres"
+
+[autoload]
+SaveManager="*res://scripts/save_manager.gd"
+AudioManager="*res://scripts/audio_manager.gd"
+
 [display]
 window/size/viewport_width=720
 window/size/viewport_height=1280
@@ -13,12 +20,15 @@ window/size/window_width_override=720
 window/size/window_height_override=1280
 window/stretch/mode="canvas_items"
 window/stretch/aspect="keep"
+window/handheld/orientation=1
 
 [rendering]
 renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
+textures/vram_compression/import_etc2_astc=true
 textures/default_filters/use_nearest_mipmap_filter=false
 environment/defaults/default_clear_color=Color(0.18, 0.12, 0.08, 1)
 
 [gui]
-theme/default_font_multichannel_signed_distance_field=true
+theme/custom_font="res://assets/fonts/ui_cjk.ttf"
+theme/default_font_multichannel_signed_distance_field=false

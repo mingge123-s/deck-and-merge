@@ -7,11 +7,6 @@ const LEGACY_CARD_TEXTURES := {
 	"兽皮": "pelt",
 	"木棒": "club",
 	"投石": "sling",
-	"兽骨": "bone",
-	"石斧": "stone_axe",
-	"长矛": "spear",
-	"篝火": "campfire",
-	"金块": "gold",
 }
 
 static var _manifest: Dictionary = {}
@@ -132,7 +127,15 @@ static func hero_for_card(card_id: String) -> Dictionary:
 static func card_texture_path(card_id: String) -> String:
 	var legacy_id: String = LEGACY_CARD_TEXTURES.get(card_id, "")
 	if legacy_id != "":
-		return "res://assets/cards/%s.png" % legacy_id
+		var legacy_path := "res://assets/cards/%s.png" % legacy_id
+		if ResourceLoader.exists(legacy_path):
+			return legacy_path
+	var hero: Dictionary = hero_for_card(card_id)
+	var anim_id := str(hero.get("anim", ""))
+	if anim_id != "":
+		var idle_path := "res://assets/anim/%s/idle.png" % anim_id
+		if ResourceLoader.exists(idle_path):
+			return idle_path
 	return ""
 
 static func hero_texture_path(hero_id: String) -> String:
