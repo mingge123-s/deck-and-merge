@@ -5,3 +5,7 @@ __pycache__/
 
 # Web export output
 build/
+
+# Godot import artifacts for the balance CSV dumps
+docs/balance/*.import
+docs/balance/*.translation

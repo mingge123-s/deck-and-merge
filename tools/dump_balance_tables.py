@@ -22,8 +22,24 @@ TOWER_MELEE_RANGE = 82.0
 TOWER_REPAIR_RATIO = 0.25
 VICTORY_REWARD_BASE = 120
 REINFORCEMENT_PRICE_BASE = 200
-REPAIR_PRICE_BASE = 150
 CLEAR_TRAY_PRICE_BASE = 120
+RANDOM_EFFECT_PRICE_BASE = 260
+BOUNTY_COIN_BASE = 15
+PREP_WAVE_INTERVAL = 3
+RANDOM_EFFECTS = [
+    ("BOSS 召唤", "立刻出战 1 个当前时代的 BOSS 英雄", "即时"),
+    ("战场急救", "我方全体回复 40% 生命", "即时"),
+    ("冰冻力场", "敌方全体停止行动", "3 秒"),
+    ("狂暴号角", "我方攻速 +40%", "20 秒"),
+    ("战意鼓舞", "我方攻击 +25%", "30 秒"),
+    ("铁壁阵型", "我方受到伤害 -30%", "30 秒"),
+    ("疾行药剂", "我方移速 +50%", "20 秒"),
+    ("吸血图腾", "我方造成伤害的 20% 转为治疗", "30 秒"),
+    ("荆棘护甲", "我方受到近战伤害时反弹 30%", "30 秒"),
+    ("修复我方塔", "我方塔回复 25% 满血", "即时"),
+    ("塔炮升级", "我方塔攻击 ×1.5（可叠加）", "整局"),
+    ("悬赏令", "每击杀额外 +15 × 时代倍率 金币", "30 秒"),
+]
 DIFFICULTIES = {
     "easy": {"name": "简单", "wave_interval": 12.0, "first_delay": 6.0, "count_base": 1, "count_step": 5, "count_max": 3, "enemy_mult": 0.7},
     "normal": {"name": "普通", "wave_interval": 9.0, "first_delay": 4.0, "count_base": 2, "count_step": 4, "count_max": 5, "enemy_mult": 1.0},
@@ -33,18 +49,20 @@ ECONOMY = [
     ("局内固定初始金币", 300),
     ("英雄/塔击杀敌人金币", "敌方定位击杀积分 × 时代倍率（塔击杀不给击杀积分）"),
     ("战斗胜利", "120 × 时代倍率"),
-    ("商店：召唤援军（当前时代随机英雄）", "200 × 时代倍率"),
-    ("商店：修复我方塔（+25% 最大生命）", "150 × 时代倍率"),
-    ("商店：清理合成台（移除 3 张牌）", "120 × 时代倍率"),
     ("商店：时代进阶", "石器→铁器 200；铁器→工业 360；工业→现代 600；现代→未来 950"),
+    ("商店：清理合成台（移除 3 张牌）", "120 × 时代倍率"),
+    ("商店：召唤援军（随机时代的随机英雄）", "200 × 时代倍率"),
+    ("商店：随机效果（12 选 1）", "260 × 时代倍率"),
 ]
 BOARD = [
     ("逻辑分辨率", "720 × 1280（竖屏）"),
     ("合成台槽位", 7),
     ("合成规则", "3 张同名卡 → 1 个当前时代英雄"),
-    ("初始牌堆张数", 45),
-    ("补牌触发线", "剩余 ≤ 33 张"),
-    ("补牌目标", "补回 45 张，同名 3 张一组，落在被覆盖率最高处的最底层"),
+    ("初始牌堆张数", 51),
+    ("牌堆构成", "肉盾/战士/刺客/远程 各 12 张，BOSS 3 张"),
+    ("补牌触发线", "剩余 ≤ 39 张"),
+    ("补牌目标", "按缺口补回 51 张，同名 3 张一组，落在被覆盖率最高处的最底层"),
+    ("自动整备", "每 3 波结束自动进入整备（战斗冻结，可逛商店）"),
     ("战场世界宽度", "1680（可视 648，可横移）"),
     ("我方塔 X / 敌方塔 X", "96 / 1584"),
     ("单位近塔攻击距离", TOWER_MELEE_RANGE),
@@ -149,6 +167,19 @@ def main():
     econ_headers = ["项目", "数值"]
     board_headers = ["项目", "数值"]
 
+    deck_total = sum(role_base[r]["deck_count"] for r in roles)
+    deck_headers = ["时代", "卡牌", "定位", "张数", "占比"]
+    deck_rows = []
+    for era in eras:
+        for hero in [h for h in data["heroes"] if h["era"] == era]:
+            count = role_base[hero["role"]]["deck_count"]
+            deck_rows.append([era_names[era], hero["card"], role_names[hero["role"]],
+                              count, "%.0f%%" % (100.0 * count / deck_total)])
+
+    effect_headers = ["效果", "说明", "持续", "抽中概率"]
+    effect_rows = [[name, desc, duration, "%.1f%%" % (100.0 / len(RANDOM_EFFECTS))]
+                   for name, desc, duration in RANDOM_EFFECTS]
+
     sections = [
         ("英雄数值总表（我方合成 / 敌方同池）", hero_headers, hero_rows, "heroes.csv"),
         ("定位基础模板（乘时代倍率前）", role_headers, role_rows, "roles.csv"),
@@ -158,6 +189,8 @@ def main():
         ("敌方实际数值（含难度倍率）", enemy_headers, enemy_rows, "enemies.csv"),
         ("经济与商店", econ_headers, ECONOMY, "economy.csv"),
         ("牌桌与战场参数", board_headers, BOARD, "board.csv"),
+        ("牌堆张数分布（每个时代同构）", deck_headers, deck_rows, "deck.csv"),
+        ("随机效果池（商店「随机效果」等概率抽 1）", effect_headers, effect_rows, "random_effects.csv"),
     ]
 
     lines = ["# 牌桌远征 · 数值总表", "",
@@ -176,7 +209,11 @@ def main():
               "- 暂停即整备时间：战斗、出兵、塔攻击和牌堆冻结，玩家可打开商店购买后确认再战。",
               "- 射程、体型、攻击和攻击间隔支持逐英雄覆盖；实际射程超过 100 的单位使用时代对应抛射物。",
               "- 进阶时牌堆中剩余旧时代卡按原位置与层次替换为新时代卡，不新增可见牌数量。",
-              "- 清理合成台移除 3 张同名数量最少的牌，价格 = 120 × 时代倍率。", ""]
+              "- 清理合成台移除 3 张同名数量最少的牌，价格 = 120 × 时代倍率。",
+              "- 商店只有 4 个项目：时代进阶、清理合成台、召唤援军（随机时代的随机英雄）、随机效果。",
+              "- 随机效果从 12 个候选里等概率抽 1 个（每个 8.3%），价格 = 260 × 时代倍率。",
+              "- 牌堆按定位配张数：肉盾/战士/刺客/远程 各 12 张、BOSS 3 张，共 51 张；开局发牌、补牌、进阶换牌走同一套权重。",
+              "- 每 %d 波结束自动进入整备时间，本波敌人清空即触发，否则在下一波开始前强制触发。" % PREP_WAVE_INTERVAL, ""]
 
     md_path = os.path.join(OUT_DIR, "README.md")
     with open(md_path, "w", encoding="utf-8") as handle:

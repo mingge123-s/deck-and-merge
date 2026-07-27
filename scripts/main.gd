@@ -5,9 +5,9 @@ const BATTLE_RECT := Rect2(36, 116, 648, 300)
 const TRAY_RECT := Rect2(36, 432, 648, 156)
 const BOARD_RECT := Rect2(36, 604, 648, 636)
 const CARD_SIZE := Vector2(138, 166)
-const DECK_LOW := 33
-const DECK_REFILL_TO := 45
+const DECK_LOW_MARGIN := 12
 const TRAY_SLOTS := 7
+const PREP_WAVE_INTERVAL := 3
 const DIFFICULTIES := {
 	"easy": {"name": "简单", "wave_interval": 12.0, "first_delay": 6.0, "count_base": 1, "count_step": 5, "count_max": 3, "enemy_mult": 0.7},
 	"normal": {"name": "普通", "wave_interval": 9.0, "first_delay": 4.0, "count_base": 2, "count_step": 4, "count_max": 5, "enemy_mult": 1.0},
@@ -28,8 +28,23 @@ const PROJECTILE_RANGE_THRESHOLD := 100.0
 const UNIT_CAP := 30
 const VICTORY_REWARD_BASE := 120
 const REINFORCEMENT_PRICE_BASE := 200
-const REPAIR_PRICE_BASE := 150
 const CLEAR_TRAY_PRICE_BASE := 120
+const RANDOM_EFFECT_PRICE_BASE := 260
+const RANDOM_EFFECTS := [
+	{"id": "boss_call", "name": "BOSS 召唤", "desc": "立刻出战 1 个当前时代的 BOSS 英雄", "duration": 0.0},
+	{"id": "field_aid", "name": "战场急救", "desc": "我方全体回复 40% 生命", "duration": 0.0},
+	{"id": "freeze", "name": "冰冻力场", "desc": "敌方全体停止行动 3 秒", "duration": 3.0},
+	{"id": "frenzy", "name": "狂暴号角", "desc": "我方攻速 +40%，持续 20 秒", "duration": 20.0},
+	{"id": "morale", "name": "战意鼓舞", "desc": "我方攻击 +25%，持续 30 秒", "duration": 30.0},
+	{"id": "bulwark", "name": "铁壁阵型", "desc": "我方受到伤害 -30%，持续 30 秒", "duration": 30.0},
+	{"id": "haste", "name": "疾行药剂", "desc": "我方移速 +50%，持续 20 秒", "duration": 20.0},
+	{"id": "lifesteal", "name": "吸血图腾", "desc": "我方造成伤害的 20% 转为治疗，持续 30 秒", "duration": 30.0},
+	{"id": "thorns", "name": "荆棘护甲", "desc": "我方受到近战伤害时反弹 30%，持续 30 秒", "duration": 30.0},
+	{"id": "tower_repair", "name": "修复我方塔", "desc": "我方塔回复 25% 满血", "duration": 0.0},
+	{"id": "tower_power", "name": "塔炮升级", "desc": "我方塔攻击 +50%，整局有效", "duration": 0.0},
+	{"id": "bounty", "name": "悬赏令", "desc": "30 秒内每击杀额外 +15 金币（随时代缩放）", "duration": 30.0},
+]
+const BOUNTY_COIN_BASE := 15
 const ERA_TOWER_TINTS := {
 	"stone": Color(1.0, 0.93, 0.82),
 	"iron": Color(0.92, 0.96, 1.0),
@@ -77,13 +92,16 @@ var settings_panel: Panel
 var shop_panel: Panel
 var shop_coin_label: Label
 var shop_reinforcement_button: Button
-var shop_repair_button: Button
+var shop_random_button: Button
 var shop_clear_tray_button: Button
 var shop_era_button: Button
+var shop_result_label: Label
 var era_select_panel: Panel
 var era_select_buttons: Array[Button] = []
 var pause_overlay: Control
 var pause_shop_button: Button
+var pause_title_label: Label
+var pause_hint_label: Label
 var tutorial_overlay: Control
 var result_overlay: Control
 var music_slider: HSlider
@@ -106,6 +124,12 @@ var ally_tower_max_hp := 1.0
 var enemy_tower_max_hp := 1.0
 var era_visual_tween: Tween
 var rng := RandomNumberGenerator.new()
+var prep_pending := false
+var auto_prep := false
+var buff_timers: Dictionary = {}
+var buff_label: Label
+var enemy_freeze_time := 0.0
+var tower_attack_bonus := 1.0
 var hit_fx_pool: Array[Label] = []
 var camera_shake_offset := Vector2.ZERO
 var camera_shake_tween: Tween
@@ -188,8 +212,15 @@ func _process(delta: float) -> void:
 	_update_minimap()
 	if not battle_active or battle_ended:
 		return
+	_tick_buffs(delta)
+	if prep_pending and _living_units("enemy").is_empty():
+		_enter_preparation()
+		return
 	wave_timer -= delta
 	if wave_timer <= 0.0:
+		if prep_pending:
+			_enter_preparation()
+			return
 		_spawn_wave()
 		wave_timer = _diff().wave_interval
 	_step_battle(delta)
@@ -349,6 +380,8 @@ func _build_battlefield() -> void:
 	ally_tower_sprite = _create_tower_sprite(true)
 	enemy_tower_sprite = _create_tower_sprite(false)
 	battle_hint = _label(battlefield, "拖动战场查看双方阵地", Vector2(16, 18), Vector2(300, 22), 12, Color("#f9deb0"))
+	buff_label = _label(battlefield, "", Vector2(16, 40), Vector2(430, 20), 12, Color("#ffd98a"))
+	buff_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	minimap = BattleMinimap.new()
 	minimap.position = Vector2(462, 8)
 	minimap.size = Vector2(176, 46)
@@ -505,9 +538,10 @@ func _build_pause_overlay() -> void:
 	panel.size = Vector2(460, 280)
 	panel.add_theme_stylebox_override("panel", _panel_style(Color("#c58a53"), Color("#70412c"), 24, 3))
 	pause_overlay.add_child(panel)
-	var title := _label(panel, "整备时间", Vector2(0, 30), Vector2(460, 46), 30)
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_label(panel, "战斗、出兵和牌堆均已冻结", Vector2(0, 92), Vector2(460, 28), 16, Color("#ffe3a5")).horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	pause_title_label = _label(panel, "整备时间", Vector2(0, 30), Vector2(460, 46), 30)
+	pause_title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	pause_hint_label = _label(panel, "战斗、出兵和牌堆均已冻结", Vector2(0, 92), Vector2(460, 28), 16, Color("#ffe3a5"))
+	pause_hint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	pause_shop_button = _menu_button(panel, "打开商店", Vector2(130, 140), Vector2(200, 58), 20)
 	pause_shop_button.pressed.connect(_show_shop)
 	var continue_button := _menu_button(panel, "确认再战", Vector2(130, 214), Vector2(200, 58), 20)
@@ -533,7 +567,7 @@ func _build_tutorial_overlay() -> void:
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	var content := _label(
 		panel,
-		"① 点击没被压住的卡牌，收进合成台\n\n② 3 张同名卡会自动合成英雄出战\n\n③ 拖动战场查看双方阵地，右上角小地图查看红蓝点\n\n④ 金币可在 🛒 商店召唤援军或修复我方塔\n\n⑤ 攒金币，在商店购买时代进阶",
+		"① 点击没被压住的卡牌，收进合成台\n\n② 3 张同名卡会自动合成英雄出战\n\n③ 拖动战场查看双方阵地，右上角小地图查看红蓝点\n\n④ 每 3 波自动进入整备，可从容逛 🛒 商店\n\n⑤ 商店 4 项：时代进阶、清理合成台、召唤援军（随机时代随机英雄）、随机效果",
 		Vector2(42, 122),
 		Vector2(528, 500),
 		18,
@@ -547,8 +581,33 @@ func _toggle_pause() -> void:
 	if not battle_active or battle_ended:
 		return
 	paused = not paused
+	if not paused:
+		auto_prep = false
+	elif not auto_prep:
+		_set_pause_text("整备时间", "战斗、出兵和牌堆均已冻结")
 	if pause_overlay != null:
 		pause_overlay.visible = paused
+	_update_progress_ui()
+
+func _enter_preparation() -> void:
+	prep_pending = false
+	auto_prep = true
+	paused = true
+	wave_timer = _diff().wave_interval
+	_set_pause_text(
+		"第 %d 波结束 · 自动整备" % wave_number,
+		"每 %d 波自动整备一次，可从容逛商店" % PREP_WAVE_INTERVAL
+	)
+	if pause_overlay != null:
+		pause_overlay.visible = true
+	AudioManager.play_sfx("era")
+	_update_progress_ui()
+
+func _set_pause_text(title: String, hint: String) -> void:
+	if pause_title_label != null:
+		pause_title_label.text = title
+	if pause_hint_label != null:
+		pause_hint_label.text = hint
 
 func _show_tutorial() -> void:
 	paused = true
@@ -700,23 +759,26 @@ func _build_shop_panel() -> void:
 	var title := _label(shop_panel, "战斗商店", Vector2(0, 28), Vector2(520, 42), 28)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	shop_coin_label = _label(shop_panel, "", Vector2(52, 92), Vector2(180, 30), 18, Color("#fff0c7"))
-	var reinforcement_label := _label(shop_panel, "召唤援军\n当前时代随机英雄", Vector2(52, 148), Vector2(230, 60), 17, Color("#fff0c7"))
-	reinforcement_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	shop_reinforcement_button = _menu_button(shop_panel, "", Vector2(296, 148), Vector2(170, 60), 16)
-	shop_reinforcement_button.pressed.connect(_buy_reinforcement)
-	var repair_label := _label(shop_panel, "修复我方塔\n恢复当前时代满血的 25%", Vector2(52, 248), Vector2(230, 60), 17, Color("#fff0c7"))
-	repair_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	shop_repair_button = _menu_button(shop_panel, "", Vector2(296, 248), Vector2(170, 60), 16)
-	shop_repair_button.pressed.connect(_buy_repair)
-	var clear_label := _label(shop_panel, "清理合成台\n移除 3 张最难凑成三连的牌", Vector2(52, 348), Vector2(230, 60), 17, Color("#fff0c7"))
-	clear_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	shop_clear_tray_button = _menu_button(shop_panel, "", Vector2(296, 348), Vector2(170, 60), 16)
-	shop_clear_tray_button.pressed.connect(_buy_clear_tray)
-	var era_label := _label(shop_panel, "时代进阶\n花金币解锁下一个时代", Vector2(52, 448), Vector2(230, 60), 17, Color("#fff0c7"))
+	var era_label := _label(shop_panel, "时代进阶\n花金币解锁下一个时代", Vector2(52, 148), Vector2(230, 60), 17, Color("#fff0c7"))
 	era_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	shop_era_button = _menu_button(shop_panel, "", Vector2(296, 448), Vector2(170, 60), 16)
+	shop_era_button = _menu_button(shop_panel, "", Vector2(296, 148), Vector2(170, 60), 16)
 	shop_era_button.pressed.connect(_buy_era_upgrade)
-	var close_button := _menu_button(shop_panel, "关闭", Vector2(160, 570), Vector2(200, 56), 18)
+	var clear_label := _label(shop_panel, "清理合成台\n移除 3 张最难凑成三连的牌", Vector2(52, 248), Vector2(230, 60), 17, Color("#fff0c7"))
+	clear_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	shop_clear_tray_button = _menu_button(shop_panel, "", Vector2(296, 248), Vector2(170, 60), 16)
+	shop_clear_tray_button.pressed.connect(_buy_clear_tray)
+	var reinforcement_label := _label(shop_panel, "召唤援军\n随机时代的随机英雄", Vector2(52, 348), Vector2(230, 60), 17, Color("#fff0c7"))
+	reinforcement_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	shop_reinforcement_button = _menu_button(shop_panel, "", Vector2(296, 348), Vector2(170, 60), 16)
+	shop_reinforcement_button.pressed.connect(_buy_reinforcement)
+	var random_label := _label(shop_panel, "随机效果\n从 12 种战场增益里随机触发 1 个", Vector2(52, 444), Vector2(230, 68), 17, Color("#fff0c7"))
+	random_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	random_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	shop_random_button = _menu_button(shop_panel, "", Vector2(296, 448), Vector2(170, 60), 16)
+	shop_random_button.pressed.connect(_buy_random_effect)
+	shop_result_label = _label(shop_panel, "", Vector2(52, 524), Vector2(416, 60), 15, Color("#ffe3a5"))
+	shop_result_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	var close_button := _menu_button(shop_panel, "关闭", Vector2(160, 596), Vector2(200, 56), 18)
 	close_button.pressed.connect(_hide_shop)
 	_update_shop_ui()
 
@@ -737,11 +799,11 @@ func _update_shop_ui() -> void:
 	if shop_reinforcement_button == null:
 		return
 	var reinforcement_price := _era_amount(REINFORCEMENT_PRICE_BASE)
-	var repair_price := _era_amount(REPAIR_PRICE_BASE)
+	var random_price := _era_amount(RANDOM_EFFECT_PRICE_BASE)
 	var clear_tray_price := _era_amount(CLEAR_TRAY_PRICE_BASE)
 	shop_coin_label.text = "金币：%d" % coin_count
 	shop_reinforcement_button.text = "召唤援军  %d" % reinforcement_price
-	shop_repair_button.text = "修复我方塔  %d" % repair_price
+	shop_random_button.text = "随机效果  %d" % random_price
 	shop_clear_tray_button.text = "清理合成台  %d" % clear_tray_price
 	var next_era_index := era_index + 1
 	var can_upgrade := next_era_index < GameData.ERAS.size()
@@ -755,7 +817,7 @@ func _update_shop_ui() -> void:
 	shop_reinforcement_button.text = "援军已满  %d" % reinforcement_price if ally_cap_reached else "召唤援军  %d" % reinforcement_price
 	shop_reinforcement_button.tooltip_text = "己方单位已达上限" if ally_cap_reached else ""
 	shop_reinforcement_button.disabled = not battle_active or battle_ended or ally_cap_reached or coin_count < reinforcement_price
-	shop_repair_button.disabled = not battle_active or battle_ended or coin_count < repair_price
+	shop_random_button.disabled = not battle_active or battle_ended or coin_count < random_price
 	shop_clear_tray_button.disabled = (
 		not battle_active
 		or battle_ended
@@ -771,26 +833,92 @@ func _buy_reinforcement() -> void:
 	var price := _era_amount(REINFORCEMENT_PRICE_BASE)
 	if not battle_active or battle_ended or _living_units("ally").size() >= UNIT_CAP or coin_count < price:
 		return
-	var ids := GameData.heroes_for_era(current_era)
+	var era: String = GameData.ERAS[rng.randi_range(0, GameData.ERAS.size() - 1)]
+	var ids := GameData.heroes_for_era(era)
 	if ids.is_empty():
 		return
 	coin_count -= price
-	_spawn_ally(ids[rng.randi_range(0, ids.size() - 1)])
+	var hero_id := ids[rng.randi_range(0, ids.size() - 1)]
+	_spawn_ally(hero_id)
+	var hero: Dictionary = GameData.HEROES.get(hero_id, {})
+	_set_shop_result("援军抵达：%s（%s）" % [str(hero.get("name", hero_id)), str(hero.get("era_name", era))])
 	_update_coin_ui()
 	_update_shop_ui()
 
-func _buy_repair() -> void:
-	var price := _era_amount(REPAIR_PRICE_BASE)
+func _buy_random_effect() -> void:
+	var price := _era_amount(RANDOM_EFFECT_PRICE_BASE)
 	if not battle_active or battle_ended or coin_count < price:
 		return
 	coin_count -= price
-	ally_tower_hp = minf(
-		ally_tower_hp + ally_tower_max_hp * 0.25,
-		ally_tower_max_hp
-	)
+	var effect: Dictionary = RANDOM_EFFECTS[rng.randi_range(0, RANDOM_EFFECTS.size() - 1)]
+	_apply_random_effect(effect)
+	_set_shop_result("随机效果：%s —— %s" % [str(effect.name), str(effect.desc)])
+	battle_hint.text = "随机效果：%s" % str(effect.name)
+	AudioManager.play_sfx("era")
 	_update_coin_ui()
 	_update_tower_ui()
 	_update_shop_ui()
+	_update_buff_ui()
+
+func _apply_random_effect(effect: Dictionary) -> void:
+	var effect_id := str(effect.id)
+	var duration := float(effect.get("duration", 0.0))
+	match effect_id:
+		"boss_call":
+			for hero_id in GameData.heroes_for_era(current_era):
+				if str(GameData.HEROES[hero_id].get("role", "")) == "boss":
+					_spawn_ally(hero_id)
+					break
+		"field_aid":
+			for unit in _living_units("ally"):
+				unit.heal(unit.max_hp * 0.4)
+				_spawn_hit_fx(unit.position, Color("#8ce68c"), "＋")
+		"freeze":
+			enemy_freeze_time = maxf(enemy_freeze_time, duration)
+			for unit in _living_units("enemy"):
+				_spawn_hit_fx(unit.position, Color("#8fd8ff"), "❄")
+		"tower_repair":
+			ally_tower_hp = minf(ally_tower_hp + ally_tower_max_hp * 0.25, ally_tower_max_hp)
+		"tower_power":
+			tower_attack_bonus *= 1.5
+		_:
+			buff_timers[effect_id] = maxf(float(buff_timers.get(effect_id, 0.0)), duration)
+
+func _set_shop_result(text: String) -> void:
+	if shop_result_label != null:
+		shop_result_label.text = text
+
+func _buff_active(effect_id: String) -> bool:
+	return float(buff_timers.get(effect_id, 0.0)) > 0.0
+
+func _effect_name(effect_id: String) -> String:
+	for effect in RANDOM_EFFECTS:
+		if str(effect.id) == effect_id:
+			return str(effect.name)
+	return effect_id
+
+func _tick_buffs(delta: float) -> void:
+	enemy_freeze_time = maxf(0.0, enemy_freeze_time - delta)
+	var expired: Array[String] = []
+	for effect_id in buff_timers:
+		buff_timers[effect_id] = float(buff_timers[effect_id]) - delta
+		if float(buff_timers[effect_id]) <= 0.0:
+			expired.append(str(effect_id))
+	for effect_id in expired:
+		buff_timers.erase(effect_id)
+	_update_buff_ui()
+
+func _update_buff_ui() -> void:
+	if buff_label == null:
+		return
+	var parts: Array[String] = []
+	if enemy_freeze_time > 0.0:
+		parts.append("冰冻力场 %ds" % int(ceil(enemy_freeze_time)))
+	for effect_id in buff_timers:
+		parts.append("%s %ds" % [_effect_name(str(effect_id)), int(ceil(float(buff_timers[effect_id])))])
+	if tower_attack_bonus > 1.0:
+		parts.append("塔炮 ×%.1f" % tower_attack_bonus)
+	buff_label.text = "   ".join(parts)
 
 func _buy_clear_tray() -> void:
 	var price := _era_amount(CLEAR_TRAY_PRICE_BASE)
@@ -914,6 +1042,13 @@ func _start_round(start_era_index: int = 0) -> void:
 	current_era = GameData.ERAS[era_index]
 	coin_count = 300
 	kill_score = 0
+	prep_pending = false
+	auto_prep = false
+	buff_timers.clear()
+	enemy_freeze_time = 0.0
+	tower_attack_bonus = 1.0
+	_update_buff_ui()
+	_set_shop_result("")
 	battle_active = true
 	battle_ended = false
 	battle_won = false
@@ -940,9 +1075,10 @@ func _start_round(start_era_index: int = 0) -> void:
 	_update_progress_ui()
 	_update_tower_ui()
 	var deck: Array[String] = []
-	for card_id in GameData.cards_for_era(current_era):
-		for _count in range(9):
-			deck.append(card_id)
+	var counts := GameData.deck_counts_for_era(current_era)
+	for card_id in counts:
+		for _count in range(int(counts[card_id])):
+			deck.append(str(card_id))
 	deck.shuffle()
 	for index in range(deck.size()):
 		_spawn_card(deck[index], index)
@@ -1169,15 +1305,28 @@ func _on_card_clicked(card: CardView) -> void:
 	)
 
 func _refill_deck_if_low() -> void:
-	if deck_cards.size() > DECK_LOW:
+	var target_counts := GameData.deck_counts_for_era(current_era)
+	if target_counts.is_empty():
 		return
-	var pool := GameData.cards_for_era(current_era)
-	if pool.is_empty():
+	var deck_target := GameData.deck_total_for_era(current_era)
+	if deck_cards.size() > deck_target - DECK_LOW_MARGIN:
 		return
-	while deck_cards.size() + 3 <= DECK_REFILL_TO:
-		var card_id := pool[rng.randi() % pool.size()]
+	while deck_cards.size() + 3 <= deck_target:
+		var current_counts: Dictionary = {}
+		for card in deck_cards:
+			if is_instance_valid(card) and not card.claimed:
+				current_counts[card.card_id] = int(current_counts.get(card.card_id, 0)) + 1
+		var best_card := ""
+		var best_deficit := -99999
+		for card_id in target_counts:
+			var deficit := int(target_counts[card_id]) - int(current_counts.get(card_id, 0))
+			if deficit > best_deficit:
+				best_deficit = deficit
+				best_card = str(card_id)
+		if best_card == "" or best_deficit <= 0:
+			return
 		for _copy in range(3):
-			_spawn_card(card_id, deck_cards.size(), true)
+			_spawn_card(best_card, deck_cards.size(), true)
 
 func _first_open_slot() -> int:
 	var used := tray_cards.size() + tray_incoming
@@ -1277,6 +1426,9 @@ func _spawn_wave() -> void:
 	if _living_units("enemy").size() >= UNIT_CAP:
 		return
 	wave_number += 1
+	if wave_number % PREP_WAVE_INTERVAL == 0:
+		prep_pending = true
+	_update_progress_ui()
 	var d := _diff()
 	var count := clampi(int(d.count_base) + wave_number / int(d.count_step), int(d.count_base), int(d.count_max))
 	var spawn_index := 0
@@ -1326,6 +1478,9 @@ func _step_battle(delta: float) -> void:
 	var enemy_units := _living_units("enemy")
 	for unit in battle_units:
 		if not is_instance_valid(unit) or not unit.alive:
+			continue
+		if unit.faction == "enemy" and enemy_freeze_time > 0.0:
+			unit.set_moving(false)
 			continue
 		unit.attack_cooldown = maxf(0.0, unit.attack_cooldown - delta)
 		var target := _find_target(unit, ally_units, enemy_units)
@@ -1377,10 +1532,12 @@ func _process_tower_attack(ally: bool, candidates: Array[BattleUnit]) -> void:
 			return target.position + Vector2(0, -56.0)
 		return null
 	var damage := 30.0 * float(GameData.ERA_MULT.get(current_era, 1.0))
+	if ally:
+		damage *= tower_attack_bonus
 	var on_hit := func() -> void:
 		if not is_instance_valid(target) or not target.alive:
 			return
-		target.receive_damage(damage, "tower")
+		_deal_damage(target, damage, "tower")
 		_spawn_hit_fx(target.position, Color("#ffd273"), "✦")
 		AudioManager.play_sfx("hit")
 	var projectile := Projectile.new()
@@ -1393,8 +1550,32 @@ func _process_tower_attack(ally: bool, candidates: Array[BattleUnit]) -> void:
 
 func _move_unit(unit: BattleUnit, target_x: float, delta: float) -> void:
 	var direction := signf(target_x - unit.position.x)
-	unit.position.x += direction * float(unit.stats.move_speed) * delta
+	var speed := float(unit.stats.move_speed)
+	if unit.faction == "ally" and _buff_active("haste"):
+		speed *= 1.5
+	unit.position.x += direction * speed * delta
 	unit.set_moving(true)
+
+func _unit_damage(attacker: BattleUnit) -> float:
+	var damage := float(attacker.stats.attack)
+	if attacker.faction == "ally" and _buff_active("morale"):
+		damage *= 1.25
+	return damage
+
+func _deal_damage(target: BattleUnit, amount: float, source: String, attacker: BattleUnit = null) -> void:
+	if not is_instance_valid(target) or not target.alive:
+		return
+	var damage := amount
+	if target.faction == "ally" and _buff_active("bulwark"):
+		damage *= 0.7
+	target.receive_damage(damage, source)
+	if attacker == null or not is_instance_valid(attacker) or not attacker.alive:
+		return
+	if attacker.faction == "ally" and _buff_active("lifesteal"):
+		attacker.heal(damage * 0.2)
+	var melee := float(attacker.stats.get("range", 0.0)) < PROJECTILE_RANGE_THRESHOLD
+	if target.faction == "ally" and attacker.faction == "enemy" and melee and _buff_active("thorns"):
+		attacker.receive_damage(damage * 0.3, "hero")
 
 func _find_target(unit: BattleUnit, ally_units: Array[BattleUnit], enemy_units: Array[BattleUnit]) -> BattleUnit:
 	var candidates := enemy_units if unit.faction == "ally" else ally_units
@@ -1426,7 +1607,10 @@ func _nearest_unit(unit: BattleUnit, candidates: Array[BattleUnit]) -> BattleUni
 
 func _attack(attacker: BattleUnit, target: BattleUnit) -> void:
 	attacker.spend_attack_time()
+	if attacker.faction == "ally" and _buff_active("frenzy"):
+		attacker.attack_cooldown /= 1.4
 	attacker.play_attack()
+	var damage := _unit_damage(attacker)
 	if float(attacker.stats.get("range", 0.0)) >= PROJECTILE_RANGE_THRESHOLD:
 		var facing := 1.0 if attacker.faction == "ally" else -1.0
 		var start_pos := attacker.position + Vector2(facing * 30.0, -56.0)
@@ -1436,7 +1620,7 @@ func _attack(attacker: BattleUnit, target: BattleUnit) -> void:
 			return null
 		var on_hit := func() -> void:
 			if is_instance_valid(target) and target.alive:
-				target.receive_damage(float(attacker.stats.attack), "hero")
+				_deal_damage(target, damage, "hero", attacker)
 				_spawn_hit_fx(target.position, Color("#ffd273"), "✦")
 				AudioManager.play_sfx("hit")
 		var projectile := Projectile.new()
@@ -1450,14 +1634,16 @@ func _attack(attacker: BattleUnit, target: BattleUnit) -> void:
 		)
 		world.add_child(projectile)
 		return
-	target.receive_damage(float(attacker.stats.attack), "hero")
+	_deal_damage(target, damage, "hero", attacker)
 	_spawn_hit_fx(target.position, Color("#ffd273"), "✦")
 	AudioManager.play_sfx("hit")
 
 func _attack_tower(attacker: BattleUnit) -> void:
 	attacker.spend_attack_time()
+	if attacker.faction == "ally" and _buff_active("frenzy"):
+		attacker.attack_cooldown /= 1.4
 	attacker.play_attack()
-	var damage := float(attacker.stats.attack)
+	var damage := _unit_damage(attacker)
 	var tower_x := ENEMY_TOWER_X if attacker.faction == "ally" else ALLY_TOWER_X
 	if float(attacker.stats.get("range", 0.0)) >= PROJECTILE_RANGE_THRESHOLD:
 		var facing := 1.0 if attacker.faction == "ally" else -1.0
@@ -1502,7 +1688,10 @@ func _on_unit_expired(unit: BattleUnit) -> void:
 	if unit.faction == "enemy" and not unit.score_awarded:
 		unit.score_awarded = true
 		var kill_score_value := int(unit.stats.get("kill_score", 0))
-		_change_coins(_era_amount(kill_score_value))
+		var coins := _era_amount(kill_score_value)
+		if _buff_active("bounty"):
+			coins += _era_amount(BOUNTY_COIN_BASE)
+		_change_coins(coins)
 		if unit.last_damage_source != "tower":
 			kill_score += kill_score_value
 		_update_progress_ui()
@@ -1529,12 +1718,13 @@ func _replace_remaining_cards_for_era() -> void:
 	for old_card in old_cards:
 		if is_instance_valid(old_card) and not old_card.claimed:
 			replaceable_cards.append(old_card)
+	var replacement_ids := _weighted_replacement_ids(replaceable_cards.size())
 	var replacement_index := 0
 	for old_card in replaceable_cards:
 		var old_index := deck_cards.find(old_card)
 		if old_index < 0:
 			continue
-		var card_id: String = new_cards[(replacement_index / 3) % new_cards.size()]
+		var card_id: String = replacement_ids[replacement_index]
 		replacement_index += 1
 		var replacement := CardView.new()
 		var texture: Texture2D
@@ -1548,13 +1738,41 @@ func _replace_remaining_cards_for_era() -> void:
 		card_layer.add_child(replacement)
 		deck_cards[old_index] = replacement
 		old_card.queue_free()
-	var remainder := replaceable_cards.size() % 3
-	if remainder != 0:
-		var extra_count := 3 - remainder
-		for extra_index in range(extra_count):
-			var card_id: String = new_cards[((replaceable_cards.size() + extra_index) / 3) % new_cards.size()]
-			_spawn_card(card_id, deck_cards.size(), true)
+	for extra_index in range(replacement_index, replacement_ids.size()):
+		_spawn_card(replacement_ids[extra_index], deck_cards.size(), true)
 	_refresh_covered()
+
+func _weighted_replacement_ids(needed: int) -> Array[String]:
+	var counts := GameData.deck_counts_for_era(current_era)
+	var groups_needed := int(ceil(float(needed) / 3.0))
+	var result: Array[String] = []
+	if counts.is_empty() or groups_needed <= 0:
+		return result
+	var total_weight := 0
+	for card_id in counts:
+		total_weight += int(counts[card_id])
+	var remainders: Array[Dictionary] = []
+	var assigned := 0
+	for card_id in counts:
+		var exact := float(groups_needed) * float(counts[card_id]) / float(total_weight)
+		var whole := int(floor(exact))
+		assigned += whole
+		remainders.append({"card": str(card_id), "groups": whole, "rest": exact - float(whole)})
+	remainders.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return float(a.rest) > float(b.rest)
+	)
+	var leftover := groups_needed - assigned
+	for index in range(remainders.size()):
+		if leftover <= 0:
+			break
+		remainders[index]["groups"] = int(remainders[index].groups) + 1
+		leftover -= 1
+	for entry in remainders:
+		for _group in range(int(entry.groups)):
+			for _copy in range(3):
+				result.append(str(entry.card))
+	result.shuffle()
+	return result
 
 func _spawn_hit_fx(local_position: Vector2, color: Color, text: String) -> void:
 	var fx: Label
@@ -1637,6 +1855,13 @@ func _update_progress_ui() -> void:
 		state = "已通关" if battle_won else "已失守"
 	elif battle_active:
 		state = "战斗中"
+	if battle_active and not battle_ended:
+		if paused and auto_prep:
+			state = "整备中"
+		elif prep_pending:
+			state = "本波结束进入整备"
+		else:
+			state = "距下次整备 %d 波" % (PREP_WAVE_INTERVAL - wave_number % PREP_WAVE_INTERVAL)
 	era_label.text = "%s · %s" % [GameData.ERA_NAMES.get(current_era, current_era), state]
 	score_label.text = "击杀积分 %d" % kill_score
 

@@ -83,6 +83,7 @@ static func _build_heroes(raw_heroes: Variant) -> Dictionary:
 		hero["cooldown"] = float(base.get("cooldown", 1.0)) * float(raw.get("cooldown_mult", 1.0)) / maxf(0.1, tempo)
 		hero["attack_speed"] = 1.0 / maxf(0.1, hero["cooldown"])
 		hero["kill_score"] = int(base.get("kill_score", 10))
+		hero["deck_count"] = int(base.get("deck_count", 9))
 		hero["role_name"] = str(ROLE_NAMES.get(role, role))
 		hero["era_name"] = str(ERA_NAMES.get(era, era))
 		result[str(raw.get("id", ""))] = hero
@@ -125,6 +126,19 @@ static func cards_for_era(era: String) -> Array[String]:
 	for hero_id in heroes_for_era(era):
 		result.append(str(HEROES[hero_id].get("card", hero_id)))
 	return result
+
+static func deck_counts_for_era(era: String) -> Dictionary:
+	var result: Dictionary = {}
+	for hero_id in heroes_for_era(era):
+		var hero: Dictionary = HEROES[hero_id]
+		result[str(hero.get("card", hero_id))] = int(hero.get("deck_count", 9))
+	return result
+
+static func deck_total_for_era(era: String) -> int:
+	var total := 0
+	for count in deck_counts_for_era(era).values():
+		total += int(count)
+	return total
 
 static func hero_for_card(card_id: String) -> Dictionary:
 	var card: Dictionary = CARDS.get(card_id, {})
