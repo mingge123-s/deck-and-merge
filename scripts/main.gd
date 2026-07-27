@@ -45,6 +45,7 @@ const RANDOM_EFFECTS := [
 	{"id": "bounty", "name": "悬赏令", "desc": "30 秒内每击杀额外 +15 金币（随时代缩放）", "duration": 30.0},
 ]
 const BOUNTY_COIN_BASE := 15
+const EFFECT_ICON_PATH := "res://assets/icons/effects/%s.png"
 const ERA_TOWER_TINTS := {
 	"stone": Color(1.0, 0.93, 0.82),
 	"iron": Color(0.92, 0.96, 1.0),
@@ -95,7 +96,7 @@ var shop_reinforcement_button: Button
 var shop_random_button: Button
 var shop_clear_tray_button: Button
 var shop_era_button: Button
-var shop_result_label: Label
+var shop_result_label: RichTextLabel
 var era_select_panel: Panel
 var era_select_buttons: Array[Button] = []
 var pause_overlay: Control
@@ -127,7 +128,7 @@ var rng := RandomNumberGenerator.new()
 var prep_pending := false
 var auto_prep := false
 var buff_timers: Dictionary = {}
-var buff_label: Label
+var buff_label: RichTextLabel
 var enemy_freeze_time := 0.0
 var tower_attack_bonus := 1.0
 var hit_fx_pool: Array[Label] = []
@@ -244,6 +245,18 @@ func _label(parent: Node, text: String, position: Vector2, size: Vector2, font_s
 	label.text = text
 	label.add_theme_font_size_override("font_size", font_size)
 	label.add_theme_color_override("font_color", color)
+	parent.add_child(label)
+	return label
+
+func _rich_label(parent: Node, position: Vector2, size: Vector2, font_size: int, color: Color) -> RichTextLabel:
+	var label := RichTextLabel.new()
+	label.position = position
+	label.size = size
+	label.bbcode_enabled = true
+	label.scroll_active = false
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	label.add_theme_font_size_override("normal_font_size", font_size)
+	label.add_theme_color_override("default_color", color)
 	parent.add_child(label)
 	return label
 
@@ -380,8 +393,7 @@ func _build_battlefield() -> void:
 	ally_tower_sprite = _create_tower_sprite(true)
 	enemy_tower_sprite = _create_tower_sprite(false)
 	battle_hint = _label(battlefield, "拖动战场查看双方阵地", Vector2(16, 18), Vector2(300, 22), 12, Color("#f9deb0"))
-	buff_label = _label(battlefield, "", Vector2(16, 40), Vector2(430, 20), 12, Color("#ffd98a"))
-	buff_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	buff_label = _rich_label(battlefield, Vector2(16, 36), Vector2(440, 28), 12, Color("#ffd98a"))
 	minimap = BattleMinimap.new()
 	minimap.position = Vector2(462, 8)
 	minimap.size = Vector2(176, 46)
@@ -776,8 +788,7 @@ func _build_shop_panel() -> void:
 	random_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	shop_random_button = _menu_button(shop_panel, "", Vector2(296, 448), Vector2(170, 60), 16)
 	shop_random_button.pressed.connect(_buy_random_effect)
-	shop_result_label = _label(shop_panel, "", Vector2(52, 524), Vector2(416, 60), 15, Color("#ffe3a5"))
-	shop_result_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	shop_result_label = _rich_label(shop_panel, Vector2(52, 520), Vector2(416, 66), 15, Color("#ffe3a5"))
 	var close_button := _menu_button(shop_panel, "关闭", Vector2(160, 596), Vector2(200, 56), 18)
 	close_button.pressed.connect(_hide_shop)
 	_update_shop_ui()
@@ -852,7 +863,7 @@ func _buy_random_effect() -> void:
 	coin_count -= price
 	var effect: Dictionary = RANDOM_EFFECTS[rng.randi_range(0, RANDOM_EFFECTS.size() - 1)]
 	_apply_random_effect(effect)
-	_set_shop_result("随机效果：%s —— %s" % [str(effect.name), str(effect.desc)])
+	_set_shop_result("%s%s —— %s" % [_effect_icon_bb(str(effect.id), 22), str(effect.name), str(effect.desc)])
 	battle_hint.text = "随机效果：%s" % str(effect.name)
 	AudioManager.play_sfx("era")
 	_update_coin_ui()
@@ -888,6 +899,12 @@ func _set_shop_result(text: String) -> void:
 	if shop_result_label != null:
 		shop_result_label.text = text
 
+func _effect_icon_bb(effect_id: String, icon_size: int) -> String:
+	var path := EFFECT_ICON_PATH % effect_id
+	if not ResourceLoader.exists(path):
+		return ""
+	return "[img=%d]%s[/img] " % [icon_size, path]
+
 func _buff_active(effect_id: String) -> bool:
 	return float(buff_timers.get(effect_id, 0.0)) > 0.0
 
@@ -913,11 +930,12 @@ func _update_buff_ui() -> void:
 		return
 	var parts: Array[String] = []
 	if enemy_freeze_time > 0.0:
-		parts.append("冰冻力场 %ds" % int(ceil(enemy_freeze_time)))
+		parts.append("%s%s %ds" % [_effect_icon_bb("freeze", 18), _effect_name("freeze"), int(ceil(enemy_freeze_time))])
 	for effect_id in buff_timers:
-		parts.append("%s %ds" % [_effect_name(str(effect_id)), int(ceil(float(buff_timers[effect_id])))])
+		var id := str(effect_id)
+		parts.append("%s%s %ds" % [_effect_icon_bb(id, 18), _effect_name(id), int(ceil(float(buff_timers[effect_id])))])
 	if tower_attack_bonus > 1.0:
-		parts.append("塔炮 ×%.1f" % tower_attack_bonus)
+		parts.append("%s塔炮 ×%.1f" % [_effect_icon_bb("tower_power", 18), tower_attack_bonus])
 	buff_label.text = "   ".join(parts)
 
 func _buy_clear_tray() -> void:
