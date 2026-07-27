@@ -1323,7 +1323,7 @@ func _refill_deck_if_low() -> void:
 			if deficit > best_deficit:
 				best_deficit = deficit
 				best_card = str(card_id)
-		if best_card == "" or best_deficit <= 0:
+		if best_card == "" or best_deficit < 3:
 			return
 		for _copy in range(3):
 			_spawn_card(best_card, deck_cards.size(), true)
