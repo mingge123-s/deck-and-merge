@@ -5,11 +5,11 @@ const BATTLE_RECT := Rect2(36, 116, 648, 300)
 const TRAY_RECT := Rect2(36, 432, 648, 156)
 const BOARD_RECT := Rect2(36, 604, 648, 636)
 const CARD_SIZE := Vector2(138, 166)
-const DECK_LOW_MARGIN := 12
+const DECK_LOW_MARGIN := 12 # 牌堆少于目标-12张才触发补牌；每次把缺口最大的卡补齐到目标(单张单批≤3)
 const TRAY_SLOTS := 7
 const PREP_WAVE_INTERVAL := 3
 const DIFFICULTIES := {
-	"easy": {"name": "简单", "wave_interval": 12.0, "first_delay": 6.0, "count_base": 1, "count_step": 5, "count_max": 3, "enemy_mult": 0.7, "boss_wave": 8, "tower_mult": 1.35},
+	"easy": {"name": "简单", "wave_interval": 14.0, "first_delay": 7.0, "count_base": 1, "count_step": 6, "count_max": 3, "enemy_mult": 0.6, "boss_wave": 8, "tower_mult": 1.9},
 	"normal": {"name": "普通", "wave_interval": 9.0, "first_delay": 4.0, "count_base": 2, "count_step": 4, "count_max": 5, "enemy_mult": 1.0, "boss_wave": 5, "tower_mult": 1.1},
 	"hard": {"name": "困难", "wave_interval": 6.0, "first_delay": 3.0, "count_base": 3, "count_step": 3, "count_max": 7, "enemy_mult": 1.3, "boss_wave": 4, "tower_mult": 1.0},
 }
@@ -400,6 +400,8 @@ func _build_battlefield() -> void:
 	battle_hint = _label(battlefield, "拖动战场查看双方阵地", Vector2(16, 18), Vector2(300, 22), 12, Color("#f9deb0"))
 	buff_label = _rich_label(battlefield, Vector2(16, 36), Vector2(440, 66), 12, Color("#ffd98a"))
 	buff_label.fit_content = true
+	buff_label.autowrap_mode = TextServer.AUTOWRAP_OFF
+	buff_label.clip_contents = true
 	minimap = BattleMinimap.new()
 	minimap.position = Vector2(462, 8)
 	minimap.size = Vector2(176, 46)
@@ -544,15 +546,16 @@ func _build_pause_overlay() -> void:
 	pause_overlay = Control.new()
 	pause_overlay.size = VIEW_SIZE
 	pause_overlay.z_index = 150
-	pause_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	pause_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	pause_overlay.visible = false
 	add_child(pause_overlay)
 	var shade := ColorRect.new()
 	shade.size = VIEW_SIZE
-	shade.color = Color(0.05, 0.03, 0.02, 0.62)
+	shade.color = Color(0.05, 0.03, 0.02, 0.35)
+	shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	pause_overlay.add_child(shade)
 	var panel := Panel.new()
-	panel.position = Vector2(130, 410)
+	panel.position = Vector2(130, 136)
 	panel.size = Vector2(460, 280)
 	panel.add_theme_stylebox_override("panel", _panel_style(Color("#c58a53"), Color("#70412c"), 24, 3))
 	pause_overlay.add_child(panel)
@@ -899,7 +902,7 @@ func _apply_random_effect(effect: Dictionary) -> void:
 		"field_aid":
 			for unit in _living_units("ally"):
 				unit.heal(unit.max_hp * 0.4)
-				_spawn_hit_fx(unit.position, Color("#8ce68c"), "＋")
+				_spawn_hit_fx(unit.position, Color("#8ce68c"), "＋", 0.9)
 		"freeze":
 			enemy_freeze_time = maxf(enemy_freeze_time, duration)
 			for unit in _living_units("enemy"):
@@ -1276,7 +1279,7 @@ func _refresh_covered() -> void:
 	_update_progress_ui()
 
 func _on_card_layer_input(event: InputEvent) -> void:
-	if paused:
+	if not _can_pick_cards():
 		return
 	if not event is InputEventMouseButton or event.button_index != MOUSE_BUTTON_LEFT or not event.pressed:
 		return
@@ -1320,7 +1323,7 @@ func _card_has_exposed_area(snapshot: Dictionary, snapshots: Array[Dictionary]) 
 	return false
 
 func _on_card_clicked(card: CardView) -> void:
-	if paused or card.locked or card.claimed:
+	if not _can_pick_cards() or card.locked or card.claimed:
 		return
 	var target_index := _first_open_slot()
 	if target_index < 0:
@@ -1370,6 +1373,9 @@ func _refill_deck_if_low() -> void:
 		var copies := mini(mini(3, best_deficit), deck_target - deck_cards.size())
 		for _copy in range(copies):
 			_spawn_card(best_card, deck_cards.size(), true)
+
+func _can_pick_cards() -> bool:
+	return battle_active and not battle_ended and (not paused or auto_prep)
 
 func _first_open_slot() -> int:
 	var used := tray_cards.size() + tray_incoming
@@ -1849,7 +1855,7 @@ func _weighted_replacement_ids(needed: int) -> Array[String]:
 	result.shuffle()
 	return result
 
-func _spawn_hit_fx(local_position: Vector2, color: Color, text: String) -> void:
+func _spawn_hit_fx(local_position: Vector2, color: Color, text: String, hold := 0.3) -> void:
 	var fx: Label
 	if hit_fx_pool.is_empty():
 		fx = Label.new()
@@ -1866,8 +1872,9 @@ func _spawn_hit_fx(local_position: Vector2, color: Color, text: String) -> void:
 		world.add_child(fx)
 	var tween := create_tween()
 	tween.set_parallel(true)
-	tween.tween_property(fx, "position:y", fx.position.y - 18, 0.3)
-	tween.tween_property(fx, "modulate", Color(1, 1, 1, 0), 0.3)
+	var rise := 36.0 if hold > 0.5 else 18.0
+	tween.tween_property(fx, "position:y", fx.position.y - rise, hold)
+	tween.tween_property(fx, "modulate", Color(1, 1, 1, 0), hold)
 	tween.chain().tween_callback(_recycle_hit_fx.bind(fx))
 
 func _recycle_hit_fx(fx: Label) -> void:
