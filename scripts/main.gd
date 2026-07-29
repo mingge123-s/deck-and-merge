@@ -1511,10 +1511,20 @@ func _spawn_wave() -> void:
 	var spawn_ids: Array[String] = []
 	if spawn_index > 0:
 		spawn_ids.append(boss_ids[rng.randi_range(0, boss_ids.size() - 1)])
+	# 普通兵按角色 deck_count 加权、排除 BOSS（BOSS 仅走保底波）。
+	var weighted_regular_ids: Array[String] = []
+	for hero_id in ids:
+		if str(GameData.HEROES[hero_id].get("role", "")) == "boss":
+			continue
+		var weight := maxi(0, int(GameData.HEROES[hero_id].get("deck_count", 12)))
+		for _weight in range(weight):
+			weighted_regular_ids.append(hero_id)
+	if weighted_regular_ids.is_empty():
+		weighted_regular_ids = ids
 	for _index in range(count - spawn_index):
 		if _living_units("enemy").size() + spawn_ids.size() >= UNIT_CAP:
 			break
-		spawn_ids.append(ids[rng.randi_range(0, ids.size() - 1)])
+		spawn_ids.append(weighted_regular_ids[rng.randi_range(0, weighted_regular_ids.size() - 1)])
 	for index in range(spawn_ids.size()):
 		_spawn_enemy(spawn_ids[index], index, spawn_ids.size())
 
