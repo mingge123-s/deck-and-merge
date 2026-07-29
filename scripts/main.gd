@@ -8,10 +8,11 @@ const CARD_SIZE := Vector2(138, 166)
 const DECK_LOW_MARGIN := 12 # 牌堆少于目标-12张才触发补牌；每次把缺口最大的卡补齐到目标(单张单批≤3)
 const TRAY_SLOTS := 7
 const PREP_WAVE_INTERVAL := 3
+const SPAWN_STAGGER := 1.2
 const DIFFICULTIES := {
-	"easy": {"name": "简单", "wave_min": 7.0, "wave_cap": 20.0, "first_delay": 7.0, "count_base": 1, "count_step": 6, "count_max": 3, "enemy_mult": 0.6, "boss_wave": 8, "tower_mult": 1.9, "ai_income_mult": 0.6, "ai_trickle": 1.0, "ai_effect_chance": 0.25},
-	"normal": {"name": "普通", "wave_min": 5.0, "wave_cap": 15.0, "first_delay": 4.0, "count_base": 2, "count_step": 4, "count_max": 5, "enemy_mult": 1.0, "boss_wave": 5, "tower_mult": 1.1, "ai_income_mult": 1.0, "ai_trickle": 2.0, "ai_effect_chance": 0.4},
-	"hard": {"name": "困难", "wave_min": 3.0, "wave_cap": 10.0, "first_delay": 3.0, "count_base": 3, "count_step": 3, "count_max": 7, "enemy_mult": 1.3, "boss_wave": 4, "tower_mult": 1.0, "ai_income_mult": 1.4, "ai_trickle": 3.0, "ai_effect_chance": 0.55},
+	"easy": {"name": "简单", "wave_min": 6.0, "wave_cap": 45.0, "first_delay": 7.0, "count_base": 2, "count_step": 6, "count_max": 4, "enemy_mult": 0.6, "boss_wave": 8, "tower_mult": 1.9, "ai_income_mult": 0.6, "ai_trickle": 1.0, "ai_effect_chance": 0.25},
+	"normal": {"name": "普通", "wave_min": 5.0, "wave_cap": 40.0, "first_delay": 4.0, "count_base": 2, "count_step": 4, "count_max": 5, "enemy_mult": 1.0, "boss_wave": 5, "tower_mult": 1.1, "ai_income_mult": 1.0, "ai_trickle": 2.0, "ai_effect_chance": 0.4},
+	"hard": {"name": "困难", "wave_min": 3.0, "wave_cap": 35.0, "first_delay": 3.0, "count_base": 3, "count_step": 3, "count_max": 7, "enemy_mult": 1.3, "boss_wave": 4, "tower_mult": 1.0, "ai_income_mult": 1.4, "ai_trickle": 3.0, "ai_effect_chance": 0.55},
 }
 const BATTLE_GROUND_Y := 222.0
 const WORLD_WIDTH := 1680.0
@@ -119,6 +120,9 @@ var battle_won := false
 var paused := false
 var wave_timer := 0.0
 var wave_min_timer := 0.0
+var enemy_spawn_queue: Array[String] = []
+var enemy_spawn_timer := 0.0
+var enemy_spawn_index := 0
 var wave_number := 0
 var ally_tower_cd := 0.0
 var enemy_tower_cd := 0.0
@@ -232,21 +236,28 @@ func _process(delta: float) -> void:
 	if not battle_active or battle_ended:
 		return
 	_tick_buffs(delta)
-	if prep_pending and _living_units("enemy").is_empty():
-		_enter_preparation()
-		return
+	# 错峰刷出当前波剩余敌人
+	if not enemy_spawn_queue.is_empty():
+		enemy_spawn_timer -= delta
+		if enemy_spawn_timer <= 0.0:
+			var next_id: String = enemy_spawn_queue.pop_front()
+			_spawn_enemy(next_id, enemy_spawn_index % 3, 3)
+			enemy_spawn_index += 1
+			enemy_spawn_timer = SPAWN_STAGGER
 	wave_timer -= delta
 	wave_min_timer -= delta
 	enemy_coin += float(_diff().ai_trickle) * delta
 	enemy_effect_cd = maxf(0.0, enemy_effect_cd - delta)
-	var cleared := _living_units("enemy").is_empty()
-	if (wave_min_timer <= 0.0 and cleared) or wave_timer <= 0.0:
-		if prep_pending:
+	var cleared := enemy_spawn_queue.is_empty() and _living_units("enemy").is_empty()
+	if prep_pending:
+		if cleared:
 			_enter_preparation()
 			return
-		_spawn_wave()
-		wave_timer = _diff().wave_cap
-		wave_min_timer = _diff().wave_min
+	else:
+		if (cleared and wave_min_timer <= 0.0) or wave_timer <= 0.0:
+			_spawn_wave()
+			wave_timer = _diff().wave_cap
+			wave_min_timer = _diff().wave_min
 	_step_battle(delta)
 	_update_tower_ui()
 
@@ -649,6 +660,9 @@ func _enter_preparation() -> void:
 	prep_pending = false
 	auto_prep = true
 	paused = true
+	enemy_spawn_queue.clear()
+	enemy_spawn_timer = 0.0
+	enemy_spawn_index = 0
 	wave_timer = _diff().wave_cap
 	wave_min_timer = _diff().wave_min
 	_set_pause_text(
@@ -1187,6 +1201,9 @@ func _start_round(start_era_index: int = 0) -> void:
 		pause_button.visible = true
 	wave_timer = _diff().first_delay
 	wave_min_timer = _diff().first_delay
+	enemy_spawn_queue.clear()
+	enemy_spawn_timer = 0.0
+	enemy_spawn_index = 0
 	wave_number = 0
 	ally_tower_cd = 0.0
 	enemy_tower_cd = 0.0
@@ -1608,8 +1625,9 @@ func _spawn_wave() -> void:
 		if _living_units("enemy").size() + spawn_ids.size() >= UNIT_CAP:
 			break
 		spawn_ids.append(weighted_regular_ids[rng.randi_range(0, weighted_regular_ids.size() - 1)])
-	for index in range(spawn_ids.size()):
-		_spawn_enemy(spawn_ids[index], index, spawn_ids.size())
+	enemy_spawn_queue.append_array(spawn_ids)
+	enemy_spawn_index = 0
+	enemy_spawn_timer = 0.0
 	_enemy_ai_take_turn()
 
 func _enemy_ai_take_turn() -> void:
