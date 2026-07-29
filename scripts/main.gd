@@ -9,9 +9,9 @@ const DECK_LOW_MARGIN := 12 # 牌堆少于目标-12张才触发补牌；每次�
 const TRAY_SLOTS := 7
 const PREP_WAVE_INTERVAL := 3
 const DIFFICULTIES := {
-	"easy": {"name": "简单", "wave_interval": 14.0, "first_delay": 7.0, "count_base": 1, "count_step": 6, "count_max": 3, "enemy_mult": 0.6, "boss_wave": 8, "tower_mult": 1.9},
-	"normal": {"name": "普通", "wave_interval": 9.0, "first_delay": 4.0, "count_base": 2, "count_step": 4, "count_max": 5, "enemy_mult": 1.0, "boss_wave": 5, "tower_mult": 1.1},
-	"hard": {"name": "困难", "wave_interval": 6.0, "first_delay": 3.0, "count_base": 3, "count_step": 3, "count_max": 7, "enemy_mult": 1.3, "boss_wave": 4, "tower_mult": 1.0},
+	"easy": {"name": "简单", "wave_min": 7.0, "wave_cap": 20.0, "first_delay": 7.0, "count_base": 1, "count_step": 6, "count_max": 3, "enemy_mult": 0.6, "boss_wave": 8, "tower_mult": 1.9},
+	"normal": {"name": "普通", "wave_min": 5.0, "wave_cap": 15.0, "first_delay": 4.0, "count_base": 2, "count_step": 4, "count_max": 5, "enemy_mult": 1.0, "boss_wave": 5, "tower_mult": 1.1},
+	"hard": {"name": "困难", "wave_min": 3.0, "wave_cap": 10.0, "first_delay": 3.0, "count_base": 3, "count_step": 3, "count_max": 7, "enemy_mult": 1.3, "boss_wave": 4, "tower_mult": 1.0},
 }
 const BATTLE_GROUND_Y := 222.0
 const WORLD_WIDTH := 1680.0
@@ -117,6 +117,7 @@ var battle_ended := false
 var battle_won := false
 var paused := false
 var wave_timer := 0.0
+var wave_min_timer := 0.0
 var wave_number := 0
 var ally_tower_cd := 0.0
 var enemy_tower_cd := 0.0
@@ -221,12 +222,15 @@ func _process(delta: float) -> void:
 		_enter_preparation()
 		return
 	wave_timer -= delta
-	if wave_timer <= 0.0:
+	wave_min_timer -= delta
+	var cleared := _living_units("enemy").is_empty()
+	if (wave_min_timer <= 0.0 and cleared) or wave_timer <= 0.0:
 		if prep_pending:
 			_enter_preparation()
 			return
 		_spawn_wave()
-		wave_timer = _diff().wave_interval
+		wave_timer = _diff().wave_cap
+		wave_min_timer = _diff().wave_min
 	_step_battle(delta)
 	_update_tower_ui()
 
@@ -617,7 +621,8 @@ func _enter_preparation() -> void:
 	prep_pending = false
 	auto_prep = true
 	paused = true
-	wave_timer = _diff().wave_interval
+	wave_timer = _diff().wave_cap
+	wave_min_timer = _diff().wave_min
 	_set_pause_text(
 		"第 %d 波结束 · 自动整备" % wave_number,
 		"每 %d 波自动整备一次，可从容逛商店" % PREP_WAVE_INTERVAL
@@ -1104,6 +1109,7 @@ func _start_round(start_era_index: int = 0) -> void:
 	if pause_button != null:
 		pause_button.visible = true
 	wave_timer = _diff().first_delay
+	wave_min_timer = _diff().first_delay
 	wave_number = 0
 	ally_tower_cd = 0.0
 	enemy_tower_cd = 0.0
