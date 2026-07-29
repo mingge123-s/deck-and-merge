@@ -9,9 +9,9 @@ const DECK_LOW_MARGIN := 12 # 牌堆少于目标-12张才触发补牌；每次�
 const TRAY_SLOTS := 7
 const PREP_WAVE_INTERVAL := 3
 const DIFFICULTIES := {
-	"easy": {"name": "简单", "wave_min": 7.0, "wave_cap": 20.0, "first_delay": 7.0, "count_base": 1, "count_step": 6, "count_max": 3, "enemy_mult": 0.6, "boss_wave": 8, "tower_mult": 1.9},
-	"normal": {"name": "普通", "wave_min": 5.0, "wave_cap": 15.0, "first_delay": 4.0, "count_base": 2, "count_step": 4, "count_max": 5, "enemy_mult": 1.0, "boss_wave": 5, "tower_mult": 1.1},
-	"hard": {"name": "困难", "wave_min": 3.0, "wave_cap": 10.0, "first_delay": 3.0, "count_base": 3, "count_step": 3, "count_max": 7, "enemy_mult": 1.3, "boss_wave": 4, "tower_mult": 1.0},
+	"easy": {"name": "简单", "wave_min": 7.0, "wave_cap": 20.0, "first_delay": 7.0, "count_base": 1, "count_step": 6, "count_max": 3, "enemy_mult": 0.6, "boss_wave": 8, "tower_mult": 1.9, "ai_income_mult": 0.6, "ai_trickle": 1.0, "ai_effect_chance": 0.25},
+	"normal": {"name": "普通", "wave_min": 5.0, "wave_cap": 15.0, "first_delay": 4.0, "count_base": 2, "count_step": 4, "count_max": 5, "enemy_mult": 1.0, "boss_wave": 5, "tower_mult": 1.1, "ai_income_mult": 1.0, "ai_trickle": 2.0, "ai_effect_chance": 0.4},
+	"hard": {"name": "困难", "wave_min": 3.0, "wave_cap": 10.0, "first_delay": 3.0, "count_base": 3, "count_step": 3, "count_max": 7, "enemy_mult": 1.3, "boss_wave": 4, "tower_mult": 1.0, "ai_income_mult": 1.4, "ai_trickle": 3.0, "ai_effect_chance": 0.55},
 }
 const BATTLE_GROUND_Y := 222.0
 const WORLD_WIDTH := 1680.0
@@ -31,6 +31,7 @@ const VICTORY_REWARD_BASE := 120
 const REINFORCEMENT_PRICE_BASE := 200
 const CLEAR_TRAY_PRICE_BASE := 120
 const RANDOM_EFFECT_PRICE_BASE := 260
+const AI_EFFECT_CD := 8.0
 const RANDOM_EFFECTS := [
 	{"id": "boss_call", "name": "BOSS 召唤", "desc": "立刻出战 1 个当前时代的 BOSS 英雄", "duration": 0.0},
 	{"id": "field_aid", "name": "战场急救", "desc": "我方全体回复 40% 生命", "duration": 0.0},
@@ -126,14 +127,24 @@ var ally_tower_hp := 1.0
 var enemy_tower_hp := 1.0
 var ally_tower_max_hp := 1.0
 var enemy_tower_max_hp := 1.0
+var enemy_era_index := 0
+var enemy_era := "stone"
 var era_visual_tween: Tween
 var rng := RandomNumberGenerator.new()
 var prep_pending := false
 var auto_prep := false
 var buff_timers: Dictionary = {}
+var enemy_buff_timers: Dictionary = {}
+var ai_effects: Array = []
 var buff_label: RichTextLabel
+var enemy_buff_label: RichTextLabel
+var enemy_action_label: Label
 var enemy_freeze_time := 0.0
+var ally_freeze_time := 0.0
 var tower_attack_bonus := 1.0
+var enemy_tower_attack_bonus := 1.0
+var enemy_coin := 0.0
+var enemy_effect_cd := 0.0
 var stuck_warned := false
 var hit_fx_pool: Array[Label] = []
 var camera_shake_offset := Vector2.ZERO
@@ -147,6 +158,9 @@ func _ready() -> void:
 	GameData.initialize()
 	coin_count = 300
 	rng.randomize()
+	for effect in RANDOM_EFFECTS:
+		if str(effect.id) != "bounty":
+			ai_effects.append(effect)
 	_build_background()
 	_build_top_bar()
 	_build_board()
@@ -223,6 +237,8 @@ func _process(delta: float) -> void:
 		return
 	wave_timer -= delta
 	wave_min_timer -= delta
+	enemy_coin += float(_diff().ai_trickle) * delta
+	enemy_effect_cd = maxf(0.0, enemy_effect_cd - delta)
 	var cleared := _living_units("enemy").is_empty()
 	if (wave_min_timer <= 0.0 and cleared) or wave_timer <= 0.0:
 		if prep_pending:
@@ -406,6 +422,14 @@ func _build_battlefield() -> void:
 	buff_label.fit_content = true
 	buff_label.autowrap_mode = TextServer.AUTOWRAP_OFF
 	buff_label.clip_contents = true
+	enemy_buff_label = _rich_label(battlefield, Vector2(330, 54), Vector2(310, 48), 12, Color("#ff9a7a"))
+	enemy_buff_label.fit_content = true
+	enemy_buff_label.autowrap_mode = TextServer.AUTOWRAP_OFF
+	enemy_buff_label.clip_contents = true
+	enemy_action_label = _label(battlefield, " ", Vector2(180, 8), Vector2(270, 24), 15, Color("#ff7a5c"))
+	enemy_action_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	enemy_action_label.z_index = 20
+	enemy_action_label.modulate.a = 0.0
 	minimap = BattleMinimap.new()
 	minimap.position = Vector2(462, 8)
 	minimap.size = Vector2(176, 46)
@@ -468,15 +492,19 @@ func _apply_era_visuals() -> void:
 	if not ResourceLoader.exists(bg_path):
 		bg_path = "res://assets/bg_battle_stone.png"
 	battle_bg.texture = load(bg_path)
-	var tower_path := "res://assets/towers/%s.png" % current_era
-	if not ResourceLoader.exists(tower_path):
-		tower_path = "res://assets/towers/stone.png"
-	var tower_tint: Color = ERA_TOWER_TINTS.get(current_era, ERA_TOWER_TINTS.stone)
-	for tower in [ally_tower_sprite, enemy_tower_sprite]:
+	for tower_data in [
+		{"tower": ally_tower_sprite, "era": current_era},
+		{"tower": enemy_tower_sprite, "era": enemy_era},
+	]:
+		var tower: Sprite2D = tower_data["tower"]
+		var era := str(tower_data["era"])
+		var tower_path := "res://assets/towers/%s.png" % era
+		if not ResourceLoader.exists(tower_path):
+			tower_path = "res://assets/towers/stone.png"
 		tower.texture = load(tower_path)
 		var factor := TOWER_HEIGHT / maxf(1.0, float(tower.texture.get_height()))
 		tower.scale = Vector2(factor, factor)
-		tower.modulate = tower_tint
+		tower.modulate = ERA_TOWER_TINTS.get(era, ERA_TOWER_TINTS.stone)
 	_sync_tower_shadow(ally_tower_sprite, ally_tower_shadow)
 	_sync_tower_shadow(enemy_tower_sprite, enemy_tower_shadow)
 	battle_bg.modulate = Color.WHITE
@@ -862,7 +890,10 @@ func _update_shop_ui() -> void:
 	shop_era_button.disabled = not battle_active or battle_ended or not can_upgrade or coin_count < era_cost
 
 func _era_amount(base_amount: int) -> int:
-	return maxi(1, roundi(float(base_amount) * float(GameData.ERA_MULT.get(current_era, 1.0))))
+	return _era_amount_for(current_era, base_amount)
+
+func _era_amount_for(era: String, base_amount: int) -> int:
+	return maxi(1, roundi(float(base_amount) * float(GameData.ERA_MULT.get(era, 1.0))))
 
 func _buy_reinforcement() -> void:
 	var price := _era_amount(REINFORCEMENT_PRICE_BASE)
@@ -895,33 +926,57 @@ func _buy_random_effect() -> void:
 	_update_shop_ui()
 	_update_buff_ui()
 
-func _apply_random_effect(effect: Dictionary) -> void:
+func _apply_random_effect(effect: Dictionary, actor := "ally") -> void:
 	var effect_id := str(effect.id)
 	var duration := float(effect.get("duration", 0.0))
+	var foe := "enemy" if actor == "ally" else "ally"
+	var actor_era := current_era if actor == "ally" else enemy_era
 	match effect_id:
 		"boss_call":
-			for hero_id in GameData.heroes_for_era(current_era):
+			for hero_id in GameData.heroes_for_era(actor_era):
 				if str(GameData.HEROES[hero_id].get("role", "")) == "boss":
-					_spawn_ally(hero_id)
+					if actor == "ally":
+						_spawn_ally(hero_id)
+					else:
+						_spawn_enemy(hero_id, 0, 1)
 					break
 		"field_aid":
-			for unit in _living_units("ally"):
+			for unit in _living_units(actor):
 				unit.heal(unit.max_hp * 0.4)
 				_spawn_hit_fx(unit.position, Color("#8ce68c"), "＋", 0.9)
 		"freeze":
-			enemy_freeze_time = maxf(enemy_freeze_time, duration)
-			for unit in _living_units("enemy"):
+			if actor == "ally":
+				enemy_freeze_time = maxf(enemy_freeze_time, duration)
+			else:
+				ally_freeze_time = maxf(ally_freeze_time, duration)
+			for unit in _living_units(foe):
 				_spawn_hit_fx(unit.position, Color("#8fd8ff"), "❄")
 		"tower_repair":
-			ally_tower_hp = minf(ally_tower_hp + ally_tower_max_hp * 0.25, ally_tower_max_hp)
+			if actor == "ally":
+				ally_tower_hp = minf(ally_tower_hp + ally_tower_max_hp * 0.25, ally_tower_max_hp)
+			else:
+				enemy_tower_hp = minf(enemy_tower_hp + enemy_tower_max_hp * 0.25, enemy_tower_max_hp)
 		"tower_power":
-			tower_attack_bonus = minf(tower_attack_bonus * 1.5, TOWER_POWER_MAX)
+			if actor == "ally":
+				tower_attack_bonus = minf(tower_attack_bonus * 1.5, TOWER_POWER_MAX)
+			else:
+				enemy_tower_attack_bonus = minf(enemy_tower_attack_bonus * 1.5, TOWER_POWER_MAX)
 		_:
-			buff_timers[effect_id] = maxf(float(buff_timers.get(effect_id, 0.0)), duration)
+			var timers: Dictionary = buff_timers if actor == "ally" else enemy_buff_timers
+			timers[effect_id] = maxf(float(timers.get(effect_id, 0.0)), duration)
 
 func _set_shop_result(text: String) -> void:
 	if shop_result_label != null:
 		shop_result_label.text = text
+
+func _announce_enemy_action(text: String, _effect_id: String) -> void:
+	if enemy_action_label == null:
+		return
+	enemy_action_label.text = text
+	enemy_action_label.modulate = Color(1, 1, 1, 1)
+	var tw := create_tween()
+	tw.tween_interval(1.1)
+	tw.tween_property(enemy_action_label, "modulate:a", 0.0, 0.6)
 
 func _effect_icon_bb(effect_id: String, icon_size: int) -> String:
 	var path := EFFECT_ICON_PATH % effect_id
@@ -930,7 +985,11 @@ func _effect_icon_bb(effect_id: String, icon_size: int) -> String:
 	return "[img=%d]%s[/img] " % [icon_size, path]
 
 func _buff_active(effect_id: String) -> bool:
-	return float(buff_timers.get(effect_id, 0.0)) > 0.0
+	return _buff_active_side("ally", effect_id)
+
+func _buff_active_side(faction: String, effect_id: String) -> bool:
+	var timers: Dictionary = buff_timers if faction == "ally" else enemy_buff_timers
+	return float(timers.get(effect_id, 0.0)) > 0.0
 
 func _effect_name(effect_id: String) -> String:
 	for effect in RANDOM_EFFECTS:
@@ -940,17 +999,19 @@ func _effect_name(effect_id: String) -> String:
 
 func _tick_buffs(delta: float) -> void:
 	enemy_freeze_time = maxf(0.0, enemy_freeze_time - delta)
-	var expired: Array[String] = []
-	for effect_id in buff_timers:
-		buff_timers[effect_id] = float(buff_timers[effect_id]) - delta
-		if float(buff_timers[effect_id]) <= 0.0:
-			expired.append(str(effect_id))
-	for effect_id in expired:
-		buff_timers.erase(effect_id)
+	ally_freeze_time = maxf(0.0, ally_freeze_time - delta)
+	for timers in [buff_timers, enemy_buff_timers]:
+		var expired: Array[String] = []
+		for effect_id in timers:
+			timers[effect_id] = float(timers[effect_id]) - delta
+			if float(timers[effect_id]) <= 0.0:
+				expired.append(str(effect_id))
+		for effect_id in expired:
+			timers.erase(effect_id)
 	_update_buff_ui()
 
 func _update_buff_ui() -> void:
-	if buff_label == null:
+	if buff_label == null or enemy_buff_label == null:
 		return
 	var parts: Array[String] = []
 	if enemy_freeze_time > 0.0:
@@ -961,6 +1022,15 @@ func _update_buff_ui() -> void:
 	if tower_attack_bonus > 1.0:
 		parts.append("%s塔炮 ×%.1f" % [_effect_icon_bb("tower_power", 18), tower_attack_bonus])
 	buff_label.text = "   ".join(parts)
+	var enemy_parts: Array[String] = []
+	if ally_freeze_time > 0.0:
+		enemy_parts.append("%s%s %ds" % [_effect_icon_bb("freeze", 18), _effect_name("freeze"), int(ceil(ally_freeze_time))])
+	for effect_id in enemy_buff_timers:
+		var id := str(effect_id)
+		enemy_parts.append("%s%s %ds" % [_effect_icon_bb(id, 18), _effect_name(id), int(ceil(float(enemy_buff_timers[effect_id])))])
+	if enemy_tower_attack_bonus > 1.0:
+		enemy_parts.append("%s敌塔炮 ×%.1f" % [_effect_icon_bb("tower_power", 18), enemy_tower_attack_bonus])
+	enemy_buff_label.text = "   ".join(enemy_parts)
 
 func _buy_clear_tray() -> void:
 	var price := _era_amount(CLEAR_TRAY_PRICE_BASE)
@@ -1092,9 +1162,16 @@ func _start_round(start_era_index: int = 0) -> void:
 	prep_pending = false
 	auto_prep = false
 	stuck_warned = false
+	enemy_era_index = 0
+	enemy_era = "stone"
 	buff_timers.clear()
+	enemy_buff_timers.clear()
 	enemy_freeze_time = 0.0
+	ally_freeze_time = 0.0
 	tower_attack_bonus = 1.0
+	enemy_tower_attack_bonus = 1.0
+	enemy_coin = 0.0
+	enemy_effect_cd = 0.0
 	_update_buff_ui()
 	_update_coin_ui()
 	_set_shop_result("")
@@ -1115,7 +1192,7 @@ func _start_round(start_era_index: int = 0) -> void:
 	enemy_tower_cd = 0.0
 	card_z_top = 0
 	ally_tower_hp = GameData.tower_hp(current_era) * float(_diff().tower_mult)
-	enemy_tower_hp = GameData.tower_hp(current_era)
+	enemy_tower_hp = GameData.tower_hp(enemy_era)
 	ally_tower_max_hp = ally_tower_hp
 	enemy_tower_max_hp = enemy_tower_hp
 	battle_hint.text = "备战 %d 秒，敌方部队即将出击" % int(_diff().first_delay)
@@ -1495,7 +1572,7 @@ func _spawn_ally(hero_id: String) -> BattleUnit:
 	return unit
 
 func _spawn_wave() -> void:
-	var ids := GameData.heroes_for_era(current_era)
+	var ids := GameData.heroes_for_era(enemy_era)
 	if ids.is_empty():
 		return
 	if _living_units("enemy").size() >= UNIT_CAP:
@@ -1533,6 +1610,27 @@ func _spawn_wave() -> void:
 		spawn_ids.append(weighted_regular_ids[rng.randi_range(0, weighted_regular_ids.size() - 1)])
 	for index in range(spawn_ids.size()):
 		_spawn_enemy(spawn_ids[index], index, spawn_ids.size())
+	_enemy_ai_take_turn()
+
+func _enemy_ai_take_turn() -> void:
+	var d := _diff()
+	var next_index := enemy_era_index + 1
+	if next_index < GameData.ERAS.size() and enemy_era_index < era_index + 1:
+		var cost := int(GameData.ERA_UPGRADE_COST.get(enemy_era, 0))
+		if cost > 0 and enemy_coin >= float(cost):
+			enemy_coin -= float(cost)
+			_advance_enemy_era()
+			return
+	if enemy_effect_cd <= 0.0 and rng.randf() < float(d.ai_effect_chance):
+		var price := _era_amount_for(enemy_era, RANDOM_EFFECT_PRICE_BASE)
+		if enemy_coin >= float(price) and not ai_effects.is_empty():
+			enemy_coin -= float(price)
+			var effect: Dictionary = ai_effects[rng.randi_range(0, ai_effects.size() - 1)]
+			_apply_random_effect(effect, "enemy")
+			enemy_effect_cd = AI_EFFECT_CD
+			_announce_enemy_action("敌方施放：%s" % str(effect.name), str(effect.id))
+			_update_buff_ui()
+			_update_tower_ui()
 
 func _spawn_enemy(hero_id: String, index: int, total_count: int) -> BattleUnit:
 	if _living_units("enemy").size() >= UNIT_CAP:
@@ -1565,6 +1663,9 @@ func _step_battle(delta: float) -> void:
 		if not is_instance_valid(unit) or not unit.alive:
 			continue
 		if unit.faction == "enemy" and enemy_freeze_time > 0.0:
+			unit.set_moving(false)
+			continue
+		if unit.faction == "ally" and ally_freeze_time > 0.0:
 			unit.set_moving(false)
 			continue
 		unit.attack_cooldown = maxf(0.0, unit.attack_cooldown - delta)
@@ -1616,9 +1717,12 @@ func _process_tower_attack(ally: bool, candidates: Array[BattleUnit]) -> void:
 		if is_instance_valid(target) and target.alive:
 			return target.position + Vector2(0, -56.0)
 		return null
-	var damage := 30.0 * float(GameData.ERA_MULT.get(current_era, 1.0))
+	var tower_era := current_era if ally else enemy_era
+	var damage := 30.0 * float(GameData.ERA_MULT.get(tower_era, 1.0))
 	if ally:
 		damage *= tower_attack_bonus
+	else:
+		damage *= enemy_tower_attack_bonus
 	var on_hit := func() -> void:
 		if not is_instance_valid(target) or not target.alive:
 			return
@@ -1626,7 +1730,7 @@ func _process_tower_attack(ally: bool, candidates: Array[BattleUnit]) -> void:
 		_spawn_hit_fx(target.position, Color("#ffd273"), "✦")
 		AudioManager.play_sfx("hit")
 	var projectile := Projectile.new()
-	projectile.setup(start_pos, target_pos, 300.0, current_era, Color("#ffd273"), on_hit)
+	projectile.setup(start_pos, target_pos, 300.0, tower_era, Color("#ffd273"), on_hit)
 	world.add_child(projectile)
 	if ally:
 		ally_tower_cd = TOWER_ATTACK_CD
@@ -1636,14 +1740,14 @@ func _process_tower_attack(ally: bool, candidates: Array[BattleUnit]) -> void:
 func _move_unit(unit: BattleUnit, target_x: float, delta: float) -> void:
 	var direction := signf(target_x - unit.position.x)
 	var speed := float(unit.stats.move_speed)
-	if unit.faction == "ally" and _buff_active("haste"):
+	if _buff_active_side(unit.faction, "haste"):
 		speed *= 1.5
 	unit.position.x += direction * speed * delta
 	unit.set_moving(true)
 
 func _unit_damage(attacker: BattleUnit) -> float:
 	var damage := float(attacker.stats.attack)
-	if attacker.faction == "ally" and _buff_active("morale"):
+	if _buff_active_side(attacker.faction, "morale"):
 		damage *= 1.25
 	return damage
 
@@ -1651,15 +1755,15 @@ func _deal_damage(target: BattleUnit, amount: float, source: String, attacker: B
 	if not is_instance_valid(target) or not target.alive:
 		return
 	var damage := amount
-	if target.faction == "ally" and _buff_active("bulwark"):
+	if _buff_active_side(target.faction, "bulwark"):
 		damage *= 0.7
 	target.receive_damage(damage, source)
 	if attacker == null or not is_instance_valid(attacker) or not attacker.alive:
 		return
-	if attacker.faction == "ally" and _buff_active("lifesteal"):
+	if _buff_active_side(attacker.faction, "lifesteal"):
 		attacker.heal(damage * 0.2)
 	var melee := float(attacker.stats.get("range", 0.0)) < PROJECTILE_RANGE_THRESHOLD
-	if target.faction == "ally" and attacker.faction == "enemy" and melee and _buff_active("thorns"):
+	if melee and attacker.faction != target.faction and _buff_active_side(target.faction, "thorns"):
 		attacker.receive_damage(damage * 0.3, "hero")
 
 func _find_target(unit: BattleUnit, ally_units: Array[BattleUnit], enemy_units: Array[BattleUnit]) -> BattleUnit:
@@ -1692,7 +1796,7 @@ func _nearest_unit(unit: BattleUnit, candidates: Array[BattleUnit]) -> BattleUni
 
 func _attack(attacker: BattleUnit, target: BattleUnit) -> void:
 	attacker.spend_attack_time()
-	if attacker.faction == "ally" and _buff_active("frenzy"):
+	if _buff_active_side(attacker.faction, "frenzy"):
 		attacker.attack_cooldown /= 1.4
 	attacker.play_attack()
 	var damage := _unit_damage(attacker)
@@ -1725,7 +1829,7 @@ func _attack(attacker: BattleUnit, target: BattleUnit) -> void:
 
 func _attack_tower(attacker: BattleUnit) -> void:
 	attacker.spend_attack_time()
-	if attacker.faction == "ally" and _buff_active("frenzy"):
+	if _buff_active_side(attacker.faction, "frenzy"):
 		attacker.attack_cooldown /= 1.4
 	attacker.play_attack()
 	var damage := _unit_damage(attacker)
@@ -1780,6 +1884,10 @@ func _on_unit_expired(unit: BattleUnit) -> void:
 		if unit.last_damage_source != "tower":
 			kill_score += kill_score_value
 		_update_progress_ui()
+	elif unit.faction == "ally" and not unit.score_awarded:
+		unit.score_awarded = true
+		var reward := float(_era_amount_for(enemy_era, int(unit.stats.get("kill_score", 0)))) * float(_diff().ai_income_mult)
+		enemy_coin += reward
 
 func _advance_era() -> void:
 	if era_index >= GameData.ERAS.size() - 1:
@@ -1795,15 +1903,25 @@ func _advance_era() -> void:
 	_refresh_era_visuals(true)
 	print("时代进阶: %s" % current_era)
 
+func _advance_enemy_era() -> void:
+	if enemy_era_index >= GameData.ERAS.size() - 1:
+		return
+	enemy_era_index += 1
+	enemy_era = GameData.ERAS[enemy_era_index]
+	var target := GameData.tower_hp(enemy_era)
+	if target > enemy_tower_max_hp:
+		enemy_tower_hp = target * (enemy_tower_hp / maxf(1.0, enemy_tower_max_hp))
+		enemy_tower_max_hp = target
+	_refresh_era_visuals(true)
+	_update_tower_ui()
+	AudioManager.play_sfx("era")
+	_announce_enemy_action("敌方进阶：%s" % str(GameData.ERA_NAMES.get(enemy_era, enemy_era)), "")
+
 func _rescale_towers_for_era() -> void:
 	var ally_target := GameData.tower_hp(current_era) * float(_diff().tower_mult)
-	var enemy_target := GameData.tower_hp(current_era)
 	if ally_target > ally_tower_max_hp:
 		ally_tower_hp = ally_target * (ally_tower_hp / maxf(1.0, ally_tower_max_hp))
 		ally_tower_max_hp = ally_target
-	if enemy_target > enemy_tower_max_hp:
-		enemy_tower_hp = enemy_target * (enemy_tower_hp / maxf(1.0, enemy_tower_max_hp))
-		enemy_tower_max_hp = enemy_target
 	_update_tower_ui()
 
 func _replace_remaining_cards_for_era() -> void:
