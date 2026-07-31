@@ -140,6 +140,27 @@ static func deck_total_for_era(era: String) -> int:
 		total += int(count)
 	return total
 
+static func blended_deck_counts(era_index: int) -> Dictionary:
+	var result: Dictionary = {}
+	if era_index < 0:
+		return result
+	for i in range(era_index + 1):
+		var era := ERAS[i]
+		var behind := era_index - i
+		for hero_id in heroes_for_era(era):
+			var hero: Dictionary = HEROES[hero_id]
+			var card_id := str(hero.get("card", hero_id))
+			var base := int(hero.get("deck_count", 9))
+			var count := base if behind == 0 else maxi(3, int(round(float(base) * pow(0.55, float(behind)))))
+			result[card_id] = int(result.get(card_id, 0)) + count
+	return result
+
+static func blended_deck_total(era_index: int) -> int:
+	var total := 0
+	for count in blended_deck_counts(era_index).values():
+		total += int(count)
+	return total
+
 static func hero_for_card(card_id: String) -> Dictionary:
 	var card: Dictionary = CARDS.get(card_id, {})
 	return HEROES.get(card.get("hero", ""), {})

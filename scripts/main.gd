@@ -8,11 +8,13 @@ const CARD_SIZE := Vector2(138, 166)
 const DECK_LOW_MARGIN := 12 # 牌堆少于目标-12张才触发补牌；每次把缺口最大的卡补齐到目标(单张单批≤3)
 const TRAY_SLOTS := 7
 const PREP_WAVE_INTERVAL := 3
-const SPAWN_STAGGER := 1.2
+const SPAWN_STAGGER := 1.0
+const WAVE_DURATION := 180.0
+const KILL_COIN_MULT := 0.5
 const DIFFICULTIES := {
-	"easy": {"name": "简单", "wave_min": 6.0, "wave_cap": 45.0, "first_delay": 7.0, "count_base": 2, "count_step": 6, "count_max": 4, "enemy_mult": 0.6, "boss_wave": 8, "tower_mult": 1.9, "ai_income_mult": 0.6, "ai_trickle": 1.0, "ai_effect_chance": 0.25},
-	"normal": {"name": "普通", "wave_min": 5.0, "wave_cap": 40.0, "first_delay": 4.0, "count_base": 2, "count_step": 4, "count_max": 5, "enemy_mult": 1.0, "boss_wave": 5, "tower_mult": 1.1, "ai_income_mult": 1.0, "ai_trickle": 2.0, "ai_effect_chance": 0.4},
-	"hard": {"name": "困难", "wave_min": 3.0, "wave_cap": 35.0, "first_delay": 3.0, "count_base": 3, "count_step": 3, "count_max": 7, "enemy_mult": 1.3, "boss_wave": 4, "tower_mult": 1.0, "ai_income_mult": 1.4, "ai_trickle": 3.0, "ai_effect_chance": 0.55},
+	"easy": {"name": "简单", "wave_min": 6.0, "first_delay": 7.0, "count_base": 2, "count_step": 6, "count_max": 4, "enemy_mult": 0.6, "boss_wave": 8, "tower_mult": 1.9, "ai_income_mult": 0.6, "ai_trickle": 0.3, "ai_effect_chance": 0.25},
+	"normal": {"name": "普通", "wave_min": 5.0, "first_delay": 4.0, "count_base": 2, "count_step": 4, "count_max": 5, "enemy_mult": 1.0, "boss_wave": 5, "tower_mult": 1.1, "ai_income_mult": 1.0, "ai_trickle": 0.5, "ai_effect_chance": 0.4},
+	"hard": {"name": "困难", "wave_min": 3.0, "first_delay": 3.0, "count_base": 3, "count_step": 3, "count_max": 7, "enemy_mult": 1.3, "boss_wave": 4, "tower_mult": 1.0, "ai_income_mult": 1.4, "ai_trickle": 0.8, "ai_effect_chance": 0.55},
 }
 const BATTLE_GROUND_Y := 222.0
 const WORLD_WIDTH := 1680.0
@@ -118,9 +120,10 @@ var battle_active := false
 var battle_ended := false
 var battle_won := false
 var paused := false
-var wave_timer := 0.0
 var wave_min_timer := 0.0
-var enemy_spawn_queue: Array[String] = []
+var wave_spawning := false
+var wave_active_timer := 0.0
+var wave_boss_pending := false
 var enemy_spawn_timer := 0.0
 var enemy_spawn_index := 0
 var wave_number := 0
@@ -236,27 +239,26 @@ func _process(delta: float) -> void:
 	if not battle_active or battle_ended:
 		return
 	_tick_buffs(delta)
-	# 错峰刷出当前波剩余敌人
-	if not enemy_spawn_queue.is_empty():
-		enemy_spawn_timer -= delta
-		if enemy_spawn_timer <= 0.0:
-			var next_id: String = enemy_spawn_queue.pop_front()
-			_spawn_enemy(next_id, enemy_spawn_index % 3, 3)
-			enemy_spawn_index += 1
-			enemy_spawn_timer = SPAWN_STAGGER
-	wave_timer -= delta
+	if wave_spawning:
+		wave_active_timer -= delta
+		if wave_active_timer <= 0.0:
+			wave_spawning = false
+		else:
+			enemy_spawn_timer -= delta
+			if enemy_spawn_timer <= 0.0 and _living_units("enemy").size() < _wave_field_target() and _living_units("enemy").size() < UNIT_CAP:
+				_spawn_one_enemy()
+				enemy_spawn_timer = SPAWN_STAGGER
 	wave_min_timer -= delta
 	enemy_coin += float(_diff().ai_trickle) * delta
 	enemy_effect_cd = maxf(0.0, enemy_effect_cd - delta)
-	var cleared := enemy_spawn_queue.is_empty() and _living_units("enemy").is_empty()
+	var cleared := not wave_spawning and _living_units("enemy").is_empty()
 	if prep_pending:
 		if cleared:
 			_enter_preparation()
 			return
 	else:
-		if (cleared and wave_min_timer <= 0.0) or wave_timer <= 0.0:
+		if cleared and wave_min_timer <= 0.0:
 			_spawn_wave()
-			wave_timer = _diff().wave_cap
 			wave_min_timer = _diff().wave_min
 	_step_battle(delta)
 	_update_tower_ui()
@@ -660,10 +662,11 @@ func _enter_preparation() -> void:
 	prep_pending = false
 	auto_prep = true
 	paused = true
-	enemy_spawn_queue.clear()
+	wave_spawning = false
+	wave_active_timer = 0.0
+	wave_boss_pending = false
 	enemy_spawn_timer = 0.0
 	enemy_spawn_index = 0
-	wave_timer = _diff().wave_cap
 	wave_min_timer = _diff().wave_min
 	_set_pause_text(
 		"第 %d 波结束 · 自动整备" % wave_number,
@@ -1199,9 +1202,10 @@ func _start_round(start_era_index: int = 0) -> void:
 		tutorial_overlay.visible = false
 	if pause_button != null:
 		pause_button.visible = true
-	wave_timer = _diff().first_delay
 	wave_min_timer = _diff().first_delay
-	enemy_spawn_queue.clear()
+	wave_spawning = false
+	wave_active_timer = 0.0
+	wave_boss_pending = false
 	enemy_spawn_timer = 0.0
 	enemy_spawn_index = 0
 	wave_number = 0
@@ -1219,7 +1223,7 @@ func _start_round(start_era_index: int = 0) -> void:
 	_update_progress_ui()
 	_update_tower_ui()
 	var deck: Array[String] = []
-	var counts := GameData.deck_counts_for_era(current_era)
+	var counts := GameData.blended_deck_counts(era_index)
 	for card_id in counts:
 		for _count in range(int(counts[card_id])):
 			deck.append(str(card_id))
@@ -1450,10 +1454,10 @@ func _on_card_clicked(card: CardView) -> void:
 	)
 
 func _refill_deck_if_low() -> void:
-	var target_counts := GameData.deck_counts_for_era(current_era)
+	var target_counts := GameData.blended_deck_counts(era_index)
 	if target_counts.is_empty():
 		return
-	var deck_target := GameData.deck_total_for_era(current_era)
+	var deck_target := GameData.blended_deck_total(era_index)
 	if deck_cards.size() > deck_target - DECK_LOW_MARGIN:
 		return
 	while deck_cards.size() < deck_target:
@@ -1589,46 +1593,46 @@ func _spawn_ally(hero_id: String) -> BattleUnit:
 	return unit
 
 func _spawn_wave() -> void:
-	var ids := GameData.heroes_for_era(enemy_era)
-	if ids.is_empty():
-		return
-	if _living_units("enemy").size() >= UNIT_CAP:
-		return
 	wave_number += 1
 	if wave_number % PREP_WAVE_INTERVAL == 0:
 		prep_pending = true
 	_update_progress_ui()
 	var d := _diff()
-	var count := clampi(int(d.count_base) + wave_number / int(d.count_step), int(d.count_base), int(d.count_max))
-	var spawn_index := 0
-	var boss_ids: Array[String] = []
-	if wave_number % int(d.boss_wave) == 0:
-		for hero_id in ids:
-			if str(GameData.HEROES[hero_id].get("role", "")) == "boss":
-				boss_ids.append(hero_id)
-		if not boss_ids.is_empty():
-			spawn_index += 1
-	var spawn_ids: Array[String] = []
-	if spawn_index > 0:
-		spawn_ids.append(boss_ids[rng.randi_range(0, boss_ids.size() - 1)])
-	# 普通兵按角色 deck_count 加权、排除 BOSS（BOSS 仅走保底波）。
-	var weighted_regular_ids: Array[String] = []
-	for hero_id in ids:
-		if str(GameData.HEROES[hero_id].get("role", "")) == "boss":
-			continue
-		var weight := maxi(0, int(GameData.HEROES[hero_id].get("deck_count", 12)))
-		for _weight in range(weight):
-			weighted_regular_ids.append(hero_id)
-	if weighted_regular_ids.is_empty():
-		weighted_regular_ids = ids
-	for _index in range(count - spawn_index):
-		if _living_units("enemy").size() + spawn_ids.size() >= UNIT_CAP:
-			break
-		spawn_ids.append(weighted_regular_ids[rng.randi_range(0, weighted_regular_ids.size() - 1)])
-	enemy_spawn_queue.append_array(spawn_ids)
+	wave_active_timer = WAVE_DURATION
+	wave_spawning = true
+	wave_boss_pending = wave_number % int(d.boss_wave) == 0
 	enemy_spawn_index = 0
 	enemy_spawn_timer = 0.0
 	_enemy_ai_take_turn()
+
+func _wave_field_target() -> int:
+	var d := _diff()
+	return clampi(int(d.count_base) + wave_number / int(d.count_step), int(d.count_base), int(d.count_max))
+
+func _spawn_one_enemy() -> void:
+	var ids := GameData.heroes_for_era(enemy_era)
+	if ids.is_empty():
+		return
+	var chosen := ""
+	if wave_boss_pending:
+		for hero_id in ids:
+			if str(GameData.HEROES[hero_id].get("role", "")) == "boss":
+				chosen = hero_id
+				break
+		wave_boss_pending = false
+	if chosen == "":
+		var weighted: Array[String] = []
+		for hero_id in ids:
+			if str(GameData.HEROES[hero_id].get("role", "")) == "boss":
+				continue
+			var weight := maxi(0, int(GameData.HEROES[hero_id].get("deck_count", 12)))
+			for _w in range(weight):
+				weighted.append(hero_id)
+		if weighted.is_empty():
+			weighted = ids
+		chosen = weighted[rng.randi_range(0, weighted.size() - 1)]
+	_spawn_enemy(chosen, enemy_spawn_index % 3, 3)
+	enemy_spawn_index += 1
 
 func _enemy_ai_take_turn() -> void:
 	var d := _diff()
@@ -1895,9 +1899,9 @@ func _on_unit_expired(unit: BattleUnit) -> void:
 	if unit.faction == "enemy" and not unit.score_awarded:
 		unit.score_awarded = true
 		var kill_score_value := int(unit.stats.get("kill_score", 0))
-		var coins := _era_amount(kill_score_value)
+		var coins := maxi(1, int(round(float(_era_amount(kill_score_value)) * KILL_COIN_MULT)))
 		if _buff_active("bounty"):
-			coins += _era_amount(BOUNTY_COIN_BASE)
+			coins += maxi(1, int(round(float(_era_amount(BOUNTY_COIN_BASE)) * KILL_COIN_MULT)))
 		_change_coins(coins)
 		if unit.last_damage_source != "tower":
 			kill_score += kill_score_value
@@ -1914,10 +1918,9 @@ func _advance_era() -> void:
 	current_era = GameData.ERAS[era_index]
 	SaveManager.unlock_era(era_index)
 	AudioManager.play_sfx("era")
-	_replace_remaining_cards_for_era()
 	_rescale_towers_for_era()
 	_update_progress_ui()
-	battle_hint.text = "文明进阶：%s！牌堆中的卡牌已悄然换新" % GameData.ERA_NAMES[current_era]
+	battle_hint.text = "文明进阶：%s！新时代卡牌将随抽牌逐渐加入牌堆" % GameData.ERA_NAMES[current_era]
 	_refresh_era_visuals(true)
 	print("时代进阶: %s" % current_era)
 
@@ -1941,71 +1944,6 @@ func _rescale_towers_for_era() -> void:
 		ally_tower_hp = ally_target * (ally_tower_hp / maxf(1.0, ally_tower_max_hp))
 		ally_tower_max_hp = ally_target
 	_update_tower_ui()
-
-func _replace_remaining_cards_for_era() -> void:
-	var new_cards := GameData.cards_for_era(current_era)
-	if new_cards.is_empty():
-		return
-	var old_cards := deck_cards.duplicate()
-	var replaceable_cards: Array[CardView] = []
-	for old_card in old_cards:
-		if is_instance_valid(old_card) and not old_card.claimed:
-			replaceable_cards.append(old_card)
-	var replacement_ids := _weighted_replacement_ids(replaceable_cards.size())
-	var replacement_index := 0
-	for old_card in replaceable_cards:
-		var old_index := deck_cards.find(old_card)
-		if old_index < 0:
-			continue
-		var card_id: String = replacement_ids[replacement_index]
-		replacement_index += 1
-		var replacement := CardView.new()
-		var texture: Texture2D
-		var path := GameData.card_texture_path(card_id)
-		if path != "" and ResourceLoader.exists(path):
-			texture = load(path)
-		replacement.setup(card_id, texture, GameData.CARDS[card_id].color)
-		replacement.position = old_card.position
-		replacement.rotation = old_card.rotation
-		replacement.z_index = old_card.z_index
-		card_layer.add_child(replacement)
-		deck_cards[old_index] = replacement
-		old_card.queue_free()
-	for extra_index in range(replacement_index, replacement_ids.size()):
-		_spawn_card(replacement_ids[extra_index], deck_cards.size(), true)
-	_refresh_covered()
-
-func _weighted_replacement_ids(needed: int) -> Array[String]:
-	var counts := GameData.deck_counts_for_era(current_era)
-	var groups_needed := int(ceil(float(needed) / 3.0))
-	var result: Array[String] = []
-	if counts.is_empty() or groups_needed <= 0:
-		return result
-	var total_weight := 0
-	for card_id in counts:
-		total_weight += int(counts[card_id])
-	var remainders: Array[Dictionary] = []
-	var assigned := 0
-	for card_id in counts:
-		var exact := float(groups_needed) * float(counts[card_id]) / float(total_weight)
-		var whole := int(floor(exact))
-		assigned += whole
-		remainders.append({"card": str(card_id), "groups": whole, "rest": exact - float(whole)})
-	remainders.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
-		return float(a.rest) > float(b.rest)
-	)
-	var leftover := groups_needed - assigned
-	for index in range(remainders.size()):
-		if leftover <= 0:
-			break
-		remainders[index]["groups"] = int(remainders[index].groups) + 1
-		leftover -= 1
-	for entry in remainders:
-		for _group in range(int(entry.groups)):
-			for _copy in range(3):
-				result.append(str(entry.card))
-	result.shuffle()
-	return result
 
 func _spawn_hit_fx(local_position: Vector2, color: Color, text: String, hold := 0.3) -> void:
 	var fx: Label
