@@ -65,14 +65,9 @@ const BOUNTY_COIN_BASE := 15
 const EFFECT_ICON_PATH := "res://assets/icons/effects/%s.png"
 const EFFECT_CARD_PREFIX := "effect_"
 const EFFECT_CARD_PAIR_SIZE := 2
+const EFFECT_CARDS_PER_ERA_MIN := 2
+const EFFECT_CARDS_PER_ERA_MAX := 3
 const EFFECT_CARD_COLOR := Color("#8754d8")
-const EFFECT_CARDS_BY_ERA := {
-	"stone": ["reinforcement", "field_aid", "freeze"],
-	"iron": ["morale", "bulwark"],
-	"industrial": ["frenzy", "thorns", "tower_repair"],
-	"modern": ["haste", "lifesteal", "tower_power"],
-	"future": ["boss_call", "bounty"],
-}
 const ERA_TOWER_TINTS := {
 	"stone": Color(1.0, 0.93, 0.82),
 	"iron": Color(0.92, 0.96, 1.0),
@@ -167,6 +162,7 @@ var auto_prep := false
 var buff_timers: Dictionary = {}
 var enemy_buff_timers: Dictionary = {}
 var ai_effects: Array = []
+var effect_cards_by_era: Dictionary = {}
 var buff_label: RichTextLabel
 var enemy_buff_label: RichTextLabel
 var enemy_action_label: Label
@@ -186,17 +182,32 @@ func _diff() -> Dictionary:
 	return DIFFICULTIES[current_difficulty]
 
 func _register_effect_cards() -> void:
-	for era in EFFECT_CARDS_BY_ERA:
-		for effect_id in EFFECT_CARDS_BY_ERA[era]:
-			var effect := _effect_by_id(str(effect_id))
-			if effect.is_empty():
-				continue
-			GameData.CARDS[_effect_card_id(str(effect_id))] = {
-				"name": str(effect.name),
-				"effect": str(effect.id),
-				"era": str(era),
-				"color": EFFECT_CARD_COLOR,
-			}
+	for effect in RANDOM_EFFECTS:
+		var effect_id := str(effect.id)
+		GameData.CARDS[_effect_card_id(effect_id)] = {
+			"name": str(effect.name),
+			"effect": effect_id,
+			"era": "effect",
+			"color": EFFECT_CARD_COLOR,
+		}
+
+func _all_effect_ids() -> Array[String]:
+	var ids: Array[String] = []
+	for effect in RANDOM_EFFECTS:
+		ids.append(str(effect.id))
+	return ids
+
+func _roll_effect_cards_by_era() -> void:
+	effect_cards_by_era.clear()
+	var all_effect_ids := _all_effect_ids()
+	for era in GameData.ERAS:
+		var pool := all_effect_ids.duplicate()
+		pool.shuffle()
+		var selected: Array[String] = []
+		var count := rng.randi_range(EFFECT_CARDS_PER_ERA_MIN, EFFECT_CARDS_PER_ERA_MAX)
+		for index in range(mini(count, pool.size())):
+			selected.append(str(pool[index]))
+		effect_cards_by_era[era] = selected
 
 func _effect_card_id(effect_id: String) -> String:
 	return EFFECT_CARD_PREFIX + effect_id
@@ -217,11 +228,11 @@ func _effect_card_sort_key(card_id: String) -> int:
 	var effect_id := _effect_id_from_card(card_id)
 	for era_order in range(GameData.ERAS.size()):
 		var era := GameData.ERAS[era_order]
-		var effect_ids: Array = EFFECT_CARDS_BY_ERA.get(era, [])
+		var effect_ids: Array = effect_cards_by_era.get(era, [])
 		var local_index := effect_ids.find(effect_id)
 		if local_index >= 0:
 			return era_order * 100 + 50 + local_index
-	return 9999
+	return 9999 + maxi(_all_effect_ids().find(effect_id), 0)
 
 func _card_texture_path(card_id: String) -> String:
 	if _is_effect_card(card_id):
@@ -1273,6 +1284,7 @@ func _start_round(start_era_index: int = 0) -> void:
 	era_index = clampi(start_era_index, 0, GameData.ERAS.size() - 1)
 	base_era_index = era_index
 	current_era = GameData.ERAS[era_index]
+	_roll_effect_cards_by_era()
 	coin_count = 300
 	kill_score = 0
 	prep_pending = false
@@ -1403,13 +1415,11 @@ func _build_batch_cards(groups_needed: int) -> Array[String]:
 
 func _build_effect_cards_for_batch() -> Array[String]:
 	var result: Array[String] = []
-	for i in range(era_index + 1):
-		if i >= GameData.ERAS.size():
-			break
-		var era := GameData.ERAS[i]
-		for effect_id in EFFECT_CARDS_BY_ERA.get(era, []):
-			for _copy in range(EFFECT_CARD_PAIR_SIZE):
-				result.append(_effect_card_id(str(effect_id)))
+	if effect_cards_by_era.is_empty():
+		_roll_effect_cards_by_era()
+	for effect_id in effect_cards_by_era.get(current_era, []):
+		for _copy in range(EFFECT_CARD_PAIR_SIZE):
+			result.append(_effect_card_id(str(effect_id)))
 	return result
 
 func _pile_position(index: int) -> Vector2:
@@ -1686,20 +1696,19 @@ func _rebuild_tray_visuals() -> void:
 	_update_progress_ui()
 
 func _check_merges() -> void:
-	for era in GameData.ERAS:
-		for effect_id in EFFECT_CARDS_BY_ERA.get(era, []):
-			var effect_card_id := _effect_card_id(str(effect_id))
-			if tray_cards.count(effect_card_id) >= EFFECT_CARD_PAIR_SIZE:
-				for _count in range(EFFECT_CARD_PAIR_SIZE):
-					tray_cards.erase(effect_card_id)
-				var effect := _effect_by_id(str(effect_id))
-				print("效果合成: %d x %s -> %s" % [EFFECT_CARD_PAIR_SIZE, effect_card_id, str(effect.name)])
-				AudioManager.play_sfx("merge")
-				_rebuild_tray_visuals()
-				_apply_random_effect(effect)
-				battle_hint.text = "效果卡发动：%s" % str(effect.name)
-				_check_merges()
-				return
+	for effect_id in _all_effect_ids():
+		var effect_card_id := _effect_card_id(effect_id)
+		if tray_cards.count(effect_card_id) >= EFFECT_CARD_PAIR_SIZE:
+			for _count in range(EFFECT_CARD_PAIR_SIZE):
+				tray_cards.erase(effect_card_id)
+			var effect := _effect_by_id(effect_id)
+			print("效果合成: %d x %s -> %s" % [EFFECT_CARD_PAIR_SIZE, effect_card_id, str(effect.name)])
+			AudioManager.play_sfx("merge")
+			_rebuild_tray_visuals()
+			_apply_random_effect(effect)
+			battle_hint.text = "效果卡发动：%s" % str(effect.name)
+			_check_merges()
+			return
 	for card_id in GameData.CARDS:
 		if _is_effect_card(str(card_id)):
 			continue
@@ -1718,10 +1727,9 @@ func _has_merge() -> bool:
 	return _has_effect_pair() or _has_triple()
 
 func _has_effect_pair() -> bool:
-	for era in GameData.ERAS:
-		for effect_id in EFFECT_CARDS_BY_ERA.get(era, []):
-			if tray_cards.count(_effect_card_id(str(effect_id))) >= EFFECT_CARD_PAIR_SIZE:
-				return true
+	for effect_id in _all_effect_ids():
+		if tray_cards.count(_effect_card_id(effect_id)) >= EFFECT_CARD_PAIR_SIZE:
+			return true
 	return false
 
 func _has_triple() -> bool:
