@@ -35,6 +35,9 @@ const REINFORCEMENT_PRICE_BASE := 200
 const CLEAR_TRAY_PRICE_BASE := 120
 const RANDOM_EFFECT_PRICE_BASE := 260
 const AI_EFFECT_CD := 8.0
+const RALLY_HP_FRAC := 0.4
+const RALLY_CD := 20.0
+const RALLY_BURST := 6
 const RANDOM_EFFECTS := [
 	{"id": "boss_call", "name": "BOSS 召唤", "desc": "立刻出战 1 个当前时代的 BOSS 英雄", "duration": 0.0},
 	{"id": "field_aid", "name": "战场急救", "desc": "我方全体回复 40% 生命", "duration": 0.0},
@@ -152,6 +155,7 @@ var tower_attack_bonus := 1.0
 var enemy_tower_attack_bonus := 1.0
 var enemy_coin := 0.0
 var enemy_effect_cd := 0.0
+var enemy_rally_cd := 0.0
 var stuck_warned := false
 var hit_fx_pool: Array[Label] = []
 var camera_shake_offset := Vector2.ZERO
@@ -251,6 +255,9 @@ func _process(delta: float) -> void:
 	wave_min_timer -= delta
 	enemy_coin += float(_diff().ai_trickle) * delta
 	enemy_effect_cd = maxf(0.0, enemy_effect_cd - delta)
+	enemy_rally_cd = maxf(0.0, enemy_rally_cd - delta)
+	if enemy_rally_cd <= 0.0 and enemy_tower_max_hp > 0.0 and enemy_tower_hp > 0.0 and enemy_tower_hp <= enemy_tower_max_hp * RALLY_HP_FRAC:
+		_enemy_rally_surge()
 	var cleared := not wave_spawning and _living_units("enemy").is_empty()
 	if prep_pending:
 		if cleared:
@@ -1189,6 +1196,7 @@ func _start_round(start_era_index: int = 0) -> void:
 	enemy_tower_attack_bonus = 1.0
 	enemy_coin = 0.0
 	enemy_effect_cd = 0.0
+	enemy_rally_cd = 0.0
 	_update_buff_ui()
 	_update_coin_ui()
 	_set_shop_result("")
@@ -1633,6 +1641,21 @@ func _spawn_one_enemy() -> void:
 		chosen = weighted[rng.randi_range(0, weighted.size() - 1)]
 	_spawn_enemy(chosen, enemy_spawn_index % 3, 3)
 	enemy_spawn_index += 1
+
+func _enemy_rally_surge() -> void:
+	enemy_rally_cd = RALLY_CD
+	var room := UNIT_CAP - _living_units("enemy").size()
+	if room <= 0:
+		return
+	var burst := mini(RALLY_BURST, room)
+	var saved_boss := wave_boss_pending
+	wave_boss_pending = false
+	for _i in range(burst):
+		_spawn_one_enemy()
+	wave_boss_pending = saved_boss
+	_announce_enemy_action("敌方拼死反扑！", "")
+	AudioManager.play_sfx("era")
+	_update_tower_ui()
 
 func _enemy_ai_take_turn() -> void:
 	var d := _diff()
