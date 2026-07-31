@@ -10,7 +10,7 @@ const TRAY_SLOTS := 7
 const PREP_WAVE_INTERVAL := 3
 const SPAWN_STAGGER := 0.6
 const WAVE_DURATION := 180.0
-const KILL_COIN_MULT := 0.25
+const KILL_COIN_MULT := 0.2
 const DIFFICULTIES := {
 	"easy": {"name": "简单", "wave_min": 6.0, "first_delay": 7.0, "count_base": 2, "count_step": 6, "count_max": 4, "enemy_mult": 0.6, "boss_wave": 8, "tower_mult": 1.9, "ai_income_mult": 0.6, "ai_trickle": 0.3, "ai_effect_chance": 0.25},
 	"normal": {"name": "普通", "wave_min": 5.0, "first_delay": 4.0, "count_base": 2, "count_step": 4, "count_max": 5, "enemy_mult": 1.0, "boss_wave": 5, "tower_mult": 1.1, "ai_income_mult": 1.0, "ai_trickle": 0.5, "ai_effect_chance": 0.4},
@@ -252,7 +252,7 @@ func _process(delta: float) -> void:
 				_spawn_one_enemy()
 				enemy_spawn_timer = SPAWN_STAGGER
 	wave_min_timer -= delta
-	enemy_coin += float(_diff().ai_trickle) * delta
+	enemy_coin += float(_diff().ai_trickle) * KILL_COIN_MULT * delta
 	enemy_effect_cd = maxf(0.0, enemy_effect_cd - delta)
 	if enemy_tower_max_hp > 0.0 and enemy_tower_hp > 0.0:
 		var target_crossed := 0
@@ -1936,7 +1936,7 @@ func _on_unit_expired(unit: BattleUnit) -> void:
 		_update_progress_ui()
 	elif unit.faction == "ally" and not unit.score_awarded:
 		unit.score_awarded = true
-		var reward := float(_era_amount_for(enemy_era, int(unit.stats.get("kill_score", 0)))) * float(_diff().ai_income_mult)
+		var reward := float(_era_amount_for(enemy_era, int(unit.stats.get("kill_score", 0)))) * float(_diff().ai_income_mult) * KILL_COIN_MULT
 		enemy_coin += reward
 
 func _advance_era() -> void:
