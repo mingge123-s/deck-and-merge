@@ -41,9 +41,8 @@ const PROJECTILE_RANGE_THRESHOLD := 100.0
 const UNIT_CAP := 30
 const ENEMY_UNIT_CAP := 60 # 敌方同屏上限（AI出兵x5后需高于己方）
 const VICTORY_REWARD_BASE := 120
-const REINFORCEMENT_PRICE_BASE := 200
-const CLEAR_TRAY_PRICE_BASE := 120
 const RANDOM_EFFECT_PRICE_BASE := 260
+const CLEAR_TRAY_COST := 200
 const AI_EFFECT_CD := 8.0
 const RALLY_BURST := 6
 const RANDOM_EFFECTS := [
@@ -105,20 +104,15 @@ var status_label: Label
 var restart_button: Button
 var result_menu_button: Button
 var return_button: Button
-var shop_button: Button
 var pause_button: Button
 var main_menu: Control
 var settings_panel: Panel
-var shop_panel: Panel
-var shop_coin_label: Label
-var shop_reinforcement_button: Button
-var shop_random_button: Button
-var shop_clear_tray_button: Button
-var shop_result_label: RichTextLabel
 var era_select_panel: Panel
 var era_select_buttons: Array[Button] = []
 var pause_overlay: Control
-var pause_shop_button: Button
+var pause_top_button: Button
+var pause_bottom_button: Button
+var pause_mode := "prep"
 var pause_title_label: Label
 var pause_hint_label: Label
 var tutorial_overlay: Control
@@ -384,17 +378,6 @@ func _build_top_bar() -> void:
 	return_button.pressed.connect(_show_main_menu)
 	return_button.pressed.connect(_play_button_sfx)
 	bar.add_child(return_button)
-	shop_button = Button.new()
-	shop_button.position = Vector2(594, 12)
-	shop_button.size = Vector2(54, 46)
-	shop_button.text = "🛒"
-	shop_button.tooltip_text = "商店"
-	shop_button.add_theme_font_size_override("font_size", 22)
-	shop_button.add_theme_stylebox_override("normal", _panel_style(Color("#e4863e"), Color("#713722"), 12, 2))
-	shop_button.add_theme_stylebox_override("hover", _panel_style(Color("#f2a252"), Color("#713722"), 12, 2))
-	shop_button.pressed.connect(_show_shop)
-	shop_button.pressed.connect(_play_button_sfx)
-	bar.add_child(shop_button)
 	pause_button = Button.new()
 	pause_button.position = Vector2(540, 12)
 	pause_button.size = Vector2(46, 46)
@@ -667,10 +650,11 @@ func _build_pause_overlay() -> void:
 	pause_title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	pause_hint_label = _label(panel, "战斗、出兵和牌堆均已冻结", Vector2(0, 92), Vector2(460, 28), 16, Color("#ffe3a5"))
 	pause_hint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	pause_shop_button = _menu_button(panel, "打开商店", Vector2(130, 140), Vector2(200, 58), 20)
-	pause_shop_button.pressed.connect(_show_shop)
-	var continue_button := _menu_button(panel, "确认再战", Vector2(130, 214), Vector2(200, 58), 20)
-	continue_button.pressed.connect(_toggle_pause)
+	pause_top_button = _menu_button(panel, "", Vector2(130, 140), Vector2(200, 58), 20)
+	pause_top_button.pressed.connect(_on_pause_top_pressed)
+	pause_bottom_button = _menu_button(panel, "确认再战", Vector2(130, 214), Vector2(200, 58), 20)
+	pause_bottom_button.pressed.connect(_on_pause_bottom_pressed)
+	_configure_pause("prep")
 
 func _build_tutorial_overlay() -> void:
 	tutorial_overlay = Control.new()
@@ -692,7 +676,7 @@ func _build_tutorial_overlay() -> void:
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	var content := _label(
 		panel,
-		"① 点击没被压住的卡牌，收进合成台\n\n② 3 张同名卡会自动合成英雄出战\n\n③ 拖动战场查看双方阵地，右上角小地图查看红蓝点\n\n④ 每 3 波自动进入整备，可从容逛 🛒 商店\n\n⑤ 时代随轮次自动推进，牌堆整堆刷新；商店 3 项：清理合成台、召唤援军、随机效果",
+		"① 点击没被压住的卡牌，收进合成台\n\n② 3 张同名卡会自动合成英雄出战\n\n③ 拖动战场查看双方阵地，右上角小地图查看红蓝点\n\n④ 每 3 波自动进入整备，可继续取牌合成\n\n⑤ 时代随轮次自动推进，牌堆整堆刷新\n\n⑥ 合成台放满且凑不齐三连时，自动扣 200 金币清理；金币不足则判负",
 		Vector2(42, 122),
 		Vector2(528, 500),
 		18,
@@ -712,6 +696,7 @@ func _toggle_pause() -> void:
 		if battle_ended:
 			return
 	elif not auto_prep:
+		_configure_pause("prep")
 		_set_pause_text("整备时间", "战斗、出兵和牌堆均已冻结")
 	if pause_overlay != null:
 		pause_overlay.visible = paused
@@ -727,9 +712,10 @@ func _enter_preparation() -> void:
 	enemy_spawn_timer = 0.0
 	enemy_spawn_index = 0
 	wave_min_timer = _diff().wave_min
+	_configure_pause("prep")
 	_set_pause_text(
 		"第 %d 波结束 · 自动整备" % wave_number,
-		"每 %d 波自动整备一次，可从容逛商店" % PREP_WAVE_INTERVAL
+		"每 %d 波自动整备一次，可继续取牌合成" % PREP_WAVE_INTERVAL
 	)
 	if pause_overlay != null:
 		pause_overlay.visible = true
@@ -741,6 +727,30 @@ func _set_pause_text(title: String, hint: String) -> void:
 		pause_title_label.text = title
 	if pause_hint_label != null:
 		pause_hint_label.text = hint
+
+func _configure_pause(mode: String) -> void:
+	pause_mode = mode
+	if pause_top_button == null or pause_bottom_button == null:
+		return
+	if mode == "clear_confirm":
+		pause_top_button.visible = true
+		pause_top_button.text = "扣 %d 金币清理并继续" % CLEAR_TRAY_COST
+		pause_bottom_button.text = "返回主界面"
+	else:
+		pause_top_button.visible = false
+		pause_bottom_button.text = "确认再战"
+
+func _on_pause_top_pressed() -> void:
+	_play_button_sfx()
+	if pause_mode == "clear_confirm":
+		_confirm_clear_tray()
+
+func _on_pause_bottom_pressed() -> void:
+	_play_button_sfx()
+	if pause_mode == "clear_confirm":
+		_show_main_menu()
+	else:
+		_toggle_pause()
 
 func _show_tutorial() -> void:
 	paused = true
@@ -813,7 +823,6 @@ func _build_main_menu() -> void:
 	_label(card, "点击开始，自动进入战斗", Vector2(0, 746), Vector2(588, 28), 14, Color("#e6c199")).horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_build_settings_panel(card)
 	_build_era_select_panel()
-	_build_shop_panel()
 
 func _menu_button(parent: Control, text: String, position: Vector2, size: Vector2, font_size: int) -> Button:
 	var button := Button.new()
@@ -881,113 +890,11 @@ func _hide_settings() -> void:
 	if settings_panel != null:
 		settings_panel.visible = false
 
-func _build_shop_panel() -> void:
-	shop_panel = Panel.new()
-	shop_panel.position = Vector2(100, 280)
-	shop_panel.size = Vector2(520, 590)
-	shop_panel.z_index = 3900
-	shop_panel.add_theme_stylebox_override("panel", _panel_style(Color("#c58a53"), Color("#70412c"), 24, 3))
-	shop_panel.visible = false
-	add_child(shop_panel)
-	var title := _label(shop_panel, "战斗商店", Vector2(0, 28), Vector2(520, 42), 28)
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	shop_coin_label = _label(shop_panel, "", Vector2(52, 92), Vector2(180, 30), 18, Color("#fff0c7"))
-	var clear_label := _label(shop_panel, "清理合成台\n移除 3 张最难凑成三连的牌", Vector2(52, 148), Vector2(230, 60), 17, Color("#fff0c7"))
-	clear_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	shop_clear_tray_button = _menu_button(shop_panel, "", Vector2(296, 148), Vector2(170, 60), 16)
-	shop_clear_tray_button.pressed.connect(_buy_clear_tray)
-	var reinforcement_label := _label(shop_panel, "召唤援军\n当前及以前时代的随机英雄", Vector2(52, 248), Vector2(230, 60), 17, Color("#fff0c7"))
-	reinforcement_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	shop_reinforcement_button = _menu_button(shop_panel, "", Vector2(296, 248), Vector2(170, 60), 16)
-	shop_reinforcement_button.pressed.connect(_buy_reinforcement)
-	var random_label := _label(shop_panel, "随机效果\n从 12 种战场增益里随机触发 1 个", Vector2(52, 344), Vector2(230, 68), 17, Color("#fff0c7"))
-	random_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	random_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	shop_random_button = _menu_button(shop_panel, "", Vector2(296, 348), Vector2(170, 60), 16)
-	shop_random_button.pressed.connect(_buy_random_effect)
-	shop_result_label = _rich_label(shop_panel, Vector2(52, 420), Vector2(416, 66), 15, Color("#ffe3a5"))
-	var resume_button := _menu_button(shop_panel, "关闭并再战", Vector2(276, 496), Vector2(196, 56), 18)
-	resume_button.pressed.connect(_close_shop_and_resume)
-	var close_button := _menu_button(shop_panel, "关闭", Vector2(52, 496), Vector2(196, 56), 18)
-	close_button.pressed.connect(_hide_shop)
-	_update_shop_ui()
-
-func _show_shop() -> void:
-	if shop_panel != null:
-		if paused and pause_overlay != null:
-			pause_overlay.visible = false
-		shop_panel.visible = true
-		_update_shop_ui()
-
-func _close_shop_and_resume() -> void:
-	_hide_shop()
-	if paused and battle_active and not battle_ended:
-		_toggle_pause()
-
-func _hide_shop() -> void:
-	if shop_panel != null:
-		shop_panel.visible = false
-		if paused and pause_overlay != null:
-			pause_overlay.visible = true
-
-func _update_shop_ui() -> void:
-	if shop_reinforcement_button == null:
-		return
-	var reinforcement_price := _era_amount(REINFORCEMENT_PRICE_BASE)
-	var random_price := _era_amount(RANDOM_EFFECT_PRICE_BASE)
-	var clear_tray_price := _era_amount(CLEAR_TRAY_PRICE_BASE)
-	shop_coin_label.text = "金币：%d" % coin_count
-	shop_reinforcement_button.text = "召唤援军  %d" % reinforcement_price
-	shop_random_button.text = "随机效果  %d" % random_price
-	shop_clear_tray_button.text = "清理合成台  %d" % clear_tray_price
-	var ally_cap_reached := _living_units("ally").size() >= UNIT_CAP
-	shop_reinforcement_button.text = "援军已满  %d" % reinforcement_price if ally_cap_reached else "召唤援军  %d" % reinforcement_price
-	shop_reinforcement_button.tooltip_text = "己方单位已达上限" if ally_cap_reached else ""
-	shop_reinforcement_button.disabled = not battle_active or battle_ended or ally_cap_reached or coin_count < reinforcement_price
-	shop_random_button.disabled = not battle_active or battle_ended or coin_count < random_price
-	shop_clear_tray_button.disabled = (
-		not battle_active
-		or battle_ended
-		or tray_cards.size() < 3
-		or coin_count < clear_tray_price
-	)
-
 func _era_amount(base_amount: int) -> int:
 	return _era_amount_for(current_era, base_amount)
 
 func _era_amount_for(era: String, base_amount: int) -> int:
 	return maxi(1, roundi(float(base_amount) * float(GameData.ERA_MULT.get(era, 1.0))))
-
-func _buy_reinforcement() -> void:
-	var price := _era_amount(REINFORCEMENT_PRICE_BASE)
-	if not battle_active or battle_ended or _living_units("ally").size() >= UNIT_CAP or coin_count < price:
-		return
-	var era: String = GameData.ERAS[rng.randi_range(0, era_index)]
-	var ids := GameData.heroes_for_era(era)
-	if ids.is_empty():
-		return
-	coin_count -= price
-	var hero_id := ids[rng.randi_range(0, ids.size() - 1)]
-	_spawn_ally(hero_id)
-	var hero: Dictionary = GameData.HEROES.get(hero_id, {})
-	_set_shop_result("援军抵达：%s（%s）" % [str(hero.get("name", hero_id)), str(hero.get("era_name", era))])
-	_update_coin_ui()
-	_update_shop_ui()
-
-func _buy_random_effect() -> void:
-	var price := _era_amount(RANDOM_EFFECT_PRICE_BASE)
-	if not battle_active or battle_ended or coin_count < price:
-		return
-	coin_count -= price
-	var effect: Dictionary = RANDOM_EFFECTS[rng.randi_range(0, RANDOM_EFFECTS.size() - 1)]
-	_apply_random_effect(effect)
-	_set_shop_result("%s%s —— %s" % [_effect_icon_bb(str(effect.id), 22), str(effect.name), str(effect.desc)])
-	battle_hint.text = "随机效果：%s" % str(effect.name)
-	AudioManager.play_sfx("era")
-	_update_coin_ui()
-	_update_tower_ui()
-	_update_shop_ui()
-	_update_buff_ui()
 
 func _apply_random_effect(effect: Dictionary, actor := "ally") -> void:
 	var effect_id := str(effect.id)
@@ -1027,10 +934,6 @@ func _apply_random_effect(effect: Dictionary, actor := "ally") -> void:
 		_:
 			var timers: Dictionary = buff_timers if actor == "ally" else enemy_buff_timers
 			timers[effect_id] = maxf(float(timers.get(effect_id, 0.0)), duration)
-
-func _set_shop_result(text: String) -> void:
-	if shop_result_label != null:
-		shop_result_label.text = text
 
 func _announce_enemy_action(text: String, _effect_id: String) -> void:
 	if enemy_action_label == null:
@@ -1095,11 +998,10 @@ func _update_buff_ui() -> void:
 		enemy_parts.append("%s敌塔炮 ×%.1f" % [_effect_icon_bb("tower_power", 18), enemy_tower_attack_bonus])
 	enemy_buff_label.text = "   ".join(enemy_parts)
 
-func _buy_clear_tray() -> void:
-	var price := _era_amount(CLEAR_TRAY_PRICE_BASE)
-	if not battle_active or battle_ended or tray_cards.size() < 3 or coin_count < price:
+func _do_clear_tray() -> void:
+	if not battle_active or battle_ended or tray_cards.size() < 3:
 		return
-	coin_count -= price
+	coin_count = maxi(0, coin_count - CLEAR_TRAY_COST)
 	var removals: Array[String] = tray_cards.duplicate()
 	removals.sort_custom(func(a: String, b: String) -> bool:
 		var count_a := tray_cards.count(a)
@@ -1111,11 +1013,9 @@ func _buy_clear_tray() -> void:
 	var removed := mini(3, removals.size())
 	for index in range(removed):
 		tray_cards.erase(removals[index])
-	stuck_warned = false
 	_rebuild_tray_visuals()
-	_set_shop_result("已清理合成台：移除 %d 张牌，剩 %d 张" % [removed, tray_cards.size()])
+	battle_hint.text = "已扣 %d 金币清理合成台（移除 %d 张）" % [CLEAR_TRAY_COST, removed]
 	_update_coin_ui()
-	_update_shop_ui()
 
 func _build_era_select_panel() -> void:
 	era_select_panel = Panel.new()
@@ -1180,7 +1080,6 @@ func _show_main_menu() -> void:
 	paused = false
 	_hide_settings()
 	_hide_era_select()
-	_hide_shop()
 	if result_overlay != null:
 		result_overlay.visible = false
 	if pause_overlay != null:
@@ -1227,7 +1126,6 @@ func _start_round(start_era_index: int = 0) -> void:
 	enemy_rally_fired = 0
 	_update_buff_ui()
 	_update_coin_ui()
-	_set_shop_result("")
 	battle_active = true
 	battle_ended = false
 	battle_won = false
@@ -1558,25 +1456,36 @@ func _check_stuck() -> void:
 	if tray_incoming > 0:
 		return
 	if tray_cards.size() < TRAY_SLOTS or _has_triple():
-		if tray_cards.size() < TRAY_SLOTS - 1:
-			stuck_warned = false
-		elif tray_cards.size() == TRAY_SLOTS - 1 and not _has_triple():
-			battle_hint.text = "⚠ 合成台只剩 1 格，必要时去商店买「清理合成台」"
+		if tray_cards.size() == TRAY_SLOTS - 1 and not _has_triple():
+			battle_hint.text = "⚠ 合成台只剩 1 格，凑不齐将扣 %d 金币清理" % CLEAR_TRAY_COST
 		return
-	if not stuck_warned and coin_count >= _era_amount(CLEAR_TRAY_PRICE_BASE):
-		stuck_warned = true
-		_enter_stuck_rescue()
+	if coin_count < CLEAR_TRAY_COST:
+		_finish_battle(false, "金币不足，无法清理合成台")
 		return
-	_finish_battle(false, "失败！合成台已满且无法继续合成")
+	if not stuck_warned:
+		_enter_clear_confirm()
+		return
+	_do_clear_tray()
 
-func _enter_stuck_rescue() -> void:
+func _enter_clear_confirm() -> void:
 	prep_pending = false
 	auto_prep = true
 	paused = true
-	_set_pause_text("合成台已满", "去商店买「清理合成台」，否则再战即判负")
+	_configure_pause("clear_confirm")
+	_set_pause_text("合成台已满", "凑不齐三连，需扣 %d 金币清理合成台" % CLEAR_TRAY_COST)
 	if pause_overlay != null:
 		pause_overlay.visible = true
 	AudioManager.play_sfx("era")
+	_update_progress_ui()
+
+func _confirm_clear_tray() -> void:
+	stuck_warned = true
+	paused = false
+	auto_prep = false
+	_configure_pause("prep")
+	if pause_overlay != null:
+		pause_overlay.visible = false
+	_do_clear_tray()
 	_update_progress_ui()
 
 func _card_sort_key(card_id: String) -> int:
@@ -2068,7 +1977,6 @@ func _finish_battle(won: bool, message: String) -> void:
 func _change_coins(amount: int) -> void:
 	coin_count = maxi(0, coin_count + amount)
 	_update_coin_ui()
-	_update_shop_ui()
 
 func _living_units(side: String) -> Array[BattleUnit]:
 	var result: Array[BattleUnit] = []
