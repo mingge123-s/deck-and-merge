@@ -11,6 +11,9 @@ const PREP_WAVE_INTERVAL := 3
 const SPAWN_STAGGER := 0.6
 const WAVE_DURATION := 180.0
 const KILL_COIN_MULT := 0.2
+const ROUNDS_PER_ERA := 2
+const BATCH_BASE_GROUPS := 6
+const BATCH_GROUP_STEP := 1
 const DIFFICULTIES := {
 	"easy": {"name": "简单", "wave_min": 6.0, "first_delay": 7.0, "count_base": 2, "count_step": 6, "count_max": 4, "enemy_mult": 0.6, "boss_wave": 8, "tower_mult": 1.9, "ai_income_mult": 0.6, "ai_trickle": 0.3, "ai_effect_chance": 0.25},
 	"normal": {"name": "普通", "wave_min": 5.0, "first_delay": 4.0, "count_base": 2, "count_step": 4, "count_max": 5, "enemy_mult": 1.0, "boss_wave": 5, "tower_mult": 1.1, "ai_income_mult": 1.0, "ai_trickle": 0.5, "ai_effect_chance": 0.4},
@@ -103,7 +106,6 @@ var shop_coin_label: Label
 var shop_reinforcement_button: Button
 var shop_random_button: Button
 var shop_clear_tray_button: Button
-var shop_era_button: Button
 var shop_result_label: RichTextLabel
 var era_select_panel: Panel
 var era_select_buttons: Array[Button] = []
@@ -129,6 +131,8 @@ var wave_boss_pending := false
 var enemy_spawn_timer := 0.0
 var enemy_spawn_index := 0
 var wave_number := 0
+var round_number := 0
+var base_era_index := 0
 var ally_tower_cd := 0.0
 var enemy_tower_cd := 0.0
 var card_z_top := 0
@@ -646,7 +650,7 @@ func _build_tutorial_overlay() -> void:
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	var content := _label(
 		panel,
-		"① 点击没被压住的卡牌，收进合成台\n\n② 3 张同名卡会自动合成英雄出战\n\n③ 拖动战场查看双方阵地，右上角小地图查看红蓝点\n\n④ 每 3 波自动进入整备，可从容逛 🛒 商店\n\n⑤ 商店 4 项：时代进阶、清理合成台、召唤援军（当前及以前时代）、随机效果",
+		"① 点击没被压住的卡牌，收进合成台\n\n② 3 张同名卡会自动合成英雄出战\n\n③ 拖动战场查看双方阵地，右上角小地图查看红蓝点\n\n④ 每 3 波自动进入整备，可从容逛 🛒 商店\n\n⑤ 时代随轮次自动推进，牌堆整堆刷新；商店 3 项：清理合成台、召唤援军、随机效果",
 		Vector2(42, 122),
 		Vector2(528, 500),
 		18,
@@ -838,7 +842,7 @@ func _hide_settings() -> void:
 func _build_shop_panel() -> void:
 	shop_panel = Panel.new()
 	shop_panel.position = Vector2(100, 280)
-	shop_panel.size = Vector2(520, 690)
+	shop_panel.size = Vector2(520, 590)
 	shop_panel.z_index = 120
 	shop_panel.add_theme_stylebox_override("panel", _panel_style(Color("#c58a53"), Color("#70412c"), 24, 3))
 	shop_panel.visible = false
@@ -846,27 +850,23 @@ func _build_shop_panel() -> void:
 	var title := _label(shop_panel, "战斗商店", Vector2(0, 28), Vector2(520, 42), 28)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	shop_coin_label = _label(shop_panel, "", Vector2(52, 92), Vector2(180, 30), 18, Color("#fff0c7"))
-	var era_label := _label(shop_panel, "时代进阶\n花金币解锁下一个时代", Vector2(52, 148), Vector2(230, 60), 17, Color("#fff0c7"))
-	era_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	shop_era_button = _menu_button(shop_panel, "", Vector2(296, 148), Vector2(170, 60), 16)
-	shop_era_button.pressed.connect(_buy_era_upgrade)
-	var clear_label := _label(shop_panel, "清理合成台\n移除 3 张最难凑成三连的牌", Vector2(52, 248), Vector2(230, 60), 17, Color("#fff0c7"))
+	var clear_label := _label(shop_panel, "清理合成台\n移除 3 张最难凑成三连的牌", Vector2(52, 148), Vector2(230, 60), 17, Color("#fff0c7"))
 	clear_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	shop_clear_tray_button = _menu_button(shop_panel, "", Vector2(296, 248), Vector2(170, 60), 16)
+	shop_clear_tray_button = _menu_button(shop_panel, "", Vector2(296, 148), Vector2(170, 60), 16)
 	shop_clear_tray_button.pressed.connect(_buy_clear_tray)
-	var reinforcement_label := _label(shop_panel, "召唤援军\n当前及以前时代的随机英雄", Vector2(52, 348), Vector2(230, 60), 17, Color("#fff0c7"))
+	var reinforcement_label := _label(shop_panel, "召唤援军\n当前及以前时代的随机英雄", Vector2(52, 248), Vector2(230, 60), 17, Color("#fff0c7"))
 	reinforcement_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	shop_reinforcement_button = _menu_button(shop_panel, "", Vector2(296, 348), Vector2(170, 60), 16)
+	shop_reinforcement_button = _menu_button(shop_panel, "", Vector2(296, 248), Vector2(170, 60), 16)
 	shop_reinforcement_button.pressed.connect(_buy_reinforcement)
-	var random_label := _label(shop_panel, "随机效果\n从 12 种战场增益里随机触发 1 个", Vector2(52, 444), Vector2(230, 68), 17, Color("#fff0c7"))
+	var random_label := _label(shop_panel, "随机效果\n从 12 种战场增益里随机触发 1 个", Vector2(52, 344), Vector2(230, 68), 17, Color("#fff0c7"))
 	random_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	random_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	shop_random_button = _menu_button(shop_panel, "", Vector2(296, 448), Vector2(170, 60), 16)
+	shop_random_button = _menu_button(shop_panel, "", Vector2(296, 348), Vector2(170, 60), 16)
 	shop_random_button.pressed.connect(_buy_random_effect)
-	shop_result_label = _rich_label(shop_panel, Vector2(52, 520), Vector2(416, 66), 15, Color("#ffe3a5"))
-	var resume_button := _menu_button(shop_panel, "关闭并再战", Vector2(276, 596), Vector2(196, 56), 18)
+	shop_result_label = _rich_label(shop_panel, Vector2(52, 420), Vector2(416, 66), 15, Color("#ffe3a5"))
+	var resume_button := _menu_button(shop_panel, "关闭并再战", Vector2(276, 496), Vector2(196, 56), 18)
 	resume_button.pressed.connect(_close_shop_and_resume)
-	var close_button := _menu_button(shop_panel, "关闭", Vector2(52, 596), Vector2(196, 56), 18)
+	var close_button := _menu_button(shop_panel, "关闭", Vector2(52, 496), Vector2(196, 56), 18)
 	close_button.pressed.connect(_hide_shop)
 	_update_shop_ui()
 
@@ -898,15 +898,7 @@ func _update_shop_ui() -> void:
 	shop_reinforcement_button.text = "召唤援军  %d" % reinforcement_price
 	shop_random_button.text = "随机效果  %d" % random_price
 	shop_clear_tray_button.text = "清理合成台  %d" % clear_tray_price
-	var next_era_index := era_index + 1
-	var can_upgrade := next_era_index < GameData.ERAS.size()
-	var era_cost := int(GameData.ERA_UPGRADE_COST.get(current_era, 0))
 	var ally_cap_reached := _living_units("ally").size() >= UNIT_CAP
-	if can_upgrade:
-		var next_era: String = GameData.ERAS[next_era_index]
-		shop_era_button.text = "%s  %d" % [GameData.ERA_NAMES.get(next_era, next_era), era_cost]
-	else:
-		shop_era_button.text = "已是最终时代"
 	shop_reinforcement_button.text = "援军已满  %d" % reinforcement_price if ally_cap_reached else "召唤援军  %d" % reinforcement_price
 	shop_reinforcement_button.tooltip_text = "己方单位已达上限" if ally_cap_reached else ""
 	shop_reinforcement_button.disabled = not battle_active or battle_ended or ally_cap_reached or coin_count < reinforcement_price
@@ -917,7 +909,6 @@ func _update_shop_ui() -> void:
 		or tray_cards.size() < 3
 		or coin_count < clear_tray_price
 	)
-	shop_era_button.disabled = not battle_active or battle_ended or not can_upgrade or coin_count < era_cost
 
 func _era_amount(base_amount: int) -> int:
 	return _era_amount_for(current_era, base_amount)
@@ -1084,18 +1075,6 @@ func _buy_clear_tray() -> void:
 	_update_coin_ui()
 	_update_shop_ui()
 
-func _buy_era_upgrade() -> void:
-	var next_era_index := era_index + 1
-	if not battle_active or battle_ended or next_era_index >= GameData.ERAS.size():
-		return
-	var cost := int(GameData.ERA_UPGRADE_COST.get(current_era, 0))
-	if cost <= 0 or coin_count < cost:
-		return
-	coin_count -= cost
-	_advance_era()
-	_update_coin_ui()
-	_update_shop_ui()
-
 func _build_era_select_panel() -> void:
 	era_select_panel = Panel.new()
 	era_select_panel.position = Vector2(84, 220)
@@ -1186,6 +1165,7 @@ func _start_round(start_era_index: int = 0) -> void:
 	tray_incoming = 0
 	occupied_units = 0
 	era_index = clampi(start_era_index, 0, GameData.ERAS.size() - 1)
+	base_era_index = era_index
 	current_era = GameData.ERAS[era_index]
 	coin_count = 300
 	kill_score = 0
@@ -1223,6 +1203,7 @@ func _start_round(start_era_index: int = 0) -> void:
 	enemy_spawn_timer = 0.0
 	enemy_spawn_index = 0
 	wave_number = 0
+	round_number = 0
 	ally_tower_cd = 0.0
 	enemy_tower_cd = 0.0
 	card_z_top = 0
@@ -1236,15 +1217,7 @@ func _start_round(start_era_index: int = 0) -> void:
 	_remove_battle_units()
 	_update_progress_ui()
 	_update_tower_ui()
-	var deck: Array[String] = []
-	var counts := GameData.blended_deck_counts(era_index)
-	for card_id in counts:
-		for _count in range(int(counts[card_id])):
-			deck.append(str(card_id))
-	deck.shuffle()
-	for index in range(deck.size()):
-		_spawn_card(deck[index], index)
-	_refresh_covered()
+	_spawn_next_batch()
 	_refresh_era_visuals(false)
 	_reset_camera()
 	if not SaveManager.get_tutorial_seen():
@@ -1269,6 +1242,51 @@ func _spawn_card(card_id: String, index: int, from_bottom := false) -> void:
 		card_z_top = maxi(card_z_top, index)
 	card_layer.add_child(card)
 	deck_cards.append(card)
+
+func _spawn_next_batch() -> void:
+	round_number += 1
+	var target_ei := mini(base_era_index + (round_number - 1) / ROUNDS_PER_ERA, GameData.ERAS.size() - 1)
+	while era_index < target_ei:
+		_advance_era()
+	var groups := BATCH_BASE_GROUPS + (round_number - 1) * BATCH_GROUP_STEP
+	var batch := _build_batch_cards(groups)
+	batch.shuffle()
+	for index in range(batch.size()):
+		_spawn_card(batch[index], index)
+	_refresh_covered()
+	_update_progress_ui()
+
+func _build_batch_cards(groups_needed: int) -> Array[String]:
+	var counts := GameData.blended_deck_counts(era_index)
+	var result: Array[String] = []
+	if counts.is_empty() or groups_needed <= 0:
+		return result
+	var total_weight := 0
+	for card_id in counts:
+		total_weight += int(counts[card_id])
+	if total_weight <= 0:
+		return result
+	var remainders: Array[Dictionary] = []
+	var assigned := 0
+	for card_id in counts:
+		var exact := float(groups_needed) * float(counts[card_id]) / float(total_weight)
+		var whole := int(floor(exact))
+		assigned += whole
+		remainders.append({"card": str(card_id), "groups": whole, "rest": exact - float(whole)})
+	remainders.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return float(a.rest) > float(b.rest)
+	)
+	var leftover := groups_needed - assigned
+	for index in range(remainders.size()):
+		if leftover <= 0:
+			break
+		remainders[index]["groups"] = int(remainders[index].groups) + 1
+		leftover -= 1
+	for entry in remainders:
+		for _g in range(int(entry.groups)):
+			for _c in range(3):
+				result.append(str(entry.card))
+	return result
 
 func _pile_position(index: int) -> Vector2:
 	return _random_pile_position()
@@ -1451,7 +1469,8 @@ func _on_card_clicked(card: CardView) -> void:
 	card.claimed = true
 	tray_incoming += 1
 	deck_cards.erase(card)
-	_refill_deck_if_low()
+	if deck_cards.is_empty():
+		_spawn_next_batch()
 	_refresh_covered()
 	var selected_id := card.card_id
 	card.reparent(self)
@@ -1466,31 +1485,6 @@ func _on_card_clicked(card: CardView) -> void:
 		_add_to_tray(selected_id)
 		AudioManager.play_sfx("place")
 	)
-
-func _refill_deck_if_low() -> void:
-	var target_counts := GameData.blended_deck_counts(era_index)
-	if target_counts.is_empty():
-		return
-	var deck_target := GameData.blended_deck_total(era_index)
-	if deck_cards.size() > deck_target - DECK_LOW_MARGIN:
-		return
-	while deck_cards.size() < deck_target:
-		var current_counts: Dictionary = {}
-		for card in deck_cards:
-			if is_instance_valid(card) and not card.claimed:
-				current_counts[card.card_id] = int(current_counts.get(card.card_id, 0)) + 1
-		var best_card := ""
-		var best_deficit := -99999
-		for card_id in target_counts:
-			var deficit := int(target_counts[card_id]) - int(current_counts.get(card_id, 0))
-			if deficit > best_deficit:
-				best_deficit = deficit
-				best_card = str(card_id)
-		if best_card == "" or best_deficit <= 0:
-			return
-		var copies := mini(mini(3, best_deficit), deck_target - deck_cards.size())
-		for _copy in range(copies):
-			_spawn_card(best_card, deck_cards.size(), true)
 
 func _can_pick_cards() -> bool:
 	return battle_active and not battle_ended and (not paused or auto_prep)
@@ -1948,7 +1942,7 @@ func _advance_era() -> void:
 	AudioManager.play_sfx("era")
 	_rescale_towers_for_era()
 	_update_progress_ui()
-	battle_hint.text = "文明进阶：%s！新时代卡牌将随抽牌逐渐加入牌堆" % GameData.ERA_NAMES[current_era]
+	battle_hint.text = "文明进阶：%s！新一轮牌堆解锁更高级卡牌" % GameData.ERA_NAMES[current_era]
 	_refresh_era_visuals(true)
 	print("时代进阶: %s" % current_era)
 
@@ -2062,7 +2056,7 @@ func _update_progress_ui() -> void:
 			state = "本波结束进入整备"
 		else:
 			state = "距下次整备 %d 波" % (PREP_WAVE_INTERVAL - wave_number % PREP_WAVE_INTERVAL)
-	era_label.text = "%s · %s" % [GameData.ERA_NAMES.get(current_era, current_era), state]
+	era_label.text = "%s · 第 %d 轮 · %s" % [GameData.ERA_NAMES.get(current_era, current_era), round_number, state]
 	if battle_active and not battle_ended:
 		score_label.text = "积分 %d · 第 %d 波 · 敌 %d" % [kill_score, wave_number, _living_units("enemy").size()]
 	else:
