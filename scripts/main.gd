@@ -5,6 +5,9 @@ const BATTLE_RECT := Rect2(36, 116, 648, 300)
 const TRAY_RECT := Rect2(36, 432, 648, 156)
 const BOARD_RECT := Rect2(36, 604, 648, 636)
 const CARD_SIZE := Vector2(138, 166)
+const TRAY_SLOT_SIZE := Vector2(80, 80)
+const TRAY_SLOT_STEP := 89.0
+const TRAY_SLOT_ORIGIN := Vector2(16, 48)
 const DECK_LOW_MARGIN := 12 # 牌堆少于目标-12张才触发补牌；每次把缺口最大的卡补齐到目标(单张单批≤3)
 const TRAY_SLOTS := 7
 const PREP_WAVE_INTERVAL := 3
@@ -399,8 +402,8 @@ func _build_tray() -> void:
 	_label(tray, "3 张同名卡 → 1 个时代英雄", Vector2(168, 13), Vector2(300, 22), 12, Color("#765035"))
 	for index in range(7):
 		var slot := Panel.new()
-		slot.position = Vector2(16 + index * 89, 48)
-		slot.size = Vector2(80, 88)
+		slot.position = TRAY_SLOT_ORIGIN + Vector2(index * TRAY_SLOT_STEP, 0)
+		slot.size = TRAY_SLOT_SIZE
 		slot.add_theme_stylebox_override("panel", _panel_style(Color("#aa7044", 0.25), Color("#a66e43"), 12, 2))
 		tray.add_child(slot)
 
@@ -1482,7 +1485,7 @@ func _first_open_slot() -> int:
 	return used if used < TRAY_SLOTS else -1
 
 func _slot_position(index: int) -> Vector2:
-	return tray.global_position + Vector2(16 + index * 89 + 40, 48 + 44)
+	return tray.global_position + TRAY_SLOT_ORIGIN + Vector2(index * TRAY_SLOT_STEP, 0) + TRAY_SLOT_SIZE * 0.5
 
 func _add_to_tray(card_id: String) -> void:
 	tray_incoming = maxi(0, tray_incoming - 1)
@@ -1531,8 +1534,8 @@ func _rebuild_tray_visuals() -> void:
 	tray_views.clear()
 	for index in range(tray_cards.size()):
 		var icon := TextureRect.new()
-		icon.position = Vector2(20 + index * 89, 52)
-		icon.size = Vector2(72, 64)
+		icon.position = TRAY_SLOT_ORIGIN + Vector2(index * TRAY_SLOT_STEP, 0)
+		icon.size = TRAY_SLOT_SIZE
 		var path := GameData.card_texture_path(tray_cards[index])
 		if path != "" and ResourceLoader.exists(path):
 			icon.texture = load(path)
