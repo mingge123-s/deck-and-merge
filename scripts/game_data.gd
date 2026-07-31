@@ -146,7 +146,7 @@ static func hero_for_card(card_id: String) -> Dictionary:
 
 static func card_texture_path(card_id: String) -> String:
 	var hero: Dictionary = hero_for_card(card_id)
-	var hero_id := str(hero.get("id", hero.get("hero", "")))
+	var hero_id := str(hero.get("id", ""))
 	if hero_id != "":
 		var card_path := "res://assets/cards/%s.png" % hero_id
 		if ResourceLoader.exists(card_path):
