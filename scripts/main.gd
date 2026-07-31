@@ -8,9 +8,9 @@ const CARD_SIZE := Vector2(138, 166)
 const DECK_LOW_MARGIN := 12 # 牌堆少于目标-12张才触发补牌；每次把缺口最大的卡补齐到目标(单张单批≤3)
 const TRAY_SLOTS := 7
 const PREP_WAVE_INTERVAL := 3
-const SPAWN_STAGGER := 1.0
+const SPAWN_STAGGER := 0.6
 const WAVE_DURATION := 180.0
-const KILL_COIN_MULT := 0.5
+const KILL_COIN_MULT := 0.25
 const DIFFICULTIES := {
 	"easy": {"name": "简单", "wave_min": 6.0, "first_delay": 7.0, "count_base": 2, "count_step": 6, "count_max": 4, "enemy_mult": 0.6, "boss_wave": 8, "tower_mult": 1.9, "ai_income_mult": 0.6, "ai_trickle": 0.3, "ai_effect_chance": 0.25},
 	"normal": {"name": "普通", "wave_min": 5.0, "first_delay": 4.0, "count_base": 2, "count_step": 4, "count_max": 5, "enemy_mult": 1.0, "boss_wave": 5, "tower_mult": 1.1, "ai_income_mult": 1.0, "ai_trickle": 0.5, "ai_effect_chance": 0.4},
@@ -26,6 +26,7 @@ const TOWER_HEIGHT := 160.0
 const TOWER_GROUND_NUDGE := 3.0
 const TOWER_ATTACK_RANGE := 420.0
 const TOWER_ATTACK_CD := 1.1
+const TOWER_BASE_DAMAGE := 90.0
 const TOWER_POWER_MAX := 3.0
 const TANK_AGGRO_RADIUS := 150.0
 const PROJECTILE_RANGE_THRESHOLD := 100.0
@@ -1767,7 +1768,7 @@ func _process_tower_attack(ally: bool, candidates: Array[BattleUnit]) -> void:
 			return target.position + Vector2(0, -56.0)
 		return null
 	var tower_era := current_era if ally else enemy_era
-	var damage := 30.0 * float(GameData.ERA_MULT.get(tower_era, 1.0))
+	var damage := TOWER_BASE_DAMAGE * float(GameData.ERA_MULT.get(tower_era, 1.0))
 	if ally:
 		damage *= tower_attack_bonus
 	else:
