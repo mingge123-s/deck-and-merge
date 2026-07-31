@@ -151,7 +151,7 @@ static func blended_deck_counts(era_index: int) -> Dictionary:
 			var hero: Dictionary = HEROES[hero_id]
 			var card_id := str(hero.get("card", hero_id))
 			var base := int(hero.get("deck_count", 9))
-			var count := base if behind == 0 else maxi(3, int(round(float(base) * pow(0.55, float(behind)))))
+			var count := base if behind == 0 else maxi(1, int(round(float(base) * pow(0.4, float(behind)))))
 			result[card_id] = int(result.get(card_id, 0)) + count
 	return result
 
