@@ -76,6 +76,7 @@ var minimap: BattleMinimap
 var camera_x := 0.0
 var dragging := false
 var card_layer: Control
+var board_bg: TextureRect
 var battle_bg: TextureRect
 var ally_tower_sprite: Sprite2D
 var enemy_tower_sprite: Sprite2D
@@ -396,6 +397,7 @@ func _build_board() -> void:
 	bg.position = Vector2(8, 8)
 	bg.size = BOARD_RECT.size - Vector2(16, 16)
 	bg.texture = load("res://assets/bg_board.png")
+	board_bg = bg
 	bg.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	bg.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -526,6 +528,11 @@ func _apply_era_visuals() -> void:
 	if not ResourceLoader.exists(bg_path):
 		bg_path = "res://assets/bg_battle_stone.png"
 	battle_bg.texture = load(bg_path)
+	if board_bg != null:
+		var board_path := "res://assets/bg_board_%s.png" % current_era
+		if not ResourceLoader.exists(board_path):
+			board_path = "res://assets/bg_board.png"
+		board_bg.texture = load(board_path)
 	for tower_data in [
 		{"tower": ally_tower_sprite, "era": current_era},
 		{"tower": enemy_tower_sprite, "era": enemy_era},
