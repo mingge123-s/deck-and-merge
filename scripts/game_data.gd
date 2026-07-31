@@ -166,12 +166,17 @@ static func hero_for_card(card_id: String) -> Dictionary:
 	return HEROES.get(card.get("hero", ""), {})
 
 static func card_texture_path(card_id: String) -> String:
+	var hero: Dictionary = hero_for_card(card_id)
+	var hero_id := str(hero.get("id", ""))
+	if hero_id != "":
+		var card_path := "res://assets/cards/%s.png" % hero_id
+		if ResourceLoader.exists(card_path):
+			return card_path
 	var legacy_id: String = LEGACY_CARD_TEXTURES.get(card_id, "")
 	if legacy_id != "":
 		var legacy_path := "res://assets/cards/%s.png" % legacy_id
 		if ResourceLoader.exists(legacy_path):
 			return legacy_path
-	var hero: Dictionary = hero_for_card(card_id)
 	var anim_id := str(hero.get("anim", ""))
 	if anim_id != "":
 		var idle_path := "res://assets/anim/%s/idle.png" % anim_id

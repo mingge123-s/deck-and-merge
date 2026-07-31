@@ -172,6 +172,7 @@ func _play_hit_punch() -> void:
 
 func _die() -> void:
 	alive = false
+	queue_redraw()
 	if animated:
 		anim.play("die")
 		var tween := create_tween()
@@ -195,6 +196,8 @@ func spend_attack_time() -> void:
 	attack_cooldown = 1.0 / max(0.1, float(stats.attack_speed))
 
 func _draw() -> void:
+	if not alive:
+		return
 	var bar_width := 72.0
 	var bar_y := -122.0 if faction == "ally" else -111.0
 	draw_rect(Rect2(-bar_width * 0.5, bar_y, bar_width, 8), Color("#43251d", 0.9), true)
