@@ -23,6 +23,8 @@ const DIFFICULTIES := {
 	"hard": {"name": "困难", "wave_min": 3.0, "first_delay": 3.0, "count_base": 15, "count_step": 3, "count_max": 35, "enemy_mult": 1.3, "boss_wave": 4, "tower_mult": 1.0, "ai_income_mult": 1.4, "ai_trickle": 0.8, "ai_effect_chance": 0.55},
 }
 const BATTLE_GROUND_Y := 222.0
+const CAMERA_FOLLOW_SPEED := 4.0
+const CAMERA_MANUAL_HOLD := 3.0
 const WORLD_WIDTH := 1680.0
 const BATTLE_VIEW_W := 648.0
 const ALLY_TOWER_X := 96.0
@@ -74,6 +76,7 @@ var battlefield: Control
 var world: Control
 var minimap: BattleMinimap
 var camera_x := 0.0
+var camera_manual_timer := 0.0
 var dragging := false
 var card_layer: Control
 var battle_bg: TextureRect
@@ -192,6 +195,7 @@ func _on_battlefield_input(event: InputEvent) -> void:
 		dragging = event.pressed
 	elif event is InputEventMouseMotion and dragging:
 		camera_x = clampf(camera_x - event.relative.x, 0.0, WORLD_WIDTH - BATTLE_VIEW_W)
+		camera_manual_timer = CAMERA_MANUAL_HOLD
 		_apply_camera()
 
 func _apply_camera() -> void:
@@ -200,6 +204,32 @@ func _apply_camera() -> void:
 
 func _reset_camera() -> void:
 	camera_x = 0.0
+	camera_manual_timer = 0.0
+	_apply_camera()
+
+func _frontline_focus_x() -> float:
+	var lead := -INF
+	for unit in battle_units:
+		if is_instance_valid(unit) and unit.alive and unit.faction == "ally":
+			lead = maxf(lead, unit.position.x)
+	if lead != -INF:
+		return lead
+	var nearest := INF
+	for unit in battle_units:
+		if is_instance_valid(unit) and unit.alive and unit.faction == "enemy":
+			nearest = minf(nearest, unit.position.x)
+	if nearest != INF:
+		return nearest
+	return ALLY_TOWER_X + BATTLE_VIEW_W * 0.5
+
+func _update_camera_follow(delta: float) -> void:
+	if world == null:
+		return
+	if camera_manual_timer > 0.0:
+		camera_manual_timer = maxf(0.0, camera_manual_timer - delta)
+		return
+	var target := clampf(_frontline_focus_x() - BATTLE_VIEW_W * 0.5, 0.0, WORLD_WIDTH - BATTLE_VIEW_W)
+	camera_x = lerpf(camera_x, target, clampf(delta * CAMERA_FOLLOW_SPEED, 0.0, 1.0))
 	_apply_camera()
 
 func _set_camera_shake(offset: Vector2) -> void:
@@ -282,6 +312,7 @@ func _process(delta: float) -> void:
 			_spawn_wave()
 			wave_min_timer = _diff().wave_min
 	_step_battle(delta)
+	_update_camera_follow(delta)
 	_update_tower_ui()
 
 func _panel_style(color: Color, border := Color("#70412c"), radius := 20, width := 3) -> StyleBoxFlat:
