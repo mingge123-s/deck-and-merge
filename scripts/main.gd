@@ -47,7 +47,7 @@ const RANDOM_EFFECT_PRICE_BASE := 260
 const AI_EFFECT_CD := 8.0
 const RALLY_BURST := 6
 const RANDOM_EFFECTS := [
-	{"id": "reinforcement", "name": "召唤援军", "desc": "立刻召唤 1 个当前及以前时代的随机英雄", "duration": 0.0},
+	{"id": "reinforcement", "name": "召唤援军", "desc": "立刻召唤 1 个随机时代的随机英雄", "duration": 0.0},
 	{"id": "boss_call", "name": "BOSS 召唤", "desc": "立刻出战 1 个当前时代的 BOSS 英雄", "duration": 0.0},
 	{"id": "field_aid", "name": "战场急救", "desc": "我方全体回复 40% 生命", "duration": 0.0},
 	{"id": "freeze", "name": "冰冻力场", "desc": "敌方全体停止行动 3 秒", "duration": 3.0},
@@ -1025,14 +1025,15 @@ func _buy_reinforcement() -> void:
 	if not battle_active or battle_ended or _living_units("ally").size() >= UNIT_CAP or coin_count < price:
 		return
 	coin_count -= price
-	_summon_reinforcement()
+	_summon_reinforcement(false)
 	_update_coin_ui()
 	_update_shop_ui()
 
-func _summon_reinforcement() -> void:
+func _summon_reinforcement(any_era := true) -> void:
 	if _living_units("ally").size() >= UNIT_CAP:
 		return
-	var era: String = GameData.ERAS[rng.randi_range(0, era_index)]
+	var max_era_index := GameData.ERAS.size() - 1 if any_era else era_index
+	var era: String = GameData.ERAS[rng.randi_range(0, max_era_index)]
 	var ids := GameData.heroes_for_era(era)
 	if ids.is_empty():
 		return
@@ -1064,7 +1065,7 @@ func _apply_random_effect(effect: Dictionary, actor := "ally") -> void:
 	match effect_id:
 		"reinforcement":
 			if actor == "ally":
-				_summon_reinforcement()
+				_summon_reinforcement(true)
 			else:
 				var era: String = GameData.ERAS[rng.randi_range(0, enemy_era_index)]
 				var ids := GameData.heroes_for_era(era)
