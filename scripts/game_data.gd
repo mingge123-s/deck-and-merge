@@ -14,7 +14,9 @@ static var _initialized := false
 static var ERAS: Array[String] = []
 static var ERA_NAMES: Dictionary = {}
 static var ERA_MULT: Dictionary = {}
-static var ERA_UPGRADE_SCORE: Dictionary = {}
+static var ERA_UPGRADE_COST: Dictionary = {}
+static var ERA_TEMPO: Dictionary = {}
+static var ERA_RANGE_MULT: Dictionary = {}
 static var ROLES: Array[String] = []
 static var ROLE_NAMES: Dictionary = {}
 static var ROLE_BASE: Dictionary = {}
@@ -30,7 +32,9 @@ static func initialize() -> void:
 	ERAS = _string_array(_manifest.get("eras", []))
 	ERA_NAMES = _manifest.get("era_names", {})
 	ERA_MULT = _manifest.get("era_mult", {})
-	ERA_UPGRADE_SCORE = _manifest.get("era_upgrade_score", {})
+	ERA_UPGRADE_COST = _manifest.get("era_upgrade_cost", {})
+	ERA_TEMPO = _manifest.get("era_tempo", {})
+	ERA_RANGE_MULT = _manifest.get("era_range_mult", {})
 	ROLES = _string_array(_manifest.get("roles", []))
 	ROLE_NAMES = _manifest.get("role_names", {})
 	ROLE_BASE = _manifest.get("role_base", {})
@@ -69,14 +73,17 @@ static func _build_heroes(raw_heroes: Variant) -> Dictionary:
 		hero["role"] = role
 		hero["era"] = era
 		hero["color_value"] = Color(str(raw.get("color", "#888888")))
-		hero["scale"] = float(ROLE_SCALE.get(role, 1.0))
+		hero["scale"] = float(raw.get("scale", ROLE_SCALE.get(role, 1.0)))
 		hero["hp"] = float(base.get("hp", 100.0)) * mult
-		hero["attack"] = float(base.get("attack", 10.0)) * mult
-		hero["range"] = float(base.get("range", 46.0))
-		hero["move_speed"] = float(base.get("move_speed", 40.0))
-		hero["cooldown"] = float(base.get("cooldown", 1.0))
+		hero["attack"] = float(base.get("attack", 10.0)) * mult * float(raw.get("attack_mult", 1.0))
+		var tempo := float(ERA_TEMPO.get(era, 1.0))
+		var range_mult := float(ERA_RANGE_MULT.get(era, 1.0))
+		hero["range"] = float(raw.get("range", base.get("range", 46.0))) * range_mult
+		hero["move_speed"] = float(base.get("move_speed", 40.0)) * tempo
+		hero["cooldown"] = float(base.get("cooldown", 1.0)) * float(raw.get("cooldown_mult", 1.0)) / maxf(0.1, tempo)
 		hero["attack_speed"] = 1.0 / maxf(0.1, hero["cooldown"])
 		hero["kill_score"] = int(base.get("kill_score", 10))
+		hero["deck_count"] = int(base.get("deck_count", 9))
 		hero["role_name"] = str(ROLE_NAMES.get(role, role))
 		hero["era_name"] = str(ERA_NAMES.get(era, era))
 		result[str(raw.get("id", ""))] = hero
@@ -120,17 +127,56 @@ static func cards_for_era(era: String) -> Array[String]:
 		result.append(str(HEROES[hero_id].get("card", hero_id)))
 	return result
 
+static func deck_counts_for_era(era: String) -> Dictionary:
+	var result: Dictionary = {}
+	for hero_id in heroes_for_era(era):
+		var hero: Dictionary = HEROES[hero_id]
+		result[str(hero.get("card", hero_id))] = int(hero.get("deck_count", 9))
+	return result
+
+static func deck_total_for_era(era: String) -> int:
+	var total := 0
+	for count in deck_counts_for_era(era).values():
+		total += int(count)
+	return total
+
+static func blended_deck_counts(era_index: int) -> Dictionary:
+	var result: Dictionary = {}
+	if era_index < 0:
+		return result
+	for i in range(era_index + 1):
+		var era := ERAS[i]
+		var behind := era_index - i
+		for hero_id in heroes_for_era(era):
+			var hero: Dictionary = HEROES[hero_id]
+			var card_id := str(hero.get("card", hero_id))
+			var base := int(hero.get("deck_count", 9))
+			var count := base if behind == 0 else maxi(1, int(round(float(base) * pow(0.4, float(behind)))))
+			result[card_id] = int(result.get(card_id, 0)) + count
+	return result
+
+static func blended_deck_total(era_index: int) -> int:
+	var total := 0
+	for count in blended_deck_counts(era_index).values():
+		total += int(count)
+	return total
+
 static func hero_for_card(card_id: String) -> Dictionary:
 	var card: Dictionary = CARDS.get(card_id, {})
 	return HEROES.get(card.get("hero", ""), {})
 
 static func card_texture_path(card_id: String) -> String:
+	var hero: Dictionary = hero_for_card(card_id)
+	var hero_id := str(hero.get("id", ""))
+	if hero_id != "":
+		var card_path := "res://assets/cards/%s.png" % hero_id
+		if ResourceLoader.exists(card_path):
+			return card_path
 	var legacy_id: String = LEGACY_CARD_TEXTURES.get(card_id, "")
 	if legacy_id != "":
 		var legacy_path := "res://assets/cards/%s.png" % legacy_id
 		if ResourceLoader.exists(legacy_path):
 			return legacy_path
-	var hero: Dictionary = hero_for_card(card_id)
 	var anim_id := str(hero.get("anim", ""))
 	if anim_id != "":
 		var idle_path := "res://assets/anim/%s/idle.png" % anim_id

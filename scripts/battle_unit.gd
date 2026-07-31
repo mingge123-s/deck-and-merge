@@ -24,6 +24,7 @@ var _moving := false
 var score_awarded := false
 var visual_base_scale := Vector2.ONE
 var hit_punch_tween: Tween
+var last_damage_source := "hero"
 
 func setup(id: String, side: String, data: Dictionary, texture: Texture2D) -> void:
 	unit_id = id
@@ -148,9 +149,10 @@ func _process(delta: float) -> void:
 		flash_time -= delta
 		visual.modulate = Color(1.0, 0.7, 0.5) if flash_time > 0.0 else Color.WHITE
 
-func receive_damage(amount: float) -> void:
+func receive_damage(amount: float, source := "hero") -> void:
 	if not alive:
 		return
+	last_damage_source = str(source)
 	hp = max(0.0, hp - amount)
 	flash_time = 0.12
 	_play_hit_punch()
@@ -170,6 +172,7 @@ func _play_hit_punch() -> void:
 
 func _die() -> void:
 	alive = false
+	queue_redraw()
 	if animated:
 		anim.play("die")
 		var tween := create_tween()
@@ -193,6 +196,8 @@ func spend_attack_time() -> void:
 	attack_cooldown = 1.0 / max(0.1, float(stats.attack_speed))
 
 func _draw() -> void:
+	if not alive:
+		return
 	var bar_width := 72.0
 	var bar_y := -122.0 if faction == "ally" else -111.0
 	draw_rect(Rect2(-bar_width * 0.5, bar_y, bar_width, 8), Color("#43251d", 0.9), true)

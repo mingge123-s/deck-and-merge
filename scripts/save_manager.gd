@@ -2,7 +2,7 @@ extends Node
 
 const SAVE_PATH := "user://save.cfg"
 const DEFAULTS := {
-	"coins": 2480,
+	"coins": 300,
 	"vol_master": 80.0,
 	"vol_music": 80.0,
 	"vol_sfx": 80.0,
