@@ -1892,7 +1892,13 @@ func _attack_tower(attacker: BattleUnit) -> void:
 		_shake_battlefield()
 
 func _on_unit_expired(unit: BattleUnit) -> void:
-	if unit.faction == "enemy" and not unit.score_awarded:
+	if not is_instance_valid(unit):
+		return
+	var faction := unit.faction
+	battle_units.erase(unit)
+	if faction == "ally":
+		occupied_units = maxi(0, occupied_units - 1)
+	if faction == "enemy" and not unit.score_awarded:
 		unit.score_awarded = true
 		var kill_score_value := int(unit.stats.get("kill_score", 0))
 		var coins := _era_amount(kill_score_value)
@@ -1902,10 +1908,11 @@ func _on_unit_expired(unit: BattleUnit) -> void:
 		if unit.last_damage_source != "tower":
 			kill_score += kill_score_value
 		_update_progress_ui()
-	elif unit.faction == "ally" and not unit.score_awarded:
+	elif faction == "ally" and not unit.score_awarded:
 		unit.score_awarded = true
 		var reward := float(_era_amount_for(enemy_era, int(unit.stats.get("kill_score", 0)))) * float(_diff().ai_income_mult)
 		enemy_coin += reward
+	unit.queue_free()
 
 func _advance_era() -> void:
 	if era_index >= GameData.ERAS.size() - 1:
