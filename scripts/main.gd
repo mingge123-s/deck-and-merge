@@ -567,7 +567,7 @@ func _create_tower_ui(ally: bool) -> void:
 func _build_overlay() -> void:
 	result_overlay = Control.new()
 	result_overlay.size = VIEW_SIZE
-	result_overlay.z_index = 155
+	result_overlay.z_index = 4050
 	result_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
 	result_overlay.visible = false
 	add_child(result_overlay)
@@ -611,7 +611,7 @@ func _build_overlay() -> void:
 func _build_pause_overlay() -> void:
 	pause_overlay = Control.new()
 	pause_overlay.size = VIEW_SIZE
-	pause_overlay.z_index = 150
+	pause_overlay.z_index = 4000
 	pause_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	pause_overlay.visible = false
 	add_child(pause_overlay)
@@ -637,7 +637,7 @@ func _build_pause_overlay() -> void:
 func _build_tutorial_overlay() -> void:
 	tutorial_overlay = Control.new()
 	tutorial_overlay.size = VIEW_SIZE
-	tutorial_overlay.z_index = 160
+	tutorial_overlay.z_index = 4090
 	tutorial_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
 	tutorial_overlay.visible = false
 	add_child(tutorial_overlay)
@@ -719,7 +719,7 @@ func _build_main_menu() -> void:
 	main_menu = Control.new()
 	main_menu.name = "MainMenu"
 	main_menu.size = VIEW_SIZE
-	main_menu.z_index = 100
+	main_menu.z_index = 3800
 	main_menu.mouse_filter = Control.MOUSE_FILTER_STOP
 	add_child(main_menu)
 	var shade := ColorRect.new()
@@ -847,7 +847,7 @@ func _build_shop_panel() -> void:
 	shop_panel = Panel.new()
 	shop_panel.position = Vector2(100, 280)
 	shop_panel.size = Vector2(520, 590)
-	shop_panel.z_index = 120
+	shop_panel.z_index = 3900
 	shop_panel.add_theme_stylebox_override("panel", _panel_style(Color("#c58a53"), Color("#70412c"), 24, 3))
 	shop_panel.visible = false
 	add_child(shop_panel)
