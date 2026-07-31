@@ -15,9 +15,9 @@ const ERA_UP_ROUNDS := [2, 4, 7, 10] # 在这些轮次各升一级时代：1石�
 const BATCH_BASE_GROUPS := 60
 const BATCH_GROUP_STEP := 10
 const DIFFICULTIES := {
-	"easy": {"name": "简单", "wave_min": 6.0, "first_delay": 7.0, "count_base": 2, "count_step": 6, "count_max": 4, "enemy_mult": 0.6, "boss_wave": 8, "tower_mult": 1.9, "ai_income_mult": 0.6, "ai_trickle": 0.3, "ai_effect_chance": 0.25},
-	"normal": {"name": "普通", "wave_min": 5.0, "first_delay": 4.0, "count_base": 2, "count_step": 4, "count_max": 5, "enemy_mult": 1.0, "boss_wave": 5, "tower_mult": 1.1, "ai_income_mult": 1.0, "ai_trickle": 0.5, "ai_effect_chance": 0.4},
-	"hard": {"name": "困难", "wave_min": 3.0, "first_delay": 3.0, "count_base": 3, "count_step": 3, "count_max": 7, "enemy_mult": 1.3, "boss_wave": 4, "tower_mult": 1.0, "ai_income_mult": 1.4, "ai_trickle": 0.8, "ai_effect_chance": 0.55},
+	"easy": {"name": "简单", "wave_min": 6.0, "first_delay": 7.0, "count_base": 10, "count_step": 6, "count_max": 20, "enemy_mult": 0.6, "boss_wave": 8, "tower_mult": 1.9, "ai_income_mult": 0.6, "ai_trickle": 0.3, "ai_effect_chance": 0.25},
+	"normal": {"name": "普通", "wave_min": 5.0, "first_delay": 4.0, "count_base": 10, "count_step": 4, "count_max": 25, "enemy_mult": 1.0, "boss_wave": 5, "tower_mult": 1.1, "ai_income_mult": 1.0, "ai_trickle": 0.5, "ai_effect_chance": 0.4},
+	"hard": {"name": "困难", "wave_min": 3.0, "first_delay": 3.0, "count_base": 15, "count_step": 3, "count_max": 35, "enemy_mult": 1.3, "boss_wave": 4, "tower_mult": 1.0, "ai_income_mult": 1.4, "ai_trickle": 0.8, "ai_effect_chance": 0.55},
 }
 const BATTLE_GROUND_Y := 222.0
 const WORLD_WIDTH := 1680.0
@@ -34,6 +34,7 @@ const TOWER_POWER_MAX := 3.0
 const TANK_AGGRO_RADIUS := 150.0
 const PROJECTILE_RANGE_THRESHOLD := 100.0
 const UNIT_CAP := 30
+const ENEMY_UNIT_CAP := 60 # 敌方同屏上限（AI出兵x5后需高于己方）
 const VICTORY_REWARD_BASE := 120
 const REINFORCEMENT_PRICE_BASE := 200
 const CLEAR_TRAY_PRICE_BASE := 120
@@ -252,7 +253,7 @@ func _process(delta: float) -> void:
 			wave_spawning = false
 		else:
 			enemy_spawn_timer -= delta
-			if enemy_spawn_timer <= 0.0 and _living_units("enemy").size() < _wave_field_target() and _living_units("enemy").size() < UNIT_CAP:
+			if enemy_spawn_timer <= 0.0 and _living_units("enemy").size() < _wave_field_target() and _living_units("enemy").size() < ENEMY_UNIT_CAP:
 				_spawn_one_enemy()
 				enemy_spawn_timer = SPAWN_STAGGER
 	wave_min_timer -= delta
@@ -1647,7 +1648,7 @@ func _spawn_one_enemy(allow_boss_in_pool := false) -> void:
 	enemy_spawn_index += 1
 
 func _enemy_rally_surge() -> void:
-	var room := UNIT_CAP - _living_units("enemy").size()
+	var room := ENEMY_UNIT_CAP - _living_units("enemy").size()
 	if room <= 0:
 		return
 	var burst := mini(RALLY_BURST, room)
@@ -1681,7 +1682,7 @@ func _enemy_ai_take_turn() -> void:
 			_update_tower_ui()
 
 func _spawn_enemy(hero_id: String, index: int, total_count: int) -> BattleUnit:
-	if _living_units("enemy").size() >= UNIT_CAP:
+	if _living_units("enemy").size() >= ENEMY_UNIT_CAP:
 		return null
 	var data: Dictionary = GameData.HEROES[hero_id].duplicate(true)
 	var mult := float(_diff().enemy_mult)
