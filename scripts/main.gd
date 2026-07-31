@@ -35,8 +35,6 @@ const REINFORCEMENT_PRICE_BASE := 200
 const CLEAR_TRAY_PRICE_BASE := 120
 const RANDOM_EFFECT_PRICE_BASE := 260
 const AI_EFFECT_CD := 8.0
-const RALLY_HP_FRAC := 0.4
-const RALLY_CD := 20.0
 const RALLY_BURST := 6
 const RANDOM_EFFECTS := [
 	{"id": "boss_call", "name": "BOSS 召唤", "desc": "立刻出战 1 个当前时代的 BOSS 英雄", "duration": 0.0},
@@ -155,7 +153,7 @@ var tower_attack_bonus := 1.0
 var enemy_tower_attack_bonus := 1.0
 var enemy_coin := 0.0
 var enemy_effect_cd := 0.0
-var enemy_rally_cd := 0.0
+var enemy_rally_fired := 0
 var stuck_warned := false
 var hit_fx_pool: Array[Label] = []
 var camera_shake_offset := Vector2.ZERO
@@ -255,9 +253,16 @@ func _process(delta: float) -> void:
 	wave_min_timer -= delta
 	enemy_coin += float(_diff().ai_trickle) * delta
 	enemy_effect_cd = maxf(0.0, enemy_effect_cd - delta)
-	enemy_rally_cd = maxf(0.0, enemy_rally_cd - delta)
-	if enemy_rally_cd <= 0.0 and enemy_tower_max_hp > 0.0 and enemy_tower_hp > 0.0 and enemy_tower_hp <= enemy_tower_max_hp * RALLY_HP_FRAC:
-		_enemy_rally_surge()
+	if enemy_tower_max_hp > 0.0 and enemy_tower_hp > 0.0:
+		var target_crossed := 0
+		for t in [0.8, 0.6, 0.4, 0.2]:
+			if enemy_tower_hp <= enemy_tower_max_hp * float(t):
+				target_crossed += 1
+		if target_crossed > enemy_rally_fired:
+			_enemy_rally_surge()
+			enemy_rally_fired += 1
+		elif target_crossed < enemy_rally_fired:
+			enemy_rally_fired = target_crossed
 	var cleared := not wave_spawning and _living_units("enemy").is_empty()
 	if prep_pending:
 		if cleared:
@@ -1196,7 +1201,7 @@ func _start_round(start_era_index: int = 0) -> void:
 	enemy_tower_attack_bonus = 1.0
 	enemy_coin = 0.0
 	enemy_effect_cd = 0.0
-	enemy_rally_cd = 0.0
+	enemy_rally_fired = 0
 	_update_buff_ui()
 	_update_coin_ui()
 	_set_shop_result("")
@@ -1617,7 +1622,7 @@ func _wave_field_target() -> int:
 	var d := _diff()
 	return clampi(int(d.count_base) + wave_number / int(d.count_step), int(d.count_base), int(d.count_max))
 
-func _spawn_one_enemy() -> void:
+func _spawn_one_enemy(allow_boss_in_pool := false) -> void:
 	var ids := GameData.heroes_for_era(enemy_era)
 	if ids.is_empty():
 		return
@@ -1631,7 +1636,7 @@ func _spawn_one_enemy() -> void:
 	if chosen == "":
 		var weighted: Array[String] = []
 		for hero_id in ids:
-			if str(GameData.HEROES[hero_id].get("role", "")) == "boss":
+			if not allow_boss_in_pool and str(GameData.HEROES[hero_id].get("role", "")) == "boss":
 				continue
 			var weight := maxi(0, int(GameData.HEROES[hero_id].get("deck_count", 12)))
 			for _w in range(weight):
@@ -1643,7 +1648,6 @@ func _spawn_one_enemy() -> void:
 	enemy_spawn_index += 1
 
 func _enemy_rally_surge() -> void:
-	enemy_rally_cd = RALLY_CD
 	var room := UNIT_CAP - _living_units("enemy").size()
 	if room <= 0:
 		return
@@ -1651,7 +1655,7 @@ func _enemy_rally_surge() -> void:
 	var saved_boss := wave_boss_pending
 	wave_boss_pending = false
 	for _i in range(burst):
-		_spawn_one_enemy()
+		_spawn_one_enemy(true)
 	wave_boss_pending = saved_boss
 	_announce_enemy_action("敌方拼死反扑！", "")
 	AudioManager.play_sfx("era")
