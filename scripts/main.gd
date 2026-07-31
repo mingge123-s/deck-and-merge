@@ -47,6 +47,7 @@ const RANDOM_EFFECT_PRICE_BASE := 260
 const AI_EFFECT_CD := 8.0
 const RALLY_BURST := 6
 const RANDOM_EFFECTS := [
+	{"id": "reinforcement", "name": "召唤援军", "desc": "立刻召唤 1 个当前及以前时代的随机英雄", "duration": 0.0},
 	{"id": "boss_call", "name": "BOSS 召唤", "desc": "立刻出战 1 个当前时代的 BOSS 英雄", "duration": 0.0},
 	{"id": "field_aid", "name": "战场急救", "desc": "我方全体回复 40% 生命", "duration": 0.0},
 	{"id": "freeze", "name": "冰冻力场", "desc": "敌方全体停止行动 3 秒", "duration": 3.0},
@@ -66,7 +67,7 @@ const EFFECT_CARD_PREFIX := "effect_"
 const EFFECT_CARD_PAIR_SIZE := 2
 const EFFECT_CARD_COLOR := Color("#8754d8")
 const EFFECT_CARDS_BY_ERA := {
-	"stone": ["field_aid", "freeze"],
+	"stone": ["reinforcement", "field_aid", "freeze"],
 	"iron": ["morale", "bulwark"],
 	"industrial": ["frenzy", "thorns", "tower_repair"],
 	"modern": ["haste", "lifesteal", "tower_power"],
@@ -1012,17 +1013,22 @@ func _buy_reinforcement() -> void:
 	var price := _era_amount(REINFORCEMENT_PRICE_BASE)
 	if not battle_active or battle_ended or _living_units("ally").size() >= UNIT_CAP or coin_count < price:
 		return
+	coin_count -= price
+	_summon_reinforcement()
+	_update_coin_ui()
+	_update_shop_ui()
+
+func _summon_reinforcement() -> void:
+	if _living_units("ally").size() >= UNIT_CAP:
+		return
 	var era: String = GameData.ERAS[rng.randi_range(0, era_index)]
 	var ids := GameData.heroes_for_era(era)
 	if ids.is_empty():
 		return
-	coin_count -= price
 	var hero_id := ids[rng.randi_range(0, ids.size() - 1)]
 	_spawn_ally(hero_id)
 	var hero: Dictionary = GameData.HEROES.get(hero_id, {})
 	_set_shop_result("援军抵达：%s（%s）" % [str(hero.get("name", hero_id)), str(hero.get("era_name", era))])
-	_update_coin_ui()
-	_update_shop_ui()
 
 func _buy_random_effect() -> void:
 	var price := _era_amount(RANDOM_EFFECT_PRICE_BASE)
@@ -1045,6 +1051,14 @@ func _apply_random_effect(effect: Dictionary, actor := "ally") -> void:
 	var foe := "enemy" if actor == "ally" else "ally"
 	var actor_era := current_era if actor == "ally" else enemy_era
 	match effect_id:
+		"reinforcement":
+			if actor == "ally":
+				_summon_reinforcement()
+			else:
+				var era: String = GameData.ERAS[rng.randi_range(0, enemy_era_index)]
+				var ids := GameData.heroes_for_era(era)
+				if not ids.is_empty():
+					_spawn_enemy(ids[rng.randi_range(0, ids.size() - 1)], 0, 1)
 		"boss_call":
 			for hero_id in GameData.heroes_for_era(actor_era):
 				if str(GameData.HEROES[hero_id].get("role", "")) == "boss":
