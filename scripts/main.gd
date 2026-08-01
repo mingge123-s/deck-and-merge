@@ -67,6 +67,21 @@ const EFFECT_CARD_PAIR_SIZE := 2
 const EFFECT_CARDS_PER_ERA_MIN := 2
 const EFFECT_CARDS_PER_ERA_MAX := 3
 const EFFECT_CARD_COLOR := Color("#8754d8")
+const EFFECT_FX := {
+	"reinforcement": {"color": Color("#ffe08a"), "scope": "self_tower"},
+	"boss_call": {"color": Color("#c874ff"), "scope": "self_tower"},
+	"field_aid": {"color": Color("#8ce68c"), "scope": "self_units"},
+	"freeze": {"color": Color("#8fd8ff"), "scope": "foe_units"},
+	"frenzy": {"color": Color("#ff9a4d"), "scope": "self_units"},
+	"morale": {"color": Color("#ffd166"), "scope": "self_units"},
+	"bulwark": {"color": Color("#9db8d8"), "scope": "self_units"},
+	"haste": {"color": Color("#7ff0e0"), "scope": "self_units"},
+	"lifesteal": {"color": Color("#e0607a"), "scope": "self_units"},
+	"thorns": {"color": Color("#a6d86a"), "scope": "self_units"},
+	"tower_repair": {"color": Color("#8ce68c"), "scope": "self_tower"},
+	"tower_power": {"color": Color("#ffd273"), "scope": "self_tower"},
+	"bounty": {"color": Color("#ffd273"), "scope": "field"},
+}
 const ERA_TOWER_TINTS := {
 	"stone": Color(1.0, 0.93, 0.82),
 	"iron": Color(0.92, 0.96, 1.0),
@@ -981,7 +996,6 @@ func _summon_reinforcement(any_era := true) -> void:
 func _apply_random_effect(effect: Dictionary, actor := "ally") -> void:
 	var effect_id := str(effect.id)
 	var duration := float(effect.get("duration", 0.0))
-	var foe := "enemy" if actor == "ally" else "ally"
 	var actor_era := current_era if actor == "ally" else enemy_era
 	match effect_id:
 		"reinforcement":
@@ -1003,14 +1017,11 @@ func _apply_random_effect(effect: Dictionary, actor := "ally") -> void:
 		"field_aid":
 			for unit in _living_units(actor):
 				unit.heal(unit.max_hp * 0.4)
-				_spawn_hit_fx(unit.position, Color("#8ce68c"), "＋", 0.9)
 		"freeze":
 			if actor == "ally":
 				enemy_freeze_time = maxf(enemy_freeze_time, duration)
 			else:
 				ally_freeze_time = maxf(ally_freeze_time, duration)
-			for unit in _living_units(foe):
-				_spawn_hit_fx(unit.position, Color("#8fd8ff"), "❄")
 		"tower_repair":
 			if actor == "ally":
 				ally_tower_hp = minf(ally_tower_hp + ally_tower_max_hp * 0.25, ally_tower_max_hp)
@@ -1024,6 +1035,48 @@ func _apply_random_effect(effect: Dictionary, actor := "ally") -> void:
 		_:
 			var timers: Dictionary = buff_timers if actor == "ally" else enemy_buff_timers
 			timers[effect_id] = maxf(float(timers.get(effect_id, 0.0)), duration)
+	_play_effect_fx(effect_id, actor)
+
+func _play_effect_fx(effect_id: String, actor: String) -> void:
+	var fx_value: Variant = EFFECT_FX.get(effect_id, null)
+	if fx_value == null:
+		return
+	var fx_data: Dictionary = fx_value
+	var color: Color = fx_data.get("color", Color.WHITE)
+	var scope: String = str(fx_data.get("scope", "field"))
+	var burst_position := Vector2.ZERO
+	var target_side := actor
+	if scope == "foe_units":
+		target_side = "enemy" if actor == "ally" else "ally"
+	if scope == "self_units" or scope == "foe_units":
+		var target_units: Array[BattleUnit] = _living_units(target_side)
+		if target_units.is_empty():
+			burst_position = Vector2(
+				ALLY_TOWER_X if target_side == "ally" else ENEMY_TOWER_X,
+				BATTLE_GROUND_Y - 60.0
+			)
+		else:
+			for unit in target_units:
+				burst_position += unit.position
+			burst_position /= float(target_units.size())
+			var glyph := "✦"
+			var hold := 0.3
+			if effect_id == "field_aid":
+				glyph = "＋"
+				hold = 0.9
+			elif effect_id == "freeze":
+				glyph = "❄"
+			for unit in target_units:
+				_spawn_hit_fx(unit.position, color, glyph, hold)
+	elif scope == "self_tower":
+		burst_position = Vector2(
+			ALLY_TOWER_X if actor == "ally" else ENEMY_TOWER_X,
+			BATTLE_GROUND_Y - 60.0
+		)
+	else:
+		burst_position = Vector2(WORLD_WIDTH * 0.5, BATTLE_GROUND_Y - 90.0)
+	_spawn_effect_burst(burst_position, effect_id, color)
+	AudioManager.play_sfx("era")
 
 func _announce_enemy_action(text: String, _effect_id: String) -> void:
 	if enemy_action_label == null:
@@ -2085,6 +2138,47 @@ func _spawn_hit_fx(local_position: Vector2, color: Color, text: String, hold := 
 	tween.tween_property(fx, "position:y", fx.position.y - rise, hold)
 	tween.tween_property(fx, "modulate", Color(1, 1, 1, 0), hold)
 	tween.chain().tween_callback(_recycle_hit_fx.bind(fx))
+
+func _spawn_effect_burst(local_position: Vector2, effect_id: String, color: Color) -> void:
+	var path := EFFECT_ICON_PATH % effect_id
+	if not ResourceLoader.exists(path):
+		return
+	var texture: Texture2D = load(path)
+	if texture == null:
+		return
+	var aura := TextureRect.new()
+	aura.texture = texture
+	aura.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	aura.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	aura.size = Vector2(110, 110)
+	aura.pivot_offset = Vector2(55, 55)
+	aura.position = local_position + Vector2(-55, -169)
+	aura.z_index = 6
+	aura.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	aura.modulate = Color(color.r, color.g, color.b, 0.5)
+	world.add_child(aura)
+	var icon := TextureRect.new()
+	icon.texture = texture
+	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	icon.size = Vector2(72, 72)
+	icon.pivot_offset = Vector2(36, 36)
+	icon.position = local_position + Vector2(-36, -150)
+	icon.z_index = 7
+	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	world.add_child(icon)
+	var tween := create_tween()
+	tween.set_parallel(true)
+	tween.tween_property(aura, "scale", Vector2(1.35, 1.35), 0.85).from(Vector2(0.5, 0.5))
+	tween.tween_property(icon, "scale", Vector2(1.35, 1.35), 0.85).from(Vector2(0.5, 0.5))
+	tween.tween_property(aura, "modulate:a", 0.0, 0.85)
+	tween.tween_property(icon, "modulate:a", 0.0, 0.85)
+	tween.tween_property(aura, "position:y", aura.position.y - 40.0, 0.85)
+	tween.tween_property(icon, "position:y", icon.position.y - 40.0, 0.85)
+	tween.chain().tween_callback(func() -> void:
+		aura.queue_free()
+		icon.queue_free()
+	)
 
 func _recycle_hit_fx(fx: Label) -> void:
 	if not is_instance_valid(fx):
