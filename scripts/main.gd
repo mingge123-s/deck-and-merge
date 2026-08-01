@@ -121,7 +121,9 @@ var camera_manual_timer := 0.0
 var dragging := false
 var card_layer: Control
 var board_bg: TextureRect
+var board_bg_fade: TextureRect
 var battle_bg: TextureRect
+var battle_bg_fade: TextureRect
 var ally_tower_sprite: Sprite2D
 var enemy_tower_sprite: Sprite2D
 var ally_tower_shadow: Sprite2D
@@ -556,6 +558,8 @@ func _build_board() -> void:
 	bg.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	board.add_child(bg)
+	board_bg_fade = _make_fade_twin(bg)
+	board.add_child(board_bg_fade)
 	_label(board, "🃏 牌堆", Vector2(20, 10), Vector2(150, 30), 20)
 	deck_label = _label(board, "", Vector2(150, 8), Vector2(200, 34), 24, Color("#ffe9a8"))
 	_outline(deck_label, 6)
@@ -604,6 +608,8 @@ func _build_battlefield() -> void:
 	battle_bg.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 	battle_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	world.add_child(battle_bg)
+	battle_bg_fade = _make_fade_twin(battle_bg)
+	world.add_child(battle_bg_fade)
 	ally_tower_shadow = _create_tower_shadow(true)
 	enemy_tower_shadow = _create_tower_shadow(false)
 	ally_tower_sprite = _create_tower_sprite(true)
@@ -651,31 +657,60 @@ func _create_tower_shadow(ally: bool) -> Sprite2D:
 	world.add_child(shadow)
 	return shadow
 
+## 背景交叉淡入的时长（时代切换要缓缓过渡，不能一下子跳）
+const ERA_FADE_TIME := 1.6
+const ERA_TOWER_FADE_TIME := 0.5
+
+func _make_fade_twin(source: TextureRect) -> TextureRect:
+	# 与背景同位同尺寸的副本，切时代时贴旧图再慢慢淡出，形成交叉淡入
+	var twin := TextureRect.new()
+	twin.position = source.position
+	twin.size = source.size
+	twin.expand_mode = source.expand_mode
+	twin.stretch_mode = source.stretch_mode
+	twin.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	twin.visible = false
+	return twin
+
 func _refresh_era_visuals(animate := false) -> void:
 	if era_visual_tween != null:
 		era_visual_tween.kill()
 	if not animate:
+		if battle_bg_fade != null:
+			battle_bg_fade.visible = false
+		if board_bg_fade != null:
+			board_bg_fade.visible = false
 		_apply_era_visuals()
 		return
-	var visuals: Array[CanvasItem] = [
-		battle_bg,
+	var towers: Array[CanvasItem] = [
 		ally_tower_sprite,
 		enemy_tower_sprite,
 		ally_tower_shadow,
 		enemy_tower_shadow,
 	]
+	for pair in [[battle_bg, battle_bg_fade], [board_bg, board_bg_fade]]:
+		var source: TextureRect = pair[0]
+		var twin: TextureRect = pair[1]
+		if source == null or twin == null:
+			continue
+		twin.texture = source.texture
+		twin.modulate = Color.WHITE
+		twin.visible = true
+	_apply_era_visuals()
+	for tower in towers:
+		tower.modulate.a = 0.0
 	era_visual_tween = create_tween()
 	era_visual_tween.set_parallel(true)
-	for visual in visuals:
-		era_visual_tween.tween_property(visual, "modulate:a", 0.0, 0.3)
+	era_visual_tween.set_trans(Tween.TRANS_SINE)
+	for twin in [battle_bg_fade, board_bg_fade]:
+		if twin != null:
+			era_visual_tween.tween_property(twin, "modulate:a", 0.0, ERA_FADE_TIME)
+	for tower in towers:
+		era_visual_tween.tween_property(tower, "modulate:a", 1.0, ERA_TOWER_FADE_TIME).set_delay(ERA_FADE_TIME * 0.35)
 	era_visual_tween.chain().tween_callback(func() -> void:
-		_apply_era_visuals()
-		for visual in visuals:
-			visual.modulate.a = 0.0
-		era_visual_tween = create_tween()
-		era_visual_tween.set_parallel(true)
-		for visual in visuals:
-			era_visual_tween.tween_property(visual, "modulate:a", 1.0, 0.3)
+		for twin in [battle_bg_fade, board_bg_fade]:
+			if twin != null:
+				twin.visible = false
 	)
 
 func _apply_era_visuals() -> void:
