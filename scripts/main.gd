@@ -1190,12 +1190,21 @@ func _play_effect_vfx(effect_id: String, position: Vector2, actor := "ally") -> 
 
 func _spawn_screen_effect_fx(position: Vector2, color: Color, text: String) -> void:
 	var fx := Label.new()
-	fx.position = position - Vector2(24.0, 8.0)
 	fx.size = Vector2(220.0, 32.0)
 	fx.text = text
 	fx.add_theme_font_size_override("font_size", 18)
 	fx.add_theme_color_override("font_color", color)
+	fx.add_theme_color_override("font_outline_color", Color("#24150f"))
+	fx.add_theme_constant_override("outline_size", 5)
 	fx.z_index = 20
+	var target_rect := coin_label.get_global_rect() if is_instance_valid(coin_label) else Rect2(position, Vector2.ZERO)
+	var target_y := target_rect.end.y + 4.0
+	if is_instance_valid(score_label):
+		target_y = score_label.get_global_rect().end.y + 4.0
+	fx.position = Vector2(
+		clampf(target_rect.position.x, 8.0, VIEW_SIZE.x - fx.size.x - 8.0),
+		minf(target_y, BATTLE_RECT.position.y - fx.size.y - 4.0)
+	)
 	add_child(fx)
 	var tween := create_tween()
 	tween.set_parallel(true)
@@ -2280,7 +2289,8 @@ func _spawn_hit_fx(local_position: Vector2, color: Color, text: String, hold := 
 		fx.add_theme_constant_override("outline_size", 6)
 	else:
 		fx = hit_fx_pool.pop_back()
-	fx.position = local_position + Vector2(-14, -130 + vertical_offset)
+	var text_y := maxf(8.0, local_position.y - 130.0 + vertical_offset)
+	fx.position = Vector2(local_position.x - 14.0, text_y)
 	fx.text = text
 	fx.add_theme_color_override("font_color", color)
 	fx.modulate = Color.WHITE
@@ -2290,7 +2300,7 @@ func _spawn_hit_fx(local_position: Vector2, color: Color, text: String, hold := 
 	var tween := create_tween()
 	tween.set_parallel(true)
 	var rise := 36.0 if hold > 0.5 else 18.0
-	tween.tween_property(fx, "position:y", fx.position.y - rise, hold)
+	tween.tween_property(fx, "position:y", maxf(8.0, fx.position.y - rise), hold)
 	tween.tween_property(fx, "modulate", Color(1, 1, 1, 0), hold)
 	tween.chain().tween_callback(_recycle_hit_fx.bind(fx))
 
