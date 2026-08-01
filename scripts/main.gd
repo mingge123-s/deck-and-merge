@@ -1146,7 +1146,7 @@ func _play_effect_vfx(effect_id: String, position: Vector2, actor := "ally") -> 
 	particles.one_shot = true
 	particles.explosiveness = 0.9
 	particles.texture = _effect_particle_texture()
-	particles.color = Color(color, 0.82)
+	particles.color = Color(color, 0.95)
 	particles.scale_amount_min = 0.18
 	particles.scale_amount_max = 0.48
 	particles.direction = Vector2.UP
@@ -1155,9 +1155,9 @@ func _play_effect_vfx(effect_id: String, position: Vector2, actor := "ally") -> 
 	particles.initial_velocity_max = 82.0 if effect_id in ["frenzy", "tower_power"] else 64.0
 	particles.gravity = Vector2(0, -18.0) if effect_id == "freeze" else Vector2(0, 42.0)
 	root.add_child(particles)
-	var ring := Polygon2D.new()
+	var ring := Line2D.new()
 	var points := PackedVector2Array()
-	var radius := 100.0 if effect_id in ["field_aid", "freeze", "bulwark"] else 88.0
+	var radius := 72.0 if effect_id in ["field_aid", "freeze", "bulwark"] else 64.0
 	var point_count := 6 if effect_id == "bulwark" else (12 if effect_id == "thorns" else 20)
 	for index in range(point_count):
 		var angle := -TAU * float(index) / float(point_count)
@@ -1165,20 +1165,23 @@ func _play_effect_vfx(effect_id: String, position: Vector2, actor := "ally") -> 
 		if effect_id == "thorns" and index % 2 == 1:
 			point_radius *= 0.5
 		points.append(Vector2(cos(angle), sin(angle)) * point_radius)
-	ring.polygon = points
-	ring.color = Color(color, 0.55)
-	ring.scale = Vector2(0.75, 0.75)
+	ring.points = points
+	ring.closed = true
+	ring.width = 5.0
+	ring.default_color = Color(color, 0.92)
+	ring.scale = Vector2(0.85, 0.45)
 	ring.z_index = 2
 	root.add_child(ring)
 	var label_text := "%s %s" % [_effect_symbol(effect_id), _effect_name(effect_id)]
+	var text_offset := -24.0 if effect_id in ["tower_repair", "tower_power"] else -34.0
 	if effect_id == "bounty":
 		_spawn_screen_effect_fx(position, color, label_text)
 	else:
-		_spawn_hit_fx(position, color, label_text, 0.85)
+		_spawn_hit_fx(position, color, label_text, 0.85, text_offset)
 	AudioManager.play_sfx(_effect_sfx(effect_id))
 	var tween := create_tween()
 	tween.set_parallel(true)
-	tween.tween_property(ring, "scale", Vector2(1.3, 1.3), 0.7)
+	tween.tween_property(ring, "scale", Vector2(1.2, 0.45), 0.7)
 	tween.tween_property(ring, "modulate:a", 0.0, 0.7)
 	tween.tween_property(root, "position:y", root.position.y - 18.0, 0.7)
 	tween.chain().tween_callback(root.queue_free)
@@ -2267,15 +2270,17 @@ func _rescale_towers_for_era() -> void:
 		ally_tower_max_hp = ally_target
 	_update_tower_ui()
 
-func _spawn_hit_fx(local_position: Vector2, color: Color, text: String, hold := 0.3) -> void:
+func _spawn_hit_fx(local_position: Vector2, color: Color, text: String, hold := 0.3, vertical_offset := 0.0) -> void:
 	var fx: Label
 	if hit_fx_pool.is_empty():
 		fx = Label.new()
 		fx.z_index = 6
 		fx.add_theme_font_size_override("font_size", 24)
+		fx.add_theme_color_override("font_outline_color", Color("#24150f"))
+		fx.add_theme_constant_override("outline_size", 6)
 	else:
 		fx = hit_fx_pool.pop_back()
-	fx.position = local_position + Vector2(-14, -130)
+	fx.position = local_position + Vector2(-14, -130 + vertical_offset)
 	fx.text = text
 	fx.add_theme_color_override("font_color", color)
 	fx.modulate = Color.WHITE
