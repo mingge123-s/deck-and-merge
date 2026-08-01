@@ -190,6 +190,7 @@ var sfx_slider: HSlider
 var battle_hint: Label
 var boss_entry_overlay: Control
 var boss_entry_ribbon: Panel
+var boss_entry_ribbon_fill: ColorRect
 var boss_entry_banner: Label
 var boss_entry_tween: Tween
 var ally_tower_bar: TowerHealthBar
@@ -650,14 +651,20 @@ func _build_battlefield() -> void:
 	boss_entry_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(boss_entry_overlay)
 	boss_entry_ribbon = Panel.new()
-	boss_entry_ribbon.position = Vector2(24, 104)
-	boss_entry_ribbon.size = Vector2(600, 48)
+	boss_entry_ribbon.position = Vector2(174, 104)
+	boss_entry_ribbon.size = Vector2(300, 48)
 	boss_entry_ribbon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	boss_entry_ribbon.add_theme_stylebox_override(
 		"panel",
-		_panel_style(Color(0.12, 0.07, 0.05, 0.9), Color("#8f5a3c"), 12, 2)
+		_panel_style(Color("#26140f"), Color("#b2764e"), 12, 2)
 	)
 	boss_entry_overlay.add_child(boss_entry_ribbon)
+	boss_entry_ribbon_fill = ColorRect.new()
+	boss_entry_ribbon_fill.position = Vector2(2, 2)
+	boss_entry_ribbon_fill.size = boss_entry_ribbon.size - Vector2(4, 4)
+	boss_entry_ribbon_fill.color = Color("#23100b")
+	boss_entry_ribbon_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	boss_entry_ribbon.add_child(boss_entry_ribbon_fill)
 	boss_entry_banner = _label(boss_entry_ribbon, "", Vector2.ZERO, boss_entry_ribbon.size, 25, Color("#ffe3a0"))
 	boss_entry_banner.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	boss_entry_banner.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -1567,6 +1574,18 @@ func _show_boss_entry_banner(hero_name: String, ally: bool) -> void:
 		"★" if ally else "◆",
 		hero_name,
 	]
+	var text_width := boss_entry_banner.get_theme_default_font().get_string_size(
+		boss_entry_banner.text,
+		HORIZONTAL_ALIGNMENT_LEFT,
+		-1,
+		25
+	).x
+	var ribbon_width := clampf(text_width + 56.0, 260.0, 540.0)
+	boss_entry_ribbon.size = Vector2(ribbon_width, 48.0)
+	boss_entry_ribbon.position = Vector2((BATTLE_RECT.size.x - ribbon_width) * 0.5, 104.0)
+	boss_entry_ribbon_fill.size = boss_entry_ribbon.size - Vector2(4, 4)
+	boss_entry_banner.size = boss_entry_ribbon.size
+	boss_entry_banner.pivot_offset = boss_entry_banner.size * 0.5
 	boss_entry_banner.add_theme_color_override(
 		"font_color",
 		Color("#ffe08a") if ally else Color("#ff8178")
@@ -1574,15 +1593,12 @@ func _show_boss_entry_banner(hero_name: String, ally: bool) -> void:
 	boss_entry_overlay.visible = true
 	boss_entry_ribbon.modulate = Color(1, 1, 1, 0)
 	boss_entry_banner.modulate = Color.WHITE
-	boss_entry_banner.scale = Vector2(0.86, 0.86)
+	boss_entry_banner.scale = Vector2.ONE
 	boss_entry_tween = create_tween()
-	boss_entry_tween.set_parallel(true)
 	boss_entry_tween.tween_property(boss_entry_ribbon, "modulate:a", 1.0, 0.2)
-	boss_entry_tween.tween_property(boss_entry_banner, "scale", Vector2.ONE, 0.2)
-	boss_entry_tween.chain().tween_interval(1.05)
+	boss_entry_tween.tween_interval(1.05)
 	boss_entry_tween.tween_property(boss_entry_ribbon, "modulate:a", 0.0, 0.4)
-	boss_entry_tween.tween_property(boss_entry_banner, "scale", Vector2(0.96, 0.96), 0.4)
-	boss_entry_tween.chain().tween_callback(func() -> void:
+	boss_entry_tween.tween_callback(func() -> void:
 		if boss_entry_overlay != null:
 			boss_entry_overlay.visible = false
 	)
