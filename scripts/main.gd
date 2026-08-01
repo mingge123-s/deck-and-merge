@@ -17,10 +17,11 @@ const KILL_COIN_MULT := 0.2
 const ERA_UP_ROUNDS := [2, 4, 7, 10] # 在这些轮次各升一级时代：1石器/2铁器/4工业/7现代/10未来
 const BATCH_BASE_GROUPS := 60
 const BATCH_GROUP_STEP := 10
+const MIN_BOSS_GROUPS := 2 # 每批保底当前时代 BOSS 组数（保证至少能合成）
 const DIFFICULTIES := {
-	"easy": {"name": "简单", "wave_min": 6.0, "first_delay": 7.0, "count_base": 10, "count_step": 6, "count_max": 20, "enemy_mult": 0.6, "boss_wave": 8, "tower_mult": 1.9, "ai_income_mult": 0.6, "ai_trickle": 0.3, "ai_effect_chance": 0.25},
-	"normal": {"name": "普通", "wave_min": 5.0, "first_delay": 4.0, "count_base": 10, "count_step": 4, "count_max": 25, "enemy_mult": 1.0, "boss_wave": 5, "tower_mult": 1.1, "ai_income_mult": 1.0, "ai_trickle": 0.5, "ai_effect_chance": 0.4},
-	"hard": {"name": "困难", "wave_min": 3.0, "first_delay": 3.0, "count_base": 15, "count_step": 3, "count_max": 35, "enemy_mult": 1.3, "boss_wave": 4, "tower_mult": 1.0, "ai_income_mult": 1.4, "ai_trickle": 0.8, "ai_effect_chance": 0.55},
+	"easy": {"name": "简单", "wave_min": 6.0, "first_delay": 7.0, "count_base": 5, "count_step": 6, "count_max": 10, "enemy_mult": 0.6, "boss_wave": 8, "tower_mult": 1.9, "ai_income_mult": 0.6, "ai_trickle": 0.3, "ai_effect_chance": 0.25},
+	"normal": {"name": "普通", "wave_min": 5.0, "first_delay": 4.0, "count_base": 5, "count_step": 4, "count_max": 13, "enemy_mult": 1.0, "boss_wave": 5, "tower_mult": 1.1, "ai_income_mult": 1.0, "ai_trickle": 0.5, "ai_effect_chance": 0.4},
+	"hard": {"name": "困难", "wave_min": 3.0, "first_delay": 3.0, "count_base": 8, "count_step": 3, "count_max": 18, "enemy_mult": 1.3, "boss_wave": 4, "tower_mult": 1.0, "ai_income_mult": 1.4, "ai_trickle": 0.8, "ai_effect_chance": 0.55},
 }
 const BATTLE_GROUND_Y := 222.0
 const CAMERA_FOLLOW_SPEED := 4.0
@@ -61,12 +62,47 @@ const RANDOM_EFFECTS := [
 	{"id": "bounty", "name": "悬赏令", "desc": "30 秒内每击杀额外 +15 金币（随时代缩放）", "duration": 30.0},
 ]
 const BOUNTY_COIN_BASE := 15
+## 合成台上长按多久弹卡牌详情
+const CARD_INFO_HOLD := 0.4
 const EFFECT_ICON_PATH := "res://assets/icons/effects/%s.png"
 const EFFECT_CARD_PREFIX := "effect_"
 const EFFECT_CARD_PAIR_SIZE := 2
 const EFFECT_CARDS_PER_ERA_MIN := 2
 const EFFECT_CARDS_PER_ERA_MAX := 3
 const EFFECT_CARD_COLOR := Color("#8754d8")
+const TUTORIAL_STEPS := [
+	{
+		"title": "欢迎来到牌桌远征",
+		"text": "目标：打光敌方塔的血量即获胜，自己的塔被打光则失败。\n跟着下面几步走一遍，十秒学会。",
+		"rect": Rect2(),
+	},
+	{
+		"title": "第 1 步：从牌堆取牌",
+		"text": "这里是牌堆。点击[b]没被压住[/b]的卡牌，它会飞进上方的合成台；被压在下面的卡点不动。\n牌堆取空就进入下一轮，自动发一批新牌。",
+		"rect": BOARD_RECT,
+	},
+	{
+		"title": "第 2 步：在合成台合成",
+		"text": "合成台共 7 格。小兵卡[b]3 张同名[/b]自动合成英雄并上场；效果卡[b]2 张同名[/b]立刻发动（召唤援军、修复我方塔、塔炮升级等）。\n注意：7 格放满且凑不出任何合成时，会自动扣 200 金币清空，金币不足就判负。别乱收用不上的牌。",
+		"rect": TRAY_RECT,
+	},
+	{
+		"title": "第 3 步：看战场",
+		"text": "合成出的英雄会自动前进作战，你不用指挥。左右拖动可查看整个战场，右上角小地图显示双方单位与塔血。\n击杀敌人获得金币；敌人按波次进攻，每 3 波会有一段整备期。",
+		"rect": BATTLE_RECT,
+	},
+	{
+		"title": "第 4 步：时代会自己升级",
+		"text": "顶栏显示当前时代、轮次、波次与金币。每过一轮自动推进一个时代：石器 → 铁器 → 工业 → 现代 → 未来。\n时代越高，双方塔的血量与攻击越强，牌堆也会混入新时代的卡。右上角 ? 可随时重看本教程。",
+		"rect": Rect2(30, 30, 660, 70),
+	},
+	{
+		"title": "开始吧",
+		"text": "一句话口诀：[b]先凑当前时代的三连，别把合成台塑死[/b]。\nBOSS 卡（图腾/王冠/烟囱/军徽/AI核心）少但最强，碰到优先凑齐。",
+		"rect": Rect2(),
+	},
+]
+
 const ERA_TOWER_TINTS := {
 	"stone": Color(1.0, 0.93, 0.82),
 	"iron": Color(0.92, 0.96, 1.0),
@@ -85,7 +121,9 @@ var camera_manual_timer := 0.0
 var dragging := false
 var card_layer: Control
 var board_bg: TextureRect
+var board_bg_fade: TextureRect
 var battle_bg: TextureRect
+var battle_bg_fade: TextureRect
 var ally_tower_sprite: Sprite2D
 var enemy_tower_sprite: Sprite2D
 var ally_tower_shadow: Sprite2D
@@ -107,6 +145,7 @@ var era_label: Label
 var score_label: Label
 var deck_label: Label
 var status_label: Label
+var update_status_label: Label
 var restart_button: Button
 var result_menu_button: Button
 var return_button: Button
@@ -122,6 +161,25 @@ var pause_mode := "prep"
 var pause_title_label: Label
 var pause_hint_label: Label
 var tutorial_overlay: Control
+var help_button: Button
+var tutorial_resume_paused := false
+var tutorial_hid_menu := false
+var tutorial_step := 0
+var tutorial_dims: Array[ColorRect] = []
+var tutorial_focus: Panel
+var tutorial_card: Panel
+var tutorial_title_label: Label
+var tutorial_text_label: RichTextLabel
+var tutorial_step_label: Label
+var tutorial_prev_button: Button
+var tutorial_next_button: Button
+var tutorial_skip_button: Button
+var card_info_overlay: Control
+var card_info_title_label: Label
+var card_info_text_label: RichTextLabel
+var tray_press_index := -1
+var wave_bar: ProgressBar
+var wave_bar_label: Label
 var result_overlay: Control
 var music_slider: HSlider
 var sfx_slider: HSlider
@@ -174,6 +232,7 @@ var stuck_warned := false
 var hit_fx_pool: Array[Label] = []
 var camera_shake_offset := Vector2.ZERO
 var camera_shake_tween: Tween
+var effect_particle_texture: Texture2D
 
 func _diff() -> Dictionary:
 	return DIFFICULTIES[current_difficulty]
@@ -255,6 +314,9 @@ func _ready() -> void:
 	_build_battlefield()
 	_build_overlay()
 	_build_main_menu()
+	Updater.status_changed.connect(_on_update_status)
+	Updater.update_ready.connect(_on_update_ready)
+	Updater.check_for_update(false)
 
 func _on_battlefield_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
@@ -346,6 +408,7 @@ func _process(delta: float) -> void:
 	if not battle_active or battle_ended:
 		return
 	_tick_buffs(delta)
+	_update_wave_bar()
 	if wave_spawning:
 		wave_active_timer -= delta
 		if wave_active_timer <= 0.0:
@@ -461,6 +524,17 @@ func _build_top_bar() -> void:
 	pause_button.pressed.connect(_play_button_sfx)
 	pause_button.visible = false
 	bar.add_child(pause_button)
+	help_button = Button.new()
+	help_button.position = Vector2(596, 12)
+	help_button.size = Vector2(46, 46)
+	help_button.text = "?"
+	help_button.tooltip_text = "玩法介绍"
+	help_button.add_theme_font_size_override("font_size", 22)
+	help_button.add_theme_stylebox_override("normal", _panel_style(Color("#e4863e"), Color("#713722"), 12, 2))
+	help_button.add_theme_stylebox_override("hover", _panel_style(Color("#f2a252"), Color("#713722"), 12, 2))
+	help_button.pressed.connect(_show_tutorial)
+	help_button.pressed.connect(_play_button_sfx)
+	bar.add_child(help_button)
 	_label(bar, "🪨 牌桌远征", Vector2(68, 5), Vector2(205, 30), 21)
 	era_label = _label(bar, "", Vector2(70, 38), Vector2(220, 20), 12, Color("#f6d69f"))
 	coin_label = _label(bar, "", Vector2(350, 8), Vector2(165, 28), 16, Color("#fff0c7"))
@@ -487,10 +561,13 @@ func _build_board() -> void:
 	bg.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	board.add_child(bg)
-	_label(board, "🃏 牌堆", Vector2(20, 14), Vector2(150, 32), 21)
-	deck_label = _label(board, "", Vector2(420, 18), Vector2(200, 28), 15, Color("#6e452f"))
-	deck_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	_label(board, "点击没有被压住的卡牌", Vector2(22, 48), Vector2(230, 23), 12, Color("#6e452f"))
+	board_bg_fade = _make_fade_twin(bg)
+	board.add_child(board_bg_fade)
+	_label(board, "🃏 牌堆", Vector2(20, 10), Vector2(150, 30), 20)
+	deck_label = _label(board, "", Vector2(150, 8), Vector2(200, 34), 24, Color("#ffe9a8"))
+	_outline(deck_label, 6)
+	_label(board, "点击没有被压住的卡牌", Vector2(22, 44), Vector2(230, 23), 12, Color("#6e452f"))
+	_build_wave_bar()
 	card_layer = Control.new()
 	card_layer.position = Vector2(26, 80)
 	card_layer.size = Vector2(596, 526)
@@ -534,6 +611,8 @@ func _build_battlefield() -> void:
 	battle_bg.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 	battle_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	world.add_child(battle_bg)
+	battle_bg_fade = _make_fade_twin(battle_bg)
+	world.add_child(battle_bg_fade)
 	ally_tower_shadow = _create_tower_shadow(true)
 	enemy_tower_shadow = _create_tower_shadow(false)
 	ally_tower_sprite = _create_tower_sprite(true)
@@ -581,31 +660,60 @@ func _create_tower_shadow(ally: bool) -> Sprite2D:
 	world.add_child(shadow)
 	return shadow
 
+## 背景交叉淡入的时长（时代切换要缓缓过渡，不能一下子跳）
+const ERA_FADE_TIME := 1.6
+const ERA_TOWER_FADE_TIME := 0.5
+
+func _make_fade_twin(source: TextureRect) -> TextureRect:
+	# 与背景同位同尺寸的副本，切时代时贴旧图再慢慢淡出，形成交叉淡入
+	var twin := TextureRect.new()
+	twin.position = source.position
+	twin.size = source.size
+	twin.expand_mode = source.expand_mode
+	twin.stretch_mode = source.stretch_mode
+	twin.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	twin.visible = false
+	return twin
+
 func _refresh_era_visuals(animate := false) -> void:
 	if era_visual_tween != null:
 		era_visual_tween.kill()
 	if not animate:
+		if battle_bg_fade != null:
+			battle_bg_fade.visible = false
+		if board_bg_fade != null:
+			board_bg_fade.visible = false
 		_apply_era_visuals()
 		return
-	var visuals: Array[CanvasItem] = [
-		battle_bg,
+	var towers: Array[CanvasItem] = [
 		ally_tower_sprite,
 		enemy_tower_sprite,
 		ally_tower_shadow,
 		enemy_tower_shadow,
 	]
+	for pair in [[battle_bg, battle_bg_fade], [board_bg, board_bg_fade]]:
+		var source: TextureRect = pair[0]
+		var twin: TextureRect = pair[1]
+		if source == null or twin == null:
+			continue
+		twin.texture = source.texture
+		twin.modulate = Color.WHITE
+		twin.visible = true
+	_apply_era_visuals()
+	for tower in towers:
+		tower.modulate.a = 0.0
 	era_visual_tween = create_tween()
 	era_visual_tween.set_parallel(true)
-	for visual in visuals:
-		era_visual_tween.tween_property(visual, "modulate:a", 0.0, 0.3)
+	era_visual_tween.set_trans(Tween.TRANS_SINE)
+	for twin in [battle_bg_fade, board_bg_fade]:
+		if twin != null:
+			era_visual_tween.tween_property(twin, "modulate:a", 0.0, ERA_FADE_TIME)
+	for tower in towers:
+		era_visual_tween.tween_property(tower, "modulate:a", 1.0, ERA_TOWER_FADE_TIME).set_delay(ERA_FADE_TIME * 0.35)
 	era_visual_tween.chain().tween_callback(func() -> void:
-		_apply_era_visuals()
-		for visual in visuals:
-			visual.modulate.a = 0.0
-		era_visual_tween = create_tween()
-		era_visual_tween.set_parallel(true)
-		for visual in visuals:
-			era_visual_tween.tween_property(visual, "modulate:a", 1.0, 0.3)
+		for twin in [battle_bg_fade, board_bg_fade]:
+			if twin != null:
+				twin.visible = false
 	)
 
 func _apply_era_visuals() -> void:
@@ -699,6 +807,7 @@ func _build_overlay() -> void:
 	panel.add_child(result_menu_button)
 	_build_pause_overlay()
 	_build_tutorial_overlay()
+	_build_card_info_overlay()
 
 func _build_pause_overlay() -> void:
 	pause_overlay = Control.new()
@@ -734,28 +843,93 @@ func _build_tutorial_overlay() -> void:
 	tutorial_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
 	tutorial_overlay.visible = false
 	add_child(tutorial_overlay)
-	var shade := ColorRect.new()
-	shade.size = VIEW_SIZE
-	shade.color = Color(0.05, 0.03, 0.02, 0.62)
-	tutorial_overlay.add_child(shade)
-	var panel := Panel.new()
-	panel.position = Vector2(54, 190)
-	panel.size = Vector2(612, 900)
-	panel.add_theme_stylebox_override("panel", _panel_style(Color("#c58a53"), Color("#70412c"), 24, 3))
-	tutorial_overlay.add_child(panel)
-	var title := _label(panel, "新手引导", Vector2(0, 34), Vector2(612, 46), 30)
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	var content := _label(
-		panel,
-		"① 点击没被压住的卡牌，收进合成台\n\n② 小兵卡 3 张合成英雄，效果卡 2 张立刻发动\n\n③ 拖动战场查看双方阵地，右上角小地图查看红蓝点\n\n④ 每 3 波自动进入整备，可继续取牌合成\n\n⑤ 时代随轮次自动推进，新效果卡随时代进入牌堆\n\n⑥ 合成台放满且凑不齐时，自动扣 200 金币清理；金币不足则判负",
-		Vector2(42, 122),
-		Vector2(528, 500),
-		18,
-		Color("#fff0c7")
-	)
-	content.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	var acknowledge_button := _menu_button(panel, "知道了", Vector2(206, 710), Vector2(200, 58), 20)
-	acknowledge_button.pressed.connect(_hide_tutorial)
+	tutorial_dims.clear()
+	for _i in range(4):
+		var dim := ColorRect.new()
+		dim.color = Color(0.05, 0.03, 0.02, 0.72)
+		tutorial_overlay.add_child(dim)
+		tutorial_dims.append(dim)
+	tutorial_focus = Panel.new()
+	tutorial_focus.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tutorial_focus.add_theme_stylebox_override("panel", _panel_style(Color(1, 1, 1, 0.0), Color("#ffd07a"), 18, 4))
+	tutorial_overlay.add_child(tutorial_focus)
+	tutorial_card = Panel.new()
+	tutorial_card.size = Vector2(612, 330)
+	tutorial_card.add_theme_stylebox_override("panel", _panel_style(Color("#c58a53"), Color("#70412c"), 24, 3))
+	tutorial_overlay.add_child(tutorial_card)
+	tutorial_title_label = _label(tutorial_card, "", Vector2(0, 24), Vector2(612, 40), 26)
+	tutorial_title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	tutorial_text_label = RichTextLabel.new()
+	tutorial_text_label.bbcode_enabled = true
+	tutorial_text_label.scroll_active = false
+	tutorial_text_label.position = Vector2(42, 74)
+	tutorial_text_label.size = Vector2(528, 160)
+	tutorial_text_label.add_theme_font_size_override("normal_font_size", 18)
+	tutorial_text_label.add_theme_color_override("default_color", Color("#fff0c7"))
+	tutorial_card.add_child(tutorial_text_label)
+	tutorial_step_label = _label(tutorial_card, "", Vector2(0, 240), Vector2(612, 22), 13, Color("#e6c199"))
+	tutorial_step_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	tutorial_prev_button = _menu_button(tutorial_card, "上一步", Vector2(42, 262), Vector2(150, 50), 17)
+	tutorial_prev_button.pressed.connect(_tutorial_prev)
+	tutorial_skip_button = _menu_button(tutorial_card, "跳过", Vector2(232, 262), Vector2(120, 50), 17)
+	tutorial_skip_button.pressed.connect(_hide_tutorial)
+	tutorial_next_button = _menu_button(tutorial_card, "下一步", Vector2(392, 262), Vector2(178, 50), 17)
+	tutorial_next_button.pressed.connect(_tutorial_next)
+
+func _tutorial_next() -> void:
+	_play_button_sfx()
+	if tutorial_step >= TUTORIAL_STEPS.size() - 1:
+		_hide_tutorial()
+		return
+	tutorial_step += 1
+	_refresh_tutorial_step()
+
+func _tutorial_prev() -> void:
+	_play_button_sfx()
+	if tutorial_step <= 0:
+		return
+	tutorial_step -= 1
+	_refresh_tutorial_step()
+
+func _refresh_tutorial_step() -> void:
+	var step: Dictionary = TUTORIAL_STEPS[tutorial_step]
+	tutorial_title_label.text = str(step.get("title", ""))
+	tutorial_text_label.text = str(step.get("text", ""))
+	tutorial_step_label.text = "%d / %d" % [tutorial_step + 1, TUTORIAL_STEPS.size()]
+	tutorial_prev_button.disabled = tutorial_step == 0
+	tutorial_next_button.text = "开始游戏" if tutorial_step == TUTORIAL_STEPS.size() - 1 else "下一步"
+	var focus_rect: Rect2 = step.get("rect", Rect2())
+	_layout_tutorial_focus(focus_rect)
+
+func _layout_tutorial_focus(focus_rect: Rect2) -> void:
+	var has_focus := focus_rect.size.x > 0.0 and focus_rect.size.y > 0.0
+	tutorial_focus.visible = has_focus
+	if has_focus:
+		var pad := 8.0
+		tutorial_focus.position = focus_rect.position - Vector2(pad, pad)
+		tutorial_focus.size = focus_rect.size + Vector2(pad, pad) * 2.0
+		# 四块遮罩拼出中间的镟空
+		var hole := Rect2(tutorial_focus.position, tutorial_focus.size)
+		_set_dim(0, Rect2(0, 0, VIEW_SIZE.x, hole.position.y))
+		_set_dim(1, Rect2(0, hole.end.y, VIEW_SIZE.x, VIEW_SIZE.y - hole.end.y))
+		_set_dim(2, Rect2(0, hole.position.y, hole.position.x, hole.size.y))
+		_set_dim(3, Rect2(hole.end.x, hole.position.y, VIEW_SIZE.x - hole.end.x, hole.size.y))
+		var below := hole.end.y + 20.0
+		if below + tutorial_card.size.y <= VIEW_SIZE.y - 20.0:
+			tutorial_card.position = Vector2(54, below)
+		else:
+			tutorial_card.position = Vector2(54, max(20.0, hole.position.y - tutorial_card.size.y - 20.0))
+	else:
+		_set_dim(0, Rect2(0, 0, VIEW_SIZE.x, VIEW_SIZE.y))
+		for index in range(1, 4):
+			_set_dim(index, Rect2())
+		tutorial_card.position = Vector2(54, (VIEW_SIZE.y - tutorial_card.size.y) * 0.5)
+
+func _set_dim(index: int, rect: Rect2) -> void:
+	var dim := tutorial_dims[index]
+	dim.position = rect.position
+	dim.size = rect.size
+	dim.visible = rect.size.x > 0.0 and rect.size.y > 0.0
 
 func _toggle_pause() -> void:
 	if not battle_active or battle_ended:
@@ -827,17 +1001,31 @@ func _on_pause_bottom_pressed() -> void:
 		_toggle_pause()
 
 func _show_tutorial() -> void:
+	if tutorial_overlay != null and tutorial_overlay.visible:
+		return
+	tutorial_resume_paused = paused
 	paused = true
 	AudioManager.set_music_filtered(true)
+	# 教程要高亮真实的牌堆/合成台/战场，从主菜单打开时先把菜单收起来
+	tutorial_hid_menu = main_menu != null and main_menu.visible
+	if tutorial_hid_menu:
+		main_menu.visible = false
 	if tutorial_overlay != null:
+		move_child(tutorial_overlay, get_child_count() - 1)
+		tutorial_step = 0
+		_refresh_tutorial_step()
 		tutorial_overlay.visible = true
 
 func _hide_tutorial() -> void:
 	if tutorial_overlay != null:
 		tutorial_overlay.visible = false
 	SaveManager.set_tutorial_seen(true)
-	paused = false
 	AudioManager.set_music_filtered(false)
+	if tutorial_hid_menu and main_menu != null:
+		main_menu.visible = true
+	tutorial_hid_menu = false
+	paused = tutorial_resume_paused
+	tutorial_resume_paused = false
 
 func _build_main_menu() -> void:
 	main_menu = Control.new()
@@ -886,6 +1074,8 @@ func _build_main_menu() -> void:
 	soon.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	var settings_button := _menu_button(card, "设置", Vector2(144, 586), Vector2(300, 56), 19)
 	settings_button.pressed.connect(_show_settings)
+	var menu_help_button := _menu_button(card, "玩法介绍", Vector2(388, 34), Vector2(160, 50), 17)
+	menu_help_button.pressed.connect(_show_tutorial)
 	var difficulty_label := _label(card, "难度", Vector2(0, 650), Vector2(588, 26), 15, Color("#fff0c7"))
 	difficulty_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	var difficulty_keys := ["easy", "normal", "hard"]
@@ -897,8 +1087,26 @@ func _build_main_menu() -> void:
 		difficulty_buttons[key] = button
 	_set_difficulty("normal")
 	_label(card, "点击开始，自动进入战斗", Vector2(0, 746), Vector2(588, 28), 14, Color("#e6c199")).horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var check_update_button := _menu_button(card, "检查更新", Vector2(194, 792), Vector2(200, 44), 16)
+	check_update_button.pressed.connect(_on_check_update_pressed)
+	var version_label := _label(card, "内容版本 v%d" % Updater.installed_version, Vector2(0, 842), Vector2(588, 18), 12, Color("#e6c199"))
+	version_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	update_status_label = _label(card, "", Vector2(0, 862), Vector2(588, 18), 12, Color("#ffe3a5"))
+	update_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_build_settings_panel(card)
 	_build_era_select_panel()
+
+func _on_check_update_pressed() -> void:
+	_play_button_sfx()
+	Updater.check_for_update(true)
+
+func _on_update_status(text: String) -> void:
+	if update_status_label != null:
+		update_status_label.text = text
+
+func _on_update_ready(version: int, _notes: String) -> void:
+	if update_status_label != null:
+		update_status_label.text = "已下载 v%d，重启生效" % version
 
 func _menu_button(parent: Control, text: String, position: Vector2, size: Vector2, font_size: int) -> Button:
 	var button := Button.new()
@@ -1031,6 +1239,7 @@ func _apply_random_effect(effect: Dictionary, actor := "ally") -> void:
 		_:
 			var timers: Dictionary = buff_timers if actor == "ally" else enemy_buff_timers
 			timers[effect_id] = maxf(float(timers.get(effect_id, 0.0)), duration)
+	_play_effect_vfx(effect_id, _effect_position(effect_id, actor), actor)
 
 func _announce_enemy_action(text: String, _effect_id: String) -> void:
 	if enemy_action_label == null:
@@ -1040,6 +1249,199 @@ func _announce_enemy_action(text: String, _effect_id: String) -> void:
 	var tw := create_tween()
 	tw.tween_interval(1.1)
 	tw.tween_property(enemy_action_label, "modulate:a", 0.0, 0.6)
+
+func _effect_position(effect_id: String, actor: String) -> Vector2:
+	if effect_id == "tower_repair" or effect_id == "tower_power":
+		return Vector2(ALLY_TOWER_X if actor == "ally" else ENEMY_TOWER_X, BATTLE_GROUND_Y - 82.0)
+	if effect_id == "bounty":
+		if is_instance_valid(coin_label):
+			return coin_label.get_global_rect().get_center()
+		return Vector2(430.0, 18.0)
+	var units := _living_units(actor)
+	if units.is_empty():
+		return Vector2(ALLY_TOWER_X if actor == "ally" else ENEMY_TOWER_X, BATTLE_GROUND_Y - 60.0)
+	var center := Vector2.ZERO
+	for unit in units:
+		center += unit.position
+	return center / float(units.size())
+
+func _effect_color(effect_id: String, actor: String) -> Color:
+	match effect_id:
+		"reinforcement":
+			return Color("#8fd8ff") if actor == "ally" else Color("#ff9a78")
+		"boss_call":
+			return Color("#ffd273") if actor == "ally" else Color("#ff6f61")
+		"field_aid":
+			return Color("#8ce68c")
+		"freeze":
+			return Color("#8fd8ff")
+		"frenzy":
+			return Color("#ff5964")
+		"morale":
+			return Color("#ffd05c")
+		"bulwark":
+			return Color("#9db9d9")
+		"haste":
+			return Color("#b78cff")
+		"lifesteal":
+			return Color("#e95d87")
+		"thorns":
+			return Color("#72c982")
+		"tower_repair":
+			return Color("#8ce68c")
+		"tower_power":
+			return Color("#ffd273")
+		"bounty":
+			return Color("#f5c85b")
+		_:
+			return Color.WHITE
+
+func _effect_symbol(effect_id: String) -> String:
+	match effect_id:
+		"reinforcement":
+			return "＋"
+		"boss_call":
+			return "◆"
+		"field_aid":
+			return "＋"
+		"freeze":
+			return "○"
+		"frenzy":
+			return "△"
+		"morale":
+			return "★"
+		"bulwark":
+			return "□"
+		"haste":
+			return "→"
+		"lifesteal":
+			return "●"
+		"thorns":
+			return "※"
+		"tower_repair":
+			return "＋"
+		"tower_power":
+			return "◎"
+		"bounty":
+			return "¤"
+		_:
+			return "◆"
+
+func _effect_sfx(effect_id: String) -> String:
+	match effect_id:
+		"reinforcement", "boss_call", "freeze":
+			return "era"
+		"tower_power":
+			return "tower"
+		_:
+			return "merge"
+
+func _effect_particle_texture() -> Texture2D:
+	if effect_particle_texture != null:
+		return effect_particle_texture
+	var image := Image.create(16, 16, false, Image.FORMAT_RGBA8)
+	for y in range(16):
+		for x in range(16):
+			var distance := Vector2(x, y).distance_to(Vector2(7.5, 7.5))
+			image.set_pixel(x, y, Color.WHITE if distance <= 7.5 else Color(1, 1, 1, 0))
+	effect_particle_texture = ImageTexture.create_from_image(image)
+	return effect_particle_texture
+
+func _play_effect_vfx(effect_id: String, position: Vector2, actor := "ally") -> void:
+	var color := _effect_color(effect_id, actor)
+	var parent: Node = self if effect_id == "bounty" else world
+	var root := Node2D.new()
+	root.position = position
+	root.z_index = 8
+	parent.add_child(root)
+	var particles := CPUParticles2D.new()
+	particles.amount = 26 if effect_id in ["freeze", "thorns"] else (12 if effect_id == "haste" else 18)
+	particles.lifetime = 0.8 if effect_id != "bounty" else 1.0
+	particles.one_shot = true
+	particles.explosiveness = 0.9
+	particles.texture = _effect_particle_texture()
+	particles.color = Color(color, 0.95)
+	particles.scale_amount_min = 0.18
+	particles.scale_amount_max = 0.48
+	particles.direction = Vector2.UP
+	particles.spread = 80.0 if effect_id == "haste" else (130.0 if effect_id == "freeze" else 180.0)
+	particles.initial_velocity_min = 34.0 if effect_id in ["frenzy", "tower_power"] else 24.0
+	particles.initial_velocity_max = 82.0 if effect_id in ["frenzy", "tower_power"] else 64.0
+	particles.gravity = Vector2(0, -18.0) if effect_id == "freeze" else Vector2(0, 42.0)
+	root.add_child(particles)
+	var ring := Line2D.new()
+	var points := PackedVector2Array()
+	var radius := 72.0 if effect_id in ["field_aid", "freeze", "bulwark"] else 64.0
+	var point_count := 6 if effect_id == "bulwark" else (12 if effect_id == "thorns" else 20)
+	for index in range(point_count):
+		var angle := -TAU * float(index) / float(point_count)
+		var point_radius := radius
+		if effect_id == "thorns" and index % 2 == 1:
+			point_radius *= 0.5
+		points.append(Vector2(cos(angle), sin(angle)) * point_radius)
+	ring.points = points
+	ring.closed = true
+	ring.width = 5.0
+	ring.default_color = Color(color, 0.92)
+	ring.scale = Vector2(0.85, 0.45)
+	ring.z_index = 2
+	root.add_child(ring)
+	var label_text := "%s %s" % [_effect_symbol(effect_id), _effect_name(effect_id)]
+	var text_offset := -24.0 if effect_id in ["tower_repair", "tower_power"] else -34.0
+	if effect_id == "bounty":
+		_spawn_hit_fx(
+			Vector2(camera_x + BATTLE_VIEW_W * 0.5, 170.0),
+			color,
+			label_text,
+			0.85
+		)
+	else:
+		_spawn_hit_fx(position, color, label_text, 0.85, text_offset)
+	AudioManager.play_sfx(_effect_sfx(effect_id))
+	var tween := create_tween()
+	tween.set_parallel(true)
+	tween.tween_property(ring, "scale", Vector2(1.2, 0.45), 0.7)
+	tween.tween_property(ring, "modulate:a", 0.0, 0.7)
+	tween.tween_property(root, "position:y", root.position.y - 18.0, 0.7)
+	tween.chain().tween_callback(root.queue_free)
+	if effect_id == "boss_call" or effect_id == "tower_power":
+		_shake_battlefield()
+
+func _play_spawn_vfx(position: Vector2, color := Color("#ff9a78")) -> void:
+	var root := Node2D.new()
+	root.position = position
+	root.z_index = 7
+	world.add_child(root)
+	var particles := CPUParticles2D.new()
+	particles.amount = 12
+	particles.lifetime = 0.55
+	particles.one_shot = true
+	particles.explosiveness = 1.0
+	particles.texture = _effect_particle_texture()
+	particles.color = Color(color, 0.72)
+	particles.scale_amount_min = 0.14
+	particles.scale_amount_max = 0.32
+	particles.direction = Vector2.UP
+	particles.spread = 140.0
+	particles.initial_velocity_min = 20.0
+	particles.initial_velocity_max = 48.0
+	particles.gravity = Vector2(0, 34.0)
+	root.add_child(particles)
+	var ring := Polygon2D.new()
+	var points := PackedVector2Array()
+	for index in range(16):
+		var angle := -TAU * float(index) / 16.0
+		points.append(Vector2(cos(angle), sin(angle)) * 52.0)
+	ring.polygon = points
+	ring.color = Color(color, 0.22)
+	ring.scale = Vector2(0.2, 0.2)
+	ring.z_index = 2
+	root.add_child(ring)
+	var tween := create_tween()
+	tween.set_parallel(true)
+	tween.tween_property(ring, "scale", Vector2(1.6, 1.6), 0.45)
+	tween.tween_property(ring, "modulate:a", 0.0, 0.45)
+	tween.chain().tween_callback(root.queue_free)
 
 func _effect_icon_bb(effect_id: String, icon_size: int) -> String:
 	var path := EFFECT_ICON_PATH % effect_id
@@ -1330,12 +1732,23 @@ func _build_batch_cards(groups_needed: int) -> Array[String]:
 			break
 		remainders[index]["groups"] = int(remainders[index].groups) + 1
 		leftover -= 1
+	var boss_card := _current_era_boss_card()
+	if boss_card != "":
+		for entry in remainders:
+			if str(entry.card) == boss_card and int(entry.groups) < MIN_BOSS_GROUPS:
+				entry["groups"] = MIN_BOSS_GROUPS
 	for entry in remainders:
 		for _g in range(int(entry.groups)):
 			for _c in range(3):
 				result.append(str(entry.card))
 	result.append_array(_build_effect_cards_for_batch())
 	return result
+
+func _current_era_boss_card() -> String:
+	for hero_id in GameData.heroes_for_era(current_era):
+		if str(GameData.HEROES[hero_id].get("role", "")) == "boss":
+			return str(GameData.HEROES[hero_id].get("card", hero_id))
+	return ""
 
 func _build_effect_cards_for_batch() -> Array[String]:
 	var result: Array[String] = []
@@ -1631,10 +2044,109 @@ func _rebuild_tray_visuals() -> void:
 			icon.texture = load(path)
 		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		icon.mouse_filter = Control.MOUSE_FILTER_STOP
+		icon.gui_input.connect(_on_tray_card_input.bind(index))
 		tray.add_child(icon)
 		tray_views.append(icon)
 	_update_progress_ui()
+
+func _on_tray_card_input(event: InputEvent, index: int) -> void:
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+		if event.pressed:
+			tray_press_index = index
+			var timer := get_tree().create_timer(CARD_INFO_HOLD)
+			timer.timeout.connect(_on_tray_hold_elapsed.bind(index))
+		else:
+			tray_press_index = -1
+	elif event is InputEventMouseMotion and tray_press_index == index:
+		var motion := event as InputEventMouseMotion
+		if motion.relative.length() > 12.0:
+			tray_press_index = -1
+
+func _on_tray_hold_elapsed(index: int) -> void:
+	if tray_press_index != index or index >= tray_cards.size():
+		return
+	tray_press_index = -1
+	_show_card_info(tray_cards[index])
+
+func _build_card_info_overlay() -> void:
+	card_info_overlay = Control.new()
+	card_info_overlay.size = VIEW_SIZE
+	card_info_overlay.z_index = 4095
+	card_info_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	card_info_overlay.visible = false
+	card_info_overlay.gui_input.connect(_on_card_info_input)
+	add_child(card_info_overlay)
+	var shade := ColorRect.new()
+	shade.size = VIEW_SIZE
+	shade.color = Color(0.05, 0.03, 0.02, 0.55)
+	shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card_info_overlay.add_child(shade)
+	var panel := Panel.new()
+	panel.position = Vector2(70, 430)
+	panel.size = Vector2(580, 420)
+	panel.add_theme_stylebox_override("panel", _panel_style(Color("#c58a53"), Color("#70412c"), 24, 3))
+	card_info_overlay.add_child(panel)
+	card_info_title_label = _label(panel, "", Vector2(0, 26), Vector2(580, 40), 26)
+	card_info_title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	card_info_text_label = RichTextLabel.new()
+	card_info_text_label.bbcode_enabled = true
+	card_info_text_label.scroll_active = false
+	card_info_text_label.position = Vector2(40, 78)
+	card_info_text_label.size = Vector2(500, 258)
+	card_info_text_label.add_theme_font_size_override("normal_font_size", 18)
+	card_info_text_label.add_theme_color_override("default_color", Color("#fff0c7"))
+	panel.add_child(card_info_text_label)
+	var close_button := _menu_button(panel, "关闭", Vector2(190, 344), Vector2(200, 52), 18)
+	close_button.pressed.connect(_hide_card_info)
+
+func _on_card_info_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+		_hide_card_info()
+
+func _show_card_info(card_id: String) -> void:
+	if card_info_overlay == null:
+		return
+	var card: Dictionary = GameData.CARDS.get(card_id, {})
+	card_info_title_label.text = str(card.get("name", card_id))
+	card_info_text_label.text = _card_info_text(card_id)
+	move_child(card_info_overlay, get_child_count() - 1)
+	card_info_overlay.visible = true
+	_play_button_sfx()
+
+func _hide_card_info() -> void:
+	if card_info_overlay != null:
+		card_info_overlay.visible = false
+
+func _card_info_text(card_id: String) -> String:
+	var held := 0
+	for held_card in tray_cards:
+		if held_card == card_id:
+			held += 1
+	if _is_effect_card(card_id):
+		var effect := _effect_by_id(_effect_id_from_card(card_id))
+		var lines := [
+			"类型：[b]效果卡[/b]",
+			"发动：同名 [b]2 张[/b]自动发动（不上场）",
+			"效果：%s" % str(effect.get("desc", "—")),
+		]
+		var duration := float(effect.get("duration", 0.0))
+		if duration > 0.0:
+			lines.append("持续：%.0f 秒" % duration)
+		lines.append("合成台已有：%d / 2 张" % held)
+		return "\n".join(lines)
+	var hero := GameData.hero_for_card(card_id)
+	if hero.is_empty():
+		return "合成台已有：%d 张" % held
+	var info := [
+		"类型：[b]小兵卡[/b]（%s・%s）" % [str(hero.get("era_name", "")), str(hero.get("role_name", ""))],
+		"合成：同名 [b]3 张[/b] → %s" % str(hero.get("name", card_id)),
+		"生命 %.0f　攻击 %.0f" % [float(hero.get("hp", 0.0)), float(hero.get("attack", 0.0))],
+		"攻速 %.2f 次/秒　射程 %.0f" % [float(hero.get("attack_speed", 0.0)), float(hero.get("range", 0.0))],
+		"移速 %.0f" % float(hero.get("move_speed", 0.0)),
+		"合成台已有：%d / 3 张" % held,
+	]
+	return "\n".join(info)
 
 func _check_merges() -> void:
 	for effect_id in _all_effect_ids():
@@ -1805,6 +2317,7 @@ func _spawn_enemy(hero_id: String, index: int, total_count: int) -> BattleUnit:
 	unit.expired.connect(_on_unit_expired)
 	world.add_child(unit)
 	battle_units.append(unit)
+	_play_spawn_vfx(unit.position)
 	return unit
 
 func _step_battle(delta: float) -> void:
@@ -2082,15 +2595,18 @@ func _rescale_towers_for_era() -> void:
 		ally_tower_max_hp = ally_target
 	_update_tower_ui()
 
-func _spawn_hit_fx(local_position: Vector2, color: Color, text: String, hold := 0.3) -> void:
+func _spawn_hit_fx(local_position: Vector2, color: Color, text: String, hold := 0.3, vertical_offset := 0.0) -> void:
 	var fx: Label
 	if hit_fx_pool.is_empty():
 		fx = Label.new()
 		fx.z_index = 6
 		fx.add_theme_font_size_override("font_size", 24)
+		fx.add_theme_color_override("font_outline_color", Color("#24150f"))
+		fx.add_theme_constant_override("outline_size", 6)
 	else:
 		fx = hit_fx_pool.pop_back()
-	fx.position = local_position + Vector2(-14, -130)
+	var text_y := maxf(8.0, local_position.y - 130.0 + vertical_offset)
+	fx.position = Vector2(local_position.x - 14.0, text_y)
 	fx.text = text
 	fx.add_theme_color_override("font_color", color)
 	fx.modulate = Color.WHITE
@@ -2100,7 +2616,7 @@ func _spawn_hit_fx(local_position: Vector2, color: Color, text: String, hold := 
 	var tween := create_tween()
 	tween.set_parallel(true)
 	var rise := 36.0 if hold > 0.5 else 18.0
-	tween.tween_property(fx, "position:y", fx.position.y - rise, hold)
+	tween.tween_property(fx, "position:y", maxf(8.0, fx.position.y - rise), hold)
 	tween.tween_property(fx, "modulate", Color(1, 1, 1, 0), hold)
 	tween.chain().tween_callback(_recycle_hit_fx.bind(fx))
 
@@ -2155,7 +2671,53 @@ func _finish_round(message: String) -> void:
 	if result_overlay != null:
 		result_overlay.visible = true
 
+func _outline(label: Label, size: int, color := Color("#2b1409")) -> void:
+	label.add_theme_constant_override("outline_size", size)
+	label.add_theme_color_override("font_outline_color", color)
+
+func _build_wave_bar() -> void:
+	# 植物大战僵尸式波次进度条：走满一格 = 一波，走到头就是整备期
+	wave_bar = ProgressBar.new()
+	wave_bar.position = Vector2(360, 12)
+	wave_bar.size = Vector2(268, 30)
+	wave_bar.min_value = 0.0
+	wave_bar.max_value = 1.0
+	wave_bar.step = 0.001
+	wave_bar.show_percentage = false
+	wave_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	wave_bar.add_theme_stylebox_override("background", _panel_style(Color("#4a2b1b"), Color("#2b1409"), 14, 2))
+	wave_bar.add_theme_stylebox_override("fill", _panel_style(Color("#4cbf4c"), Color("#2b1409"), 14, 0))
+	board.add_child(wave_bar)
+	wave_bar_label = _label(board, "", Vector2(360, 15), Vector2(268, 26), 16, Color("#ffffff"))
+	wave_bar_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_outline(wave_bar_label, 6)
+
+func _update_wave_bar() -> void:
+	if wave_bar == null:
+		return
+	var in_wave := 0.0
+	if wave_spawning:
+		in_wave = clampf(1.0 - wave_active_timer / WAVE_DURATION, 0.0, 1.0)
+	var done_waves := wave_number % PREP_WAVE_INTERVAL
+	if wave_spawning and done_waves > 0:
+		done_waves -= 1
+	elif wave_spawning:
+		done_waves = PREP_WAVE_INTERVAL - 1
+	var ratio := clampf((float(done_waves) + in_wave) / float(PREP_WAVE_INTERVAL), 0.0, 1.0)
+	wave_bar.value = ratio
+	wave_bar.add_theme_stylebox_override("fill", _panel_style(Color("#4cbf4c").lerp(Color("#e2452f"), ratio), Color("#2b1409"), 14, 0))
+	if not battle_active or battle_ended:
+		wave_bar_label.text = "备战中"
+		wave_bar.value = 0.0
+	elif paused and auto_prep:
+		wave_bar_label.text = "整备期"
+	elif wave_number <= 0:
+		wave_bar_label.text = "敌军将至"
+	else:
+		wave_bar_label.text = "第 %d 波" % wave_number
+
 func _update_progress_ui() -> void:
+	_update_wave_bar()
 	if era_label == null:
 		return
 	var state := "备战"
@@ -2176,7 +2738,7 @@ func _update_progress_ui() -> void:
 	else:
 		score_label.text = "击杀积分 %d" % kill_score
 	if deck_label != null:
-		deck_label.text = "剩 %d 张 · 合成台 %d/%d" % [deck_cards.size(), tray_cards.size(), TRAY_SLOTS]
+		deck_label.text = "剩 %d 张" % deck_cards.size()
 
 func _update_tower_ui() -> void:
 	if ally_tower_bar == null:
