@@ -148,6 +148,8 @@ var ally_tower_hp := 1.0
 var enemy_tower_hp := 1.0
 var ally_tower_max_hp := 1.0
 var enemy_tower_max_hp := 1.0
+var ally_alarm_50_played := false
+var ally_alarm_25_played := false
 var enemy_era_index := 0
 var enemy_era := "stone"
 var era_visual_tween: Tween
@@ -764,9 +766,11 @@ func _toggle_pause() -> void:
 		_check_stuck()
 		if battle_ended:
 			return
+		AudioManager.set_music_filtered(false)
 	elif not auto_prep:
 		_configure_pause("prep")
 		_set_pause_text("整备时间", "战斗、出兵和牌堆均已冻结")
+		AudioManager.set_music_filtered(true)
 	if pause_overlay != null:
 		pause_overlay.visible = paused
 	_update_progress_ui()
@@ -788,6 +792,7 @@ func _enter_preparation() -> void:
 	)
 	if pause_overlay != null:
 		pause_overlay.visible = true
+	AudioManager.set_music_filtered(true)
 	AudioManager.play_sfx("era")
 	_update_progress_ui()
 
@@ -823,6 +828,7 @@ func _on_pause_bottom_pressed() -> void:
 
 func _show_tutorial() -> void:
 	paused = true
+	AudioManager.set_music_filtered(true)
 	if tutorial_overlay != null:
 		tutorial_overlay.visible = true
 
@@ -831,6 +837,7 @@ func _hide_tutorial() -> void:
 		tutorial_overlay.visible = false
 	SaveManager.set_tutorial_seen(true)
 	paused = false
+	AudioManager.set_music_filtered(false)
 
 func _build_main_menu() -> void:
 	main_menu = Control.new()
@@ -1168,6 +1175,7 @@ func _show_main_menu() -> void:
 	battle_ended = false
 	battle_won = false
 	paused = false
+	AudioManager.set_music_filtered(false)
 	_hide_settings()
 	_hide_era_select()
 	if result_overlay != null:
@@ -1184,6 +1192,7 @@ func _show_main_menu() -> void:
 		main_menu.visible = true
 
 func _start_round(start_era_index: int = 0) -> void:
+	AudioManager.set_music_filtered(false)
 	for card in deck_cards:
 		if is_instance_valid(card):
 			card.queue_free()
@@ -1242,6 +1251,8 @@ func _start_round(start_era_index: int = 0) -> void:
 	enemy_tower_hp = GameData.tower_hp(enemy_era)
 	ally_tower_max_hp = ally_tower_hp
 	enemy_tower_max_hp = enemy_tower_hp
+	ally_alarm_50_played = false
+	ally_alarm_25_played = false
 	battle_hint.text = "备战 %d 秒，敌方部队即将出击" % int(_diff().first_delay)
 	if result_overlay != null:
 		result_overlay.visible = false
@@ -1463,12 +1474,16 @@ func _refresh_covered() -> void:
 
 func _on_card_layer_input(event: InputEvent) -> void:
 	if not _can_pick_cards():
+		if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+			AudioManager.play_sfx("ui_denied")
 		return
 	if not event is InputEventMouseButton or event.button_index != MOUSE_BUTTON_LEFT or not event.pressed:
 		return
 	var canvas_point: Vector2 = card_layer.get_global_transform_with_canvas() * event.position
 	var card := _top_card_at(canvas_point)
-	if card != null and not card.locked:
+	if card != null and card.locked:
+		AudioManager.play_sfx("card_locked")
+	elif card != null:
 		_on_card_clicked(card)
 		card_layer.accept_event()
 
@@ -1511,6 +1526,7 @@ func _on_card_clicked(card: CardView) -> void:
 	var target_index := _first_open_slot()
 	if target_index < 0:
 		battle_hint.text = "合成台已满，先合成 3 张小兵或 2 张效果"
+		AudioManager.play_sfx("card_jam", {"priority": 0})
 		return
 	AudioManager.play_sfx("click")
 	card.claimed = true
@@ -1563,6 +1579,7 @@ func _check_stuck() -> void:
 			battle_hint.text = "⚠ 合成台只剩 1 格，凑不齐将扣 %d 金币清理" % CLEAR_TRAY_COST
 		return
 	if coin_count < CLEAR_TRAY_COST:
+		AudioManager.play_sfx("ui_denied")
 		_finish_battle(false, "金币不足，无法清理合成台")
 		return
 	if not stuck_warned:
@@ -2012,6 +2029,7 @@ func _on_unit_expired(unit: BattleUnit) -> void:
 		return
 	var faction := unit.faction
 	battle_units.erase(unit)
+	AudioManager.play_sfx("unit_death", {"priority": 1})
 	if faction == "ally":
 		occupied_units = maxi(0, occupied_units - 1)
 	if faction == "enemy" and not unit.score_awarded:
@@ -2165,3 +2183,11 @@ func _update_tower_ui() -> void:
 		return
 	ally_tower_bar.set_health(ally_tower_hp, ally_tower_max_hp)
 	enemy_tower_bar.set_health(enemy_tower_hp, enemy_tower_max_hp)
+	if ally_tower_max_hp > 0.0:
+		var health_ratio := ally_tower_hp / ally_tower_max_hp
+		if health_ratio <= 0.25 and not ally_alarm_25_played:
+			ally_alarm_25_played = true
+			AudioManager.play_sfx("tower_alarm", {"priority": 0, "throttle_ms": 0})
+		elif health_ratio <= 0.5 and not ally_alarm_50_played:
+			ally_alarm_50_played = true
+			AudioManager.play_sfx("tower_alarm", {"priority": 0, "throttle_ms": 0})

@@ -43,6 +43,18 @@ def mix_parts(parts: list[tuple[np.ndarray, int]], length: int | None = None) ->
 	return result
 
 
+def noise_burst(duration: float, amplitude: float, decay: float, seed: int) -> np.ndarray:
+	length = int(SAMPLE_RATE * duration)
+	rng = np.random.default_rng(seed)
+	noise = rng.normal(0.0, 1.0, length)
+	time = np.arange(length, dtype=np.float64) / SAMPLE_RATE
+	return noise * np.exp(-decay * time) * envelope(length, 3.0) * amplitude
+
+
+def low_tone(frequency: float, duration: float, amplitude: float, decay: float = 4.0) -> np.ndarray:
+	return tone(frequency, duration, amplitude, decay) * envelope(int(SAMPLE_RATE * duration), 8.0)
+
+
 def write_wav(path: Path, samples: np.ndarray, normalize: bool = True) -> None:
 	if normalize:
 		peak = float(np.max(np.abs(samples)))
@@ -87,6 +99,40 @@ def make_sfx() -> dict[str, np.ndarray]:
 
 	noise = np.random.default_rng(7).normal(0.0, 1.0, int(SAMPLE_RATE * 0.12))
 	hit = mix_parts([(noise * np.exp(-35.0 * np.arange(len(noise)) / SAMPLE_RATE), 0), (note(90.0, 0.16, 0.8), 0)])
+	card_locked = mix_parts([
+		(noise_burst(0.11, 0.55, 20.0, 21), 0),
+		(low_tone(115.0, 0.16, 0.72, 7.0), 0),
+	])
+	card_jam = mix_parts([
+		(noise_burst(0.36, 0.48, 5.0, 22), 0),
+		(low_tone(72.0, 0.38, 0.8, 3.5), 0),
+		(low_tone(54.0, 0.22, 0.42, 7.0), int(SAMPLE_RATE * 0.14)),
+	])
+	tower_alarm = mix_parts([
+		(low_tone(205.0, 0.32, 0.62, 3.5), 0),
+		(low_tone(145.0, 0.42, 0.7, 3.0), int(SAMPLE_RATE * 0.25)),
+		(noise_burst(0.56, 0.16, 4.0, 23), 0),
+	])
+	unit_death_a = mix_parts([
+		(noise_burst(0.18, 0.42, 15.0, 24), 0),
+		(low_tone(130.0, 0.28, 0.68, 5.0), 0),
+		(low_tone(82.0, 0.3, 0.45, 6.0), int(SAMPLE_RATE * 0.08)),
+	])
+	unit_death_b = mix_parts([
+		(noise_burst(0.2, 0.38, 13.0, 25), 0),
+		(low_tone(108.0, 0.34, 0.62, 4.5), 0),
+		(low_tone(68.0, 0.25, 0.4, 7.0), int(SAMPLE_RATE * 0.1)),
+	])
+	unit_death_c = mix_parts([
+		(noise_burst(0.16, 0.44, 17.0, 26), 0),
+		(low_tone(155.0, 0.25, 0.58, 5.5), 0),
+		(low_tone(92.0, 0.32, 0.46, 6.0), int(SAMPLE_RATE * 0.06)),
+	])
+	ui_denied = mix_parts([
+		(noise_burst(0.08, 0.3, 28.0, 27), 0),
+		(low_tone(180.0, 0.18, 0.45, 9.0), 0),
+		(low_tone(125.0, 0.2, 0.32, 10.0), int(SAMPLE_RATE * 0.06)),
+	])
 	return {
 		"click": note(1250.0, 0.055),
 		"place": mix_parts([(note(430.0, 0.12), 0), (note(720.0, 0.09), int(SAMPLE_RATE * 0.04))]),
@@ -97,6 +143,13 @@ def make_sfx() -> dict[str, np.ndarray]:
 		"defeat": mix_parts([(note(220.0, 0.25), 0), (note(164.81, 0.3), int(SAMPLE_RATE * 0.18)), (note(130.81, 0.38), int(SAMPLE_RATE * 0.36))]),
 		"era": mix_parts([(note(392.0, 0.12), 0), (note(587.33, 0.15), int(SAMPLE_RATE * 0.07)), (note(783.99, 0.22), int(SAMPLE_RATE * 0.14)), (note(1046.5, 0.35), int(SAMPLE_RATE * 0.21))]),
 		"button": mix_parts([(note(880.0, 0.1), 0), (note(1320.0, 0.06), int(SAMPLE_RATE * 0.03))]),
+		"card_locked": card_locked,
+		"card_jam": card_jam,
+		"tower_alarm": tower_alarm,
+		"unit_death": unit_death_a,
+		"unit_death_1": unit_death_b,
+		"unit_death_2": unit_death_c,
+		"ui_denied": ui_denied,
 	}
 
 
