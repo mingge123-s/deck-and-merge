@@ -1040,6 +1040,8 @@ func _effect_position(effect_id: String, actor: String) -> Vector2:
 	if effect_id == "tower_repair" or effect_id == "tower_power":
 		return Vector2(ALLY_TOWER_X if actor == "ally" else ENEMY_TOWER_X, BATTLE_GROUND_Y - 82.0)
 	if effect_id == "bounty":
+		if is_instance_valid(coin_label):
+			return coin_label.get_global_rect().get_center()
 		return Vector2(430.0, 18.0)
 	var units := _living_units(actor)
 	if units.is_empty():
@@ -1147,13 +1149,11 @@ func _play_effect_vfx(effect_id: String, position: Vector2, actor := "ally") -> 
 	particles.color = Color(color, 0.82)
 	particles.scale_amount_min = 0.18
 	particles.scale_amount_max = 0.48
-	var material := ParticleProcessMaterial.new()
-	material.direction = Vector3.UP
-	material.spread = 80.0 if effect_id == "haste" else (130.0 if effect_id == "freeze" else 180.0)
-	material.initial_velocity_min = 34.0 if effect_id in ["frenzy", "tower_power"] else 24.0
-	material.initial_velocity_max = 82.0 if effect_id in ["frenzy", "tower_power"] else 64.0
-	material.gravity = Vector3(0, -18.0, 0) if effect_id == "freeze" else Vector3(0, 42.0, 0)
-	particles.process_material = material
+	particles.direction = Vector2.UP
+	particles.spread = 80.0 if effect_id == "haste" else (130.0 if effect_id == "freeze" else 180.0)
+	particles.initial_velocity_min = 34.0 if effect_id in ["frenzy", "tower_power"] else 24.0
+	particles.initial_velocity_max = 82.0 if effect_id in ["frenzy", "tower_power"] else 64.0
+	particles.gravity = Vector2(0, -18.0) if effect_id == "freeze" else Vector2(0, 42.0)
 	root.add_child(particles)
 	var ring := Polygon2D.new()
 	var points := PackedVector2Array()
@@ -1213,13 +1213,11 @@ func _play_spawn_vfx(position: Vector2, color := Color("#ff9a78")) -> void:
 	particles.color = Color(color, 0.72)
 	particles.scale_amount_min = 0.14
 	particles.scale_amount_max = 0.32
-	var material := ParticleProcessMaterial.new()
-	material.direction = Vector3.UP
-	material.spread = 140.0
-	material.initial_velocity_min = 20.0
-	material.initial_velocity_max = 48.0
-	material.gravity = Vector3(0, 34.0, 0)
-	particles.process_material = material
+	particles.direction = Vector2.UP
+	particles.spread = 140.0
+	particles.initial_velocity_min = 20.0
+	particles.initial_velocity_max = 48.0
+	particles.gravity = Vector2(0, 34.0)
 	root.add_child(particles)
 	var ring := Polygon2D.new()
 	var points := PackedVector2Array()
