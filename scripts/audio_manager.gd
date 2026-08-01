@@ -217,7 +217,10 @@ func _apply_mix_levels() -> void:
 		AudioServer.set_bus_volume_db(music_index, _music_user_db + filtered_offset - 6.0 * _duck_amount)
 	var game_index := AudioServer.get_bus_index("SfxGame")
 	if game_index >= 0:
-		AudioServer.set_bus_volume_db(game_index, _sfx_user_db - 3.0 * _duck_amount)
+		AudioServer.set_bus_volume_db(game_index, -3.0 * _duck_amount)
+	var sfx_index := AudioServer.get_bus_index("SFX")
+	if sfx_index >= 0:
+		AudioServer.set_bus_volume_db(sfx_index, _sfx_user_db)
 	var master_index := AudioServer.get_bus_index("Master")
 	if master_index >= 0:
 		AudioServer.set_bus_volume_db(master_index, _master_user_db)
@@ -226,7 +229,7 @@ func set_music_filtered(filtered: bool) -> void:
 	_music_filtered = filtered
 	var bus_index := AudioServer.get_bus_index("Music")
 	if bus_index >= 0 and AudioServer.get_bus_effect_count(bus_index) > 0:
-		AudioServer.set_bus_effect_enabled(bus_index, 0, not filtered)
+		AudioServer.set_bus_effect_enabled(bus_index, 0, filtered)
 	_apply_mix_levels()
 
 func apply_volume(bus_name: String, value_0_100: float) -> void:
@@ -240,7 +243,9 @@ func apply_volume(bus_name: String, value_0_100: float) -> void:
 		"SFX":
 			_sfx_user_db = db
 		"SfxGame":
-			_sfx_user_db = db
+			var game_index := AudioServer.get_bus_index("SfxGame")
+			if game_index >= 0:
+				AudioServer.set_bus_volume_db(game_index, db)
 		"SfxUI":
 			var ui_index := AudioServer.get_bus_index("SfxUI")
 			if ui_index >= 0:
