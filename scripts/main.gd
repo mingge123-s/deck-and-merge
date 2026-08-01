@@ -230,6 +230,7 @@ var stuck_warned := false
 var hit_fx_pool: Array[Label] = []
 var camera_shake_offset := Vector2.ZERO
 var camera_shake_tween: Tween
+var effect_particle_texture: Texture2D
 
 func _diff() -> Dictionary:
 	return DIFFICULTIES[current_difficulty]
@@ -1231,6 +1232,7 @@ func _apply_random_effect(effect: Dictionary, actor := "ally") -> void:
 		_:
 			var timers: Dictionary = buff_timers if actor == "ally" else enemy_buff_timers
 			timers[effect_id] = maxf(float(timers.get(effect_id, 0.0)), duration)
+	_play_effect_vfx(effect_id, _effect_position(effect_id, actor), actor)
 
 func _announce_enemy_action(text: String, _effect_id: String) -> void:
 	if enemy_action_label == null:
@@ -1240,6 +1242,199 @@ func _announce_enemy_action(text: String, _effect_id: String) -> void:
 	var tw := create_tween()
 	tw.tween_interval(1.1)
 	tw.tween_property(enemy_action_label, "modulate:a", 0.0, 0.6)
+
+func _effect_position(effect_id: String, actor: String) -> Vector2:
+	if effect_id == "tower_repair" or effect_id == "tower_power":
+		return Vector2(ALLY_TOWER_X if actor == "ally" else ENEMY_TOWER_X, BATTLE_GROUND_Y - 82.0)
+	if effect_id == "bounty":
+		if is_instance_valid(coin_label):
+			return coin_label.get_global_rect().get_center()
+		return Vector2(430.0, 18.0)
+	var units := _living_units(actor)
+	if units.is_empty():
+		return Vector2(ALLY_TOWER_X if actor == "ally" else ENEMY_TOWER_X, BATTLE_GROUND_Y - 60.0)
+	var center := Vector2.ZERO
+	for unit in units:
+		center += unit.position
+	return center / float(units.size())
+
+func _effect_color(effect_id: String, actor: String) -> Color:
+	match effect_id:
+		"reinforcement":
+			return Color("#8fd8ff") if actor == "ally" else Color("#ff9a78")
+		"boss_call":
+			return Color("#ffd273") if actor == "ally" else Color("#ff6f61")
+		"field_aid":
+			return Color("#8ce68c")
+		"freeze":
+			return Color("#8fd8ff")
+		"frenzy":
+			return Color("#ff5964")
+		"morale":
+			return Color("#ffd05c")
+		"bulwark":
+			return Color("#9db9d9")
+		"haste":
+			return Color("#b78cff")
+		"lifesteal":
+			return Color("#e95d87")
+		"thorns":
+			return Color("#72c982")
+		"tower_repair":
+			return Color("#8ce68c")
+		"tower_power":
+			return Color("#ffd273")
+		"bounty":
+			return Color("#f5c85b")
+		_:
+			return Color.WHITE
+
+func _effect_symbol(effect_id: String) -> String:
+	match effect_id:
+		"reinforcement":
+			return "＋"
+		"boss_call":
+			return "◆"
+		"field_aid":
+			return "＋"
+		"freeze":
+			return "○"
+		"frenzy":
+			return "△"
+		"morale":
+			return "★"
+		"bulwark":
+			return "□"
+		"haste":
+			return "→"
+		"lifesteal":
+			return "●"
+		"thorns":
+			return "※"
+		"tower_repair":
+			return "＋"
+		"tower_power":
+			return "◎"
+		"bounty":
+			return "¤"
+		_:
+			return "◆"
+
+func _effect_sfx(effect_id: String) -> String:
+	match effect_id:
+		"reinforcement", "boss_call", "freeze":
+			return "era"
+		"tower_power":
+			return "tower"
+		_:
+			return "merge"
+
+func _effect_particle_texture() -> Texture2D:
+	if effect_particle_texture != null:
+		return effect_particle_texture
+	var image := Image.create(16, 16, false, Image.FORMAT_RGBA8)
+	for y in range(16):
+		for x in range(16):
+			var distance := Vector2(x, y).distance_to(Vector2(7.5, 7.5))
+			image.set_pixel(x, y, Color.WHITE if distance <= 7.5 else Color(1, 1, 1, 0))
+	effect_particle_texture = ImageTexture.create_from_image(image)
+	return effect_particle_texture
+
+func _play_effect_vfx(effect_id: String, position: Vector2, actor := "ally") -> void:
+	var color := _effect_color(effect_id, actor)
+	var parent: Node = self if effect_id == "bounty" else world
+	var root := Node2D.new()
+	root.position = position
+	root.z_index = 8
+	parent.add_child(root)
+	var particles := CPUParticles2D.new()
+	particles.amount = 26 if effect_id in ["freeze", "thorns"] else (12 if effect_id == "haste" else 18)
+	particles.lifetime = 0.8 if effect_id != "bounty" else 1.0
+	particles.one_shot = true
+	particles.explosiveness = 0.9
+	particles.texture = _effect_particle_texture()
+	particles.color = Color(color, 0.95)
+	particles.scale_amount_min = 0.18
+	particles.scale_amount_max = 0.48
+	particles.direction = Vector2.UP
+	particles.spread = 80.0 if effect_id == "haste" else (130.0 if effect_id == "freeze" else 180.0)
+	particles.initial_velocity_min = 34.0 if effect_id in ["frenzy", "tower_power"] else 24.0
+	particles.initial_velocity_max = 82.0 if effect_id in ["frenzy", "tower_power"] else 64.0
+	particles.gravity = Vector2(0, -18.0) if effect_id == "freeze" else Vector2(0, 42.0)
+	root.add_child(particles)
+	var ring := Line2D.new()
+	var points := PackedVector2Array()
+	var radius := 72.0 if effect_id in ["field_aid", "freeze", "bulwark"] else 64.0
+	var point_count := 6 if effect_id == "bulwark" else (12 if effect_id == "thorns" else 20)
+	for index in range(point_count):
+		var angle := -TAU * float(index) / float(point_count)
+		var point_radius := radius
+		if effect_id == "thorns" and index % 2 == 1:
+			point_radius *= 0.5
+		points.append(Vector2(cos(angle), sin(angle)) * point_radius)
+	ring.points = points
+	ring.closed = true
+	ring.width = 5.0
+	ring.default_color = Color(color, 0.92)
+	ring.scale = Vector2(0.85, 0.45)
+	ring.z_index = 2
+	root.add_child(ring)
+	var label_text := "%s %s" % [_effect_symbol(effect_id), _effect_name(effect_id)]
+	var text_offset := -24.0 if effect_id in ["tower_repair", "tower_power"] else -34.0
+	if effect_id == "bounty":
+		_spawn_hit_fx(
+			Vector2(camera_x + BATTLE_VIEW_W * 0.5, 170.0),
+			color,
+			label_text,
+			0.85
+		)
+	else:
+		_spawn_hit_fx(position, color, label_text, 0.85, text_offset)
+	AudioManager.play_sfx(_effect_sfx(effect_id))
+	var tween := create_tween()
+	tween.set_parallel(true)
+	tween.tween_property(ring, "scale", Vector2(1.2, 0.45), 0.7)
+	tween.tween_property(ring, "modulate:a", 0.0, 0.7)
+	tween.tween_property(root, "position:y", root.position.y - 18.0, 0.7)
+	tween.chain().tween_callback(root.queue_free)
+	if effect_id == "boss_call" or effect_id == "tower_power":
+		_shake_battlefield()
+
+func _play_spawn_vfx(position: Vector2, color := Color("#ff9a78")) -> void:
+	var root := Node2D.new()
+	root.position = position
+	root.z_index = 7
+	world.add_child(root)
+	var particles := CPUParticles2D.new()
+	particles.amount = 12
+	particles.lifetime = 0.55
+	particles.one_shot = true
+	particles.explosiveness = 1.0
+	particles.texture = _effect_particle_texture()
+	particles.color = Color(color, 0.72)
+	particles.scale_amount_min = 0.14
+	particles.scale_amount_max = 0.32
+	particles.direction = Vector2.UP
+	particles.spread = 140.0
+	particles.initial_velocity_min = 20.0
+	particles.initial_velocity_max = 48.0
+	particles.gravity = Vector2(0, 34.0)
+	root.add_child(particles)
+	var ring := Polygon2D.new()
+	var points := PackedVector2Array()
+	for index in range(16):
+		var angle := -TAU * float(index) / 16.0
+		points.append(Vector2(cos(angle), sin(angle)) * 52.0)
+	ring.polygon = points
+	ring.color = Color(color, 0.22)
+	ring.scale = Vector2(0.2, 0.2)
+	ring.z_index = 2
+	root.add_child(ring)
+	var tween := create_tween()
+	tween.set_parallel(true)
+	tween.tween_property(ring, "scale", Vector2(1.6, 1.6), 0.45)
+	tween.tween_property(ring, "modulate:a", 0.0, 0.45)
+	tween.chain().tween_callback(root.queue_free)
 
 func _effect_icon_bb(effect_id: String, icon_size: int) -> String:
 	var path := EFFECT_ICON_PATH % effect_id
@@ -2105,6 +2300,7 @@ func _spawn_enemy(hero_id: String, index: int, total_count: int) -> BattleUnit:
 	unit.expired.connect(_on_unit_expired)
 	world.add_child(unit)
 	battle_units.append(unit)
+	_play_spawn_vfx(unit.position)
 	return unit
 
 func _step_battle(delta: float) -> void:
@@ -2381,15 +2577,18 @@ func _rescale_towers_for_era() -> void:
 		ally_tower_max_hp = ally_target
 	_update_tower_ui()
 
-func _spawn_hit_fx(local_position: Vector2, color: Color, text: String, hold := 0.3) -> void:
+func _spawn_hit_fx(local_position: Vector2, color: Color, text: String, hold := 0.3, vertical_offset := 0.0) -> void:
 	var fx: Label
 	if hit_fx_pool.is_empty():
 		fx = Label.new()
 		fx.z_index = 6
 		fx.add_theme_font_size_override("font_size", 24)
+		fx.add_theme_color_override("font_outline_color", Color("#24150f"))
+		fx.add_theme_constant_override("outline_size", 6)
 	else:
 		fx = hit_fx_pool.pop_back()
-	fx.position = local_position + Vector2(-14, -130)
+	var text_y := maxf(8.0, local_position.y - 130.0 + vertical_offset)
+	fx.position = Vector2(local_position.x - 14.0, text_y)
 	fx.text = text
 	fx.add_theme_color_override("font_color", color)
 	fx.modulate = Color.WHITE
@@ -2399,7 +2598,7 @@ func _spawn_hit_fx(local_position: Vector2, color: Color, text: String, hold := 
 	var tween := create_tween()
 	tween.set_parallel(true)
 	var rise := 36.0 if hold > 0.5 else 18.0
-	tween.tween_property(fx, "position:y", fx.position.y - rise, hold)
+	tween.tween_property(fx, "position:y", maxf(8.0, fx.position.y - rise), hold)
 	tween.tween_property(fx, "modulate", Color(1, 1, 1, 0), hold)
 	tween.chain().tween_callback(_recycle_hit_fx.bind(fx))
 
