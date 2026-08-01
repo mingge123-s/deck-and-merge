@@ -1157,17 +1157,17 @@ func _play_effect_vfx(effect_id: String, position: Vector2, actor := "ally") -> 
 	root.add_child(particles)
 	var ring := Polygon2D.new()
 	var points := PackedVector2Array()
-	var radius := 30.0 if effect_id in ["field_aid", "freeze", "bulwark"] else 22.0
+	var radius := 120.0 if effect_id in ["field_aid", "freeze", "bulwark"] else 112.0
 	var point_count := 6 if effect_id == "bulwark" else (12 if effect_id == "thorns" else 20)
 	for index in range(point_count):
-		var angle := TAU * float(index) / float(point_count)
+		var angle := -TAU * float(index) / float(point_count)
 		var point_radius := radius
 		if effect_id == "thorns" and index % 2 == 1:
 			point_radius *= 0.5
 		points.append(Vector2(cos(angle), sin(angle)) * point_radius)
 	ring.polygon = points
-	ring.color = Color(color, 0.22)
-	ring.scale = Vector2(0.35, 0.35)
+	ring.color = Color(color, 0.42)
+	ring.scale = Vector2(0.5, 0.5)
 	root.add_child(ring)
 	var label_text := "%s %s" % [_effect_symbol(effect_id), _effect_name(effect_id)]
 	if effect_id == "bounty":
@@ -1222,8 +1222,8 @@ func _play_spawn_vfx(position: Vector2, color := Color("#ff9a78")) -> void:
 	var ring := Polygon2D.new()
 	var points := PackedVector2Array()
 	for index in range(16):
-		var angle := TAU * float(index) / 16.0
-		points.append(Vector2(cos(angle), sin(angle)) * 18.0)
+		var angle := -TAU * float(index) / 16.0
+		points.append(Vector2(cos(angle), sin(angle)) * 52.0)
 	ring.polygon = points
 	ring.color = Color(color, 0.22)
 	ring.scale = Vector2(0.2, 0.2)
