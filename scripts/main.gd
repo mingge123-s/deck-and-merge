@@ -1157,7 +1157,7 @@ func _play_effect_vfx(effect_id: String, position: Vector2, actor := "ally") -> 
 	root.add_child(particles)
 	var ring := Polygon2D.new()
 	var points := PackedVector2Array()
-	var radius := 120.0 if effect_id in ["field_aid", "freeze", "bulwark"] else 112.0
+	var radius := 100.0 if effect_id in ["field_aid", "freeze", "bulwark"] else 88.0
 	var point_count := 6 if effect_id == "bulwark" else (12 if effect_id == "thorns" else 20)
 	for index in range(point_count):
 		var angle := -TAU * float(index) / float(point_count)
@@ -1166,8 +1166,9 @@ func _play_effect_vfx(effect_id: String, position: Vector2, actor := "ally") -> 
 			point_radius *= 0.5
 		points.append(Vector2(cos(angle), sin(angle)) * point_radius)
 	ring.polygon = points
-	ring.color = Color(color, 0.42)
-	ring.scale = Vector2(0.5, 0.5)
+	ring.color = Color(color, 0.55)
+	ring.scale = Vector2(0.75, 0.75)
+	ring.z_index = 2
 	root.add_child(ring)
 	var label_text := "%s %s" % [_effect_symbol(effect_id), _effect_name(effect_id)]
 	if effect_id == "bounty":
@@ -1177,7 +1178,7 @@ func _play_effect_vfx(effect_id: String, position: Vector2, actor := "ally") -> 
 	AudioManager.play_sfx(_effect_sfx(effect_id))
 	var tween := create_tween()
 	tween.set_parallel(true)
-	tween.tween_property(ring, "scale", Vector2(1.8, 1.8), 0.7)
+	tween.tween_property(ring, "scale", Vector2(1.3, 1.3), 0.7)
 	tween.tween_property(ring, "modulate:a", 0.0, 0.7)
 	tween.tween_property(root, "position:y", root.position.y - 18.0, 0.7)
 	tween.chain().tween_callback(root.queue_free)
@@ -1227,6 +1228,7 @@ func _play_spawn_vfx(position: Vector2, color := Color("#ff9a78")) -> void:
 	ring.polygon = points
 	ring.color = Color(color, 0.22)
 	ring.scale = Vector2(0.2, 0.2)
+	ring.z_index = 2
 	root.add_child(ring)
 	var tween := create_tween()
 	tween.set_parallel(true)
