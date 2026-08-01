@@ -1175,7 +1175,12 @@ func _play_effect_vfx(effect_id: String, position: Vector2, actor := "ally") -> 
 	var label_text := "%s %s" % [_effect_symbol(effect_id), _effect_name(effect_id)]
 	var text_offset := -24.0 if effect_id in ["tower_repair", "tower_power"] else -34.0
 	if effect_id == "bounty":
-		_spawn_screen_effect_fx(position, color, label_text)
+		_spawn_hit_fx(
+			Vector2(camera_x + BATTLE_VIEW_W * 0.5, 170.0),
+			color,
+			label_text,
+			0.85
+		)
 	else:
 		_spawn_hit_fx(position, color, label_text, 0.85, text_offset)
 	AudioManager.play_sfx(_effect_sfx(effect_id))
@@ -1187,30 +1192,6 @@ func _play_effect_vfx(effect_id: String, position: Vector2, actor := "ally") -> 
 	tween.chain().tween_callback(root.queue_free)
 	if effect_id == "boss_call" or effect_id == "tower_power":
 		_shake_battlefield()
-
-func _spawn_screen_effect_fx(position: Vector2, color: Color, text: String) -> void:
-	var fx := Label.new()
-	fx.size = Vector2(220.0, 32.0)
-	fx.text = text
-	fx.add_theme_font_size_override("font_size", 18)
-	fx.add_theme_color_override("font_color", color)
-	fx.add_theme_color_override("font_outline_color", Color("#24150f"))
-	fx.add_theme_constant_override("outline_size", 5)
-	fx.z_index = 20
-	var target_rect := coin_label.get_global_rect() if is_instance_valid(coin_label) else Rect2(position, Vector2.ZERO)
-	var target_y := target_rect.end.y + 4.0
-	if is_instance_valid(score_label):
-		target_y = score_label.get_global_rect().end.y + 4.0
-	fx.position = Vector2(
-		clampf(target_rect.position.x, 8.0, VIEW_SIZE.x - fx.size.x - 8.0),
-		minf(target_y, BATTLE_RECT.position.y - fx.size.y - 4.0)
-	)
-	add_child(fx)
-	var tween := create_tween()
-	tween.set_parallel(true)
-	tween.tween_property(fx, "position:y", fx.position.y - 24.0, 0.85)
-	tween.tween_property(fx, "modulate:a", 0.0, 0.85)
-	tween.chain().tween_callback(fx.queue_free)
 
 func _play_spawn_vfx(position: Vector2, color := Color("#ff9a78")) -> void:
 	var root := Node2D.new()
