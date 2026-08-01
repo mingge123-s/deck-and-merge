@@ -19,6 +19,8 @@ const PCK_PATH := "user://patch/game.pck"
 const TMP_PATH := "user://patch/game.pck.download"
 const STATE_PATH := "user://patch/state.json"
 const HTTP_TIMEOUT := 20.0
+## 补丁包有几十 MB，慢网下载可能几分钟，用 0 表示不限时（否则会以 result=timeout、code=0 失败）
+const DOWNLOAD_TIMEOUT := 0.0
 
 var installed_version := BASE_VERSION
 var _http: HTTPRequest
@@ -53,6 +55,7 @@ func check_for_update(manual := false) -> void:
 	if _phase != "idle":
 		return
 	_phase = "checking"
+	_http.timeout = HTTP_TIMEOUT
 	status_changed.emit("正在检查更新…" if manual else "")
 	var err := _http.request(MANIFEST_URL)
 	if err != OK:
@@ -68,7 +71,7 @@ func _on_request_completed(result: int, code: int, _headers: PackedStringArray, 
 func _handle_manifest(result: int, code: int, body: PackedByteArray) -> void:
 	if result != HTTPRequest.RESULT_SUCCESS or code != 200:
 		_phase = "idle"
-		status_changed.emit("检查更新失败（网络 %d）" % code)
+		status_changed.emit("检查更新失败（%s）" % _error_text(result, code))
 		return
 	var parsed: Variant = JSON.parse_string(body.get_string_from_utf8())
 	if typeof(parsed) != TYPE_DICTIONARY:
@@ -87,6 +90,7 @@ func _handle_manifest(result: int, code: int, body: PackedByteArray) -> void:
 	_pending_notes = notes
 	_phase = "downloading"
 	status_changed.emit("发现新版本 v%d，正在下载…" % remote_version)
+	_http.timeout = DOWNLOAD_TIMEOUT
 	_http.download_file = TMP_PATH
 	var err := _http.request(pck_url)
 	if err != OK:
@@ -96,11 +100,12 @@ func _handle_manifest(result: int, code: int, body: PackedByteArray) -> void:
 
 func _handle_download(result: int, code: int) -> void:
 	_http.download_file = ""
+	_http.timeout = HTTP_TIMEOUT
 	if result != HTTPRequest.RESULT_SUCCESS or code != 200:
 		_phase = "idle"
 		if FileAccess.file_exists(TMP_PATH):
 			DirAccess.remove_absolute(TMP_PATH)
-		status_changed.emit("下载失败（网络 %d）" % code)
+		status_changed.emit("下载失败（%s）" % _error_text(result, code))
 		return
 	if FileAccess.file_exists(PCK_PATH):
 		DirAccess.remove_absolute(PCK_PATH)
@@ -120,6 +125,17 @@ func _process(_delta: float) -> void:
 		var got := _http.get_downloaded_bytes()
 		if total > 0:
 			status_changed.emit("下载新版本 v%d… %d%%" % [_pending_version, int(float(got) / float(total) * 100.0)])
+
+func _error_text(result: int, code: int) -> String:
+	if result == HTTPRequest.RESULT_SUCCESS:
+		return "服务器 %d" % code
+	if result == HTTPRequest.RESULT_TIMEOUT:
+		return "连接超时"
+	if result == HTTPRequest.RESULT_CANT_CONNECT or result == HTTPRequest.RESULT_CANT_RESOLVE:
+		return "无法连接服务器"
+	if result == HTTPRequest.RESULT_CONNECTION_ERROR or result == HTTPRequest.RESULT_TLS_HANDSHAKE_ERROR:
+		return "网络中断"
+	return "网络错误 %d" % result
 
 func _read_state() -> Dictionary:
 	if not FileAccess.file_exists(STATE_PATH):
