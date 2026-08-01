@@ -67,6 +67,30 @@ const EFFECT_CARD_PAIR_SIZE := 2
 const EFFECT_CARDS_PER_ERA_MIN := 2
 const EFFECT_CARDS_PER_ERA_MAX := 3
 const EFFECT_CARD_COLOR := Color("#8754d8")
+const TUTORIAL_TEXT := """[b]目标[/b]
+打光敌方塔的血量即获胜；自己的塔被打光则失败。战场上方是双方阵地，下方是你的牌桌。
+
+[b]① 取牌[/b]
+点击牌堆里没被压住的卡牌，把它收进上方的合成台（共 7 格）。
+
+[b]② 合成[/b]
+小兵卡 3 张同名自动合成英雄并上场作战；效果卡 2 张同名立刻发动效果（如召唤援军、修复我方塔、塔炮升级）。
+
+[b]③ 合成台满了[/b]
+合成台放满且凑不出任何合成时，自动扣 200 金币清空；金币不足则判负。所以别乱收用不上的牌。
+
+[b]④ 战场[/b]
+英雄自动前进作战，你不用操作。左右拖动可查看整个战场，右上角小地图显示双方单位与塔。击杀敌人获得金币。
+
+[b]⑤ 轮次与时代[/b]
+牌堆取空即进入下一轮，并自动推进时代：石器 → 铁器 → 工业 → 现代 → 未来。时代越高，双方塔的血量与攻击越强，牌堆里也会混入新时代的卡牌与效果卡。
+
+[b]⑥ 波次[/b]
+敌人按波次进攻，每 3 波进入一次整备期，整备期里你可以继续取牌合成。
+
+[b]小提示[/b]
+优先凑齐当前时代的卡；BOSS 卡（图腾/王冠/烟囱/军徽/AI核心）虽然少，但合成后战力最高。"""
+
 const ERA_TOWER_TINTS := {
 	"stone": Color(1.0, 0.93, 0.82),
 	"iron": Color(0.92, 0.96, 1.0),
@@ -122,6 +146,8 @@ var pause_mode := "prep"
 var pause_title_label: Label
 var pause_hint_label: Label
 var tutorial_overlay: Control
+var help_button: Button
+var tutorial_resume_paused := false
 var result_overlay: Control
 var music_slider: HSlider
 var sfx_slider: HSlider
@@ -459,6 +485,17 @@ func _build_top_bar() -> void:
 	pause_button.pressed.connect(_play_button_sfx)
 	pause_button.visible = false
 	bar.add_child(pause_button)
+	help_button = Button.new()
+	help_button.position = Vector2(596, 12)
+	help_button.size = Vector2(46, 46)
+	help_button.text = "?"
+	help_button.tooltip_text = "玩法介绍"
+	help_button.add_theme_font_size_override("font_size", 22)
+	help_button.add_theme_stylebox_override("normal", _panel_style(Color("#e4863e"), Color("#713722"), 12, 2))
+	help_button.add_theme_stylebox_override("hover", _panel_style(Color("#f2a252"), Color("#713722"), 12, 2))
+	help_button.pressed.connect(_show_tutorial)
+	help_button.pressed.connect(_play_button_sfx)
+	bar.add_child(help_button)
 	_label(bar, "🪨 牌桌远征", Vector2(68, 5), Vector2(205, 30), 21)
 	era_label = _label(bar, "", Vector2(70, 38), Vector2(220, 20), 12, Color("#f6d69f"))
 	coin_label = _label(bar, "", Vector2(350, 8), Vector2(165, 28), 16, Color("#fff0c7"))
@@ -741,17 +778,23 @@ func _build_tutorial_overlay() -> void:
 	panel.size = Vector2(612, 900)
 	panel.add_theme_stylebox_override("panel", _panel_style(Color("#c58a53"), Color("#70412c"), 24, 3))
 	tutorial_overlay.add_child(panel)
-	var title := _label(panel, "新手引导", Vector2(0, 34), Vector2(612, 46), 30)
+	var title := _label(panel, "玩法介绍", Vector2(0, 34), Vector2(612, 46), 30)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	var content := _label(
-		panel,
-		"① 点击没被压住的卡牌，收进合成台\n\n② 小兵卡 3 张合成英雄，效果卡 2 张立刻发动\n\n③ 拖动战场查看双方阵地，右上角小地图查看红蓝点\n\n④ 每 3 波自动进入整备，可继续取牌合成\n\n⑤ 时代随轮次自动推进，新效果卡随时代进入牌堆\n\n⑥ 合成台放满且凑不齐时，自动扣 200 金币清理；金币不足则判负",
-		Vector2(42, 122),
-		Vector2(528, 500),
-		18,
-		Color("#fff0c7")
-	)
-	content.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	var scroll := ScrollContainer.new()
+	scroll.position = Vector2(42, 100)
+	scroll.size = Vector2(528, 580)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	panel.add_child(scroll)
+	var content := RichTextLabel.new()
+	content.bbcode_enabled = true
+	content.fit_content = true
+	content.scroll_active = false
+	content.custom_minimum_size = Vector2(528, 0)
+	content.add_theme_font_size_override("normal_font_size", 17)
+	content.add_theme_font_size_override("bold_font_size", 19)
+	content.add_theme_color_override("default_color", Color("#fff0c7"))
+	content.text = TUTORIAL_TEXT
+	scroll.add_child(content)
 	var acknowledge_button := _menu_button(panel, "知道了", Vector2(206, 710), Vector2(200, 58), 20)
 	acknowledge_button.pressed.connect(_hide_tutorial)
 
@@ -822,15 +865,20 @@ func _on_pause_bottom_pressed() -> void:
 		_toggle_pause()
 
 func _show_tutorial() -> void:
+	if tutorial_overlay != null and tutorial_overlay.visible:
+		return
+	tutorial_resume_paused = paused
 	paused = true
 	if tutorial_overlay != null:
+		move_child(tutorial_overlay, get_child_count() - 1)
 		tutorial_overlay.visible = true
 
 func _hide_tutorial() -> void:
 	if tutorial_overlay != null:
 		tutorial_overlay.visible = false
 	SaveManager.set_tutorial_seen(true)
-	paused = false
+	paused = tutorial_resume_paused
+	tutorial_resume_paused = false
 
 func _build_main_menu() -> void:
 	main_menu = Control.new()
@@ -879,6 +927,8 @@ func _build_main_menu() -> void:
 	soon.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	var settings_button := _menu_button(card, "设置", Vector2(144, 586), Vector2(300, 56), 19)
 	settings_button.pressed.connect(_show_settings)
+	var menu_help_button := _menu_button(card, "玩法介绍", Vector2(388, 34), Vector2(160, 50), 17)
+	menu_help_button.pressed.connect(_show_tutorial)
 	var difficulty_label := _label(card, "难度", Vector2(0, 650), Vector2(588, 26), 15, Color("#fff0c7"))
 	difficulty_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	var difficulty_keys := ["easy", "normal", "hard"]
