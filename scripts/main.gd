@@ -188,6 +188,8 @@ var result_overlay: Control
 var music_slider: HSlider
 var sfx_slider: HSlider
 var battle_hint: Label
+var boss_entry_banner: Label
+var boss_entry_tween: Tween
 var ally_tower_bar: TowerHealthBar
 var enemy_tower_bar: TowerHealthBar
 var battle_active := false
@@ -638,6 +640,14 @@ func _build_battlefield() -> void:
 	enemy_action_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	enemy_action_label.z_index = 20
 	enemy_action_label.modulate.a = 0.0
+	boss_entry_banner = _label(battlefield, "", Vector2(24, 112), Vector2(600, 48), 25, Color("#ffe3a0"))
+	boss_entry_banner.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	boss_entry_banner.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	boss_entry_banner.z_index = 30
+	boss_entry_banner.pivot_offset = boss_entry_banner.size * 0.5
+	boss_entry_banner.add_theme_color_override("font_outline_color", Color("#3b1d12"))
+	boss_entry_banner.add_theme_constant_override("outline_size", 7)
+	boss_entry_banner.visible = false
 	minimap = BattleMinimap.new()
 	minimap.position = Vector2(462, 8)
 	minimap.size = Vector2(176, 46)
@@ -1471,6 +1481,92 @@ func _play_spawn_vfx(position: Vector2, color := Color("#ff9a78")) -> void:
 	tween.tween_property(ring, "scale", Vector2(1.6, 1.6), 0.45)
 	tween.tween_property(ring, "modulate:a", 0.0, 0.45)
 	tween.chain().tween_callback(root.queue_free)
+
+func _play_boss_entry_vfx(position: Vector2, ally: bool, hero_name: String) -> void:
+	var color := Color("#ffd273") if ally else Color("#ff625c")
+	var root := Node2D.new()
+	root.position = position
+	root.z_index = 7
+	world.add_child(root)
+	var particles := CPUParticles2D.new()
+	particles.amount = 42
+	particles.lifetime = 0.9
+	particles.one_shot = true
+	particles.explosiveness = 0.95
+	particles.texture = _effect_particle_texture()
+	particles.color = Color(color, 0.9)
+	particles.scale_amount_min = 0.18
+	particles.scale_amount_max = 0.5
+	particles.direction = Vector2.UP
+	particles.spread = 170.0
+	particles.initial_velocity_min = 34.0
+	particles.initial_velocity_max = 108.0
+	particles.gravity = Vector2(0, 32.0)
+	root.add_child(particles)
+	var ring := Line2D.new()
+	ring.points = _entry_ring_points(86.0, 24)
+	ring.closed = true
+	ring.width = 6.0
+	ring.antialiased = true
+	ring.default_color = Color(color, 0.95)
+	ring.scale = Vector2(0.35, 0.45)
+	ring.z_index = 2
+	root.add_child(ring)
+	var inner_ring := Line2D.new()
+	inner_ring.points = _entry_ring_points(56.0, 20)
+	inner_ring.closed = true
+	inner_ring.width = 3.0
+	inner_ring.antialiased = true
+	inner_ring.default_color = Color(color.lightened(0.18), 0.82)
+	inner_ring.scale = Vector2(0.25, 0.45)
+	inner_ring.z_index = 2
+	root.add_child(inner_ring)
+	var tween := create_tween()
+	tween.set_parallel(true)
+	tween.tween_property(ring, "scale", Vector2(1.25, 0.45), 0.8)
+	tween.tween_property(inner_ring, "scale", Vector2(1.45, 0.45), 0.65)
+	tween.tween_property(ring, "modulate:a", 0.0, 0.8)
+	tween.tween_property(inner_ring, "modulate:a", 0.0, 0.65)
+	tween.tween_property(root, "position:y", root.position.y - 12.0, 0.8)
+	tween.chain().tween_callback(root.queue_free)
+	_shake_battlefield()
+	_show_boss_entry_banner(hero_name, ally)
+	AudioManager.play_sfx("boss_ally_entry" if ally else "boss_enemy_entry", {"priority": 0})
+
+func _entry_ring_points(radius: float, point_count: int) -> PackedVector2Array:
+	var points := PackedVector2Array()
+	for index in range(point_count):
+		var angle := -TAU * float(index) / float(point_count)
+		points.append(Vector2(cos(angle), sin(angle)) * radius)
+	return points
+
+func _show_boss_entry_banner(hero_name: String, ally: bool) -> void:
+	if boss_entry_banner == null:
+		return
+	if boss_entry_tween != null:
+		boss_entry_tween.kill()
+	boss_entry_banner.text = ("%s BOSS 登场 · %s" if ally else "%s BOSS 来袭 · %s") % [
+		"★" if ally else "◆",
+		hero_name,
+	]
+	boss_entry_banner.add_theme_color_override(
+		"font_color",
+		Color("#ffe08a") if ally else Color("#ff8178")
+	)
+	boss_entry_banner.visible = true
+	boss_entry_banner.modulate = Color(1, 1, 1, 0)
+	boss_entry_banner.scale = Vector2(0.86, 0.86)
+	boss_entry_tween = create_tween()
+	boss_entry_tween.set_parallel(true)
+	boss_entry_tween.tween_property(boss_entry_banner, "modulate:a", 1.0, 0.2)
+	boss_entry_tween.tween_property(boss_entry_banner, "scale", Vector2.ONE, 0.2)
+	boss_entry_tween.chain().tween_interval(1.05)
+	boss_entry_tween.tween_property(boss_entry_banner, "modulate:a", 0.0, 0.4)
+	boss_entry_tween.tween_property(boss_entry_banner, "scale", Vector2(0.96, 0.96), 0.4)
+	boss_entry_tween.chain().tween_callback(func() -> void:
+		if boss_entry_banner != null:
+			boss_entry_banner.visible = false
+	)
 
 func _effect_icon_bb(effect_id: String, icon_size: int) -> String:
 	var path := EFFECT_ICON_PATH % effect_id
@@ -2314,6 +2410,12 @@ func _spawn_ally(hero_id: String) -> BattleUnit:
 	world.add_child(unit)
 	battle_units.append(unit)
 	occupied_units += 1
+	var is_boss := str(data.get("role", "")) == "boss"
+	var hero_name := str(data.get("name", hero_id))
+	if is_boss:
+		_play_boss_entry_vfx(unit.position, true, hero_name)
+	else:
+		_play_spawn_vfx(unit.position, Color("#8fd8ff"))
 	return unit
 
 func _spawn_wave() -> void:
@@ -2414,7 +2516,12 @@ func _spawn_enemy(hero_id: String, index: int, total_count: int) -> BattleUnit:
 	unit.expired.connect(_on_unit_expired)
 	world.add_child(unit)
 	battle_units.append(unit)
-	_play_spawn_vfx(unit.position)
+	var is_boss := str(data.get("role", "")) == "boss"
+	var hero_name := str(data.get("name", hero_id))
+	if is_boss:
+		_play_boss_entry_vfx(unit.position, false, hero_name)
+	else:
+		_play_spawn_vfx(unit.position)
 	return unit
 
 func _step_battle(delta: float) -> void:
