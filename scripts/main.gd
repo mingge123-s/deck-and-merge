@@ -107,6 +107,7 @@ var era_label: Label
 var score_label: Label
 var deck_label: Label
 var status_label: Label
+var update_status_label: Label
 var restart_button: Button
 var result_menu_button: Button
 var return_button: Button
@@ -253,6 +254,9 @@ func _ready() -> void:
 	_build_battlefield()
 	_build_overlay()
 	_build_main_menu()
+	Updater.status_changed.connect(_on_update_status)
+	Updater.update_ready.connect(_on_update_ready)
+	Updater.check_for_update(false)
 
 func _on_battlefield_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
@@ -890,8 +894,26 @@ func _build_main_menu() -> void:
 		difficulty_buttons[key] = button
 	_set_difficulty("normal")
 	_label(card, "点击开始，自动进入战斗", Vector2(0, 746), Vector2(588, 28), 14, Color("#e6c199")).horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var check_update_button := _menu_button(card, "检查更新", Vector2(194, 792), Vector2(200, 44), 16)
+	check_update_button.pressed.connect(_on_check_update_pressed)
+	var version_label := _label(card, "内容版本 v%d" % Updater.installed_version, Vector2(0, 842), Vector2(588, 18), 12, Color("#e6c199"))
+	version_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	update_status_label = _label(card, "", Vector2(0, 862), Vector2(588, 18), 12, Color("#ffe3a5"))
+	update_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_build_settings_panel(card)
 	_build_era_select_panel()
+
+func _on_check_update_pressed() -> void:
+	_play_button_sfx()
+	Updater.check_for_update(true)
+
+func _on_update_status(text: String) -> void:
+	if update_status_label != null:
+		update_status_label.text = text
+
+func _on_update_ready(version: int, _notes: String) -> void:
+	if update_status_label != null:
+		update_status_label.text = "已下载 v%d，重启生效" % version
 
 func _menu_button(parent: Control, text: String, position: Vector2, size: Vector2, font_size: int) -> Button:
 	var button := Button.new()

@@ -10,6 +10,7 @@ run/main_scene="res://scenes/main.tscn"
 default_bus_layout="res://default_bus_layout.tres"
 
 [autoload]
+Updater="*res://scripts/updater.gd"
 SaveManager="*res://scripts/save_manager.gd"
 AudioManager="*res://scripts/audio_manager.gd"
 
