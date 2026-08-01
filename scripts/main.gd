@@ -26,6 +26,8 @@ const DIFFICULTIES := {
 const BATTLE_GROUND_Y := 222.0
 const CAMERA_FOLLOW_SPEED := 4.0
 const CAMERA_MANUAL_HOLD := 3.0
+const SHAKE_JERK_THRESHOLD := 16.0 # 相邻两帧加速度变化超过该值判定为一次摇动
+const SHAKE_COOLDOWN := 1.5
 const WORLD_WIDTH := 1680.0
 const BATTLE_VIEW_W := 648.0
 const ALLY_TOWER_X := 96.0
@@ -202,6 +204,9 @@ var base_era_index := 0
 var ally_tower_cd := 0.0
 var enemy_tower_cd := 0.0
 var card_z_top := 0
+var shake_cooldown := 0.0
+var prev_accel := Vector3.ZERO
+var accel_primed := false
 var ally_tower_hp := 1.0
 var enemy_tower_hp := 1.0
 var ally_tower_max_hp := 1.0
@@ -402,6 +407,14 @@ func _update_minimap() -> void:
 	minimap.update_map(dots, towers, camera_x)
 
 func _process(delta: float) -> void:
+	var accel := Input.get_accelerometer()
+	if accel_primed:
+		if (accel - prev_accel).length() > SHAKE_JERK_THRESHOLD and shake_cooldown <= 0.0:
+			_try_shake_deck()
+	else:
+		accel_primed = true
+	prev_accel = accel
+	shake_cooldown = maxf(0.0, shake_cooldown - delta)
 	if paused:
 		return
 	_update_minimap()
@@ -443,6 +456,67 @@ func _process(delta: float) -> void:
 	_step_battle(delta)
 	_update_camera_follow(delta)
 	_update_tower_ui()
+
+func _input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_S:
+		_try_shake_deck()
+
+func _try_shake_deck() -> void:
+	if not _can_pick_cards():
+		return
+	if shake_cooldown > 0.0:
+		return
+	shake_cooldown = SHAKE_COOLDOWN
+	_shake_deck()
+
+func _shake_deck() -> void:
+	var unclaimed: Array[CardView] = []
+	for card in deck_cards:
+		if is_instance_valid(card) and not card.claimed:
+			unclaimed.append(card)
+	if unclaimed.is_empty():
+		return
+	AudioManager.play_sfx("place")
+	unclaimed.shuffle()
+	card_z_top = unclaimed.size() - 1
+	var targets: Array[Dictionary] = []
+	for index in range(unclaimed.size()):
+		var card := unclaimed[index]
+		var old_position := card.position
+		var old_rotation := card.rotation
+		var target_position := _clamp_pile_position(_random_pile_position())
+		var target_rotation := rng.randf_range(-0.45, 0.45)
+		card.z_index = index
+		card.position = target_position
+		card.rotation = target_rotation
+		targets.append({
+			"card": card,
+			"old_position": old_position,
+			"old_rotation": old_rotation,
+			"target_position": target_position,
+			"target_rotation": target_rotation,
+		})
+	_refresh_covered()
+	for target in targets:
+		var card: CardView = target["card"]
+		var old_position: Vector2 = target["old_position"]
+		var old_rotation: float = target["old_rotation"]
+		var target_position: Vector2 = target["target_position"]
+		var target_rotation: float = target["target_rotation"]
+		var jitter_position := old_position + Vector2(
+			rng.randf_range(-8.0, 8.0),
+			rng.randf_range(-8.0, 8.0)
+		)
+		var jitter_rotation := old_rotation + rng.randf_range(-0.08, 0.08)
+		card.position = old_position
+		card.rotation = old_rotation
+		var tween := create_tween()
+		tween.tween_interval(rng.randf_range(0.0, 0.05))
+		tween.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+		tween.tween_property(card, "position", jitter_position, 0.08)
+		tween.parallel().tween_property(card, "rotation", jitter_rotation, 0.08)
+		tween.tween_property(card, "position", target_position, 0.27)
+		tween.parallel().tween_property(card, "rotation", target_rotation, 0.27)
 
 func _panel_style(color: Color, border := Color("#70412c"), radius := 20, width := 3) -> StyleBoxFlat:
 	var style := StyleBoxFlat.new()
