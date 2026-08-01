@@ -19,9 +19,9 @@ const BATCH_BASE_GROUPS := 60
 const BATCH_GROUP_STEP := 10
 const MIN_BOSS_GROUPS := 2 # 每批保底当前时代 BOSS 组数（保证至少能合成）
 const DIFFICULTIES := {
-	"easy": {"name": "简单", "wave_min": 6.0, "first_delay": 7.0, "count_base": 10, "count_step": 6, "count_max": 20, "enemy_mult": 0.6, "boss_wave": 8, "tower_mult": 1.9, "ai_income_mult": 0.6, "ai_trickle": 0.3, "ai_effect_chance": 0.25},
-	"normal": {"name": "普通", "wave_min": 5.0, "first_delay": 4.0, "count_base": 10, "count_step": 4, "count_max": 25, "enemy_mult": 1.0, "boss_wave": 5, "tower_mult": 1.1, "ai_income_mult": 1.0, "ai_trickle": 0.5, "ai_effect_chance": 0.4},
-	"hard": {"name": "困难", "wave_min": 3.0, "first_delay": 3.0, "count_base": 15, "count_step": 3, "count_max": 35, "enemy_mult": 1.3, "boss_wave": 4, "tower_mult": 1.0, "ai_income_mult": 1.4, "ai_trickle": 0.8, "ai_effect_chance": 0.55},
+	"easy": {"name": "简单", "wave_min": 6.0, "first_delay": 7.0, "count_base": 5, "count_step": 6, "count_max": 10, "enemy_mult": 0.6, "boss_wave": 8, "tower_mult": 1.9, "ai_income_mult": 0.6, "ai_trickle": 0.3, "ai_effect_chance": 0.25},
+	"normal": {"name": "普通", "wave_min": 5.0, "first_delay": 4.0, "count_base": 5, "count_step": 4, "count_max": 13, "enemy_mult": 1.0, "boss_wave": 5, "tower_mult": 1.1, "ai_income_mult": 1.0, "ai_trickle": 0.5, "ai_effect_chance": 0.4},
+	"hard": {"name": "困难", "wave_min": 3.0, "first_delay": 3.0, "count_base": 8, "count_step": 3, "count_max": 18, "enemy_mult": 1.3, "boss_wave": 4, "tower_mult": 1.0, "ai_income_mult": 1.4, "ai_trickle": 0.8, "ai_effect_chance": 0.55},
 }
 const BATTLE_GROUND_Y := 222.0
 const CAMERA_FOLLOW_SPEED := 4.0
@@ -62,6 +62,8 @@ const RANDOM_EFFECTS := [
 	{"id": "bounty", "name": "悬赏令", "desc": "30 秒内每击杀额外 +15 金币（随时代缩放）", "duration": 30.0},
 ]
 const BOUNTY_COIN_BASE := 15
+## 合成台上长按多久弹卡牌详情
+const CARD_INFO_HOLD := 0.4
 const EFFECT_ICON_PATH := "res://assets/icons/effects/%s.png"
 const EFFECT_CARD_PREFIX := "effect_"
 const EFFECT_CARD_PAIR_SIZE := 2
@@ -170,6 +172,12 @@ var tutorial_step_label: Label
 var tutorial_prev_button: Button
 var tutorial_next_button: Button
 var tutorial_skip_button: Button
+var card_info_overlay: Control
+var card_info_title_label: Label
+var card_info_text_label: RichTextLabel
+var tray_press_index := -1
+var wave_bar: ProgressBar
+var wave_bar_label: Label
 var result_overlay: Control
 var music_slider: HSlider
 var sfx_slider: HSlider
@@ -395,6 +403,7 @@ func _process(delta: float) -> void:
 	if not battle_active or battle_ended:
 		return
 	_tick_buffs(delta)
+	_update_wave_bar()
 	if wave_spawning:
 		wave_active_timer -= delta
 		if wave_active_timer <= 0.0:
@@ -547,10 +556,11 @@ func _build_board() -> void:
 	bg.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	board.add_child(bg)
-	_label(board, "🃏 牌堆", Vector2(20, 14), Vector2(150, 32), 21)
-	deck_label = _label(board, "", Vector2(420, 18), Vector2(200, 28), 15, Color("#6e452f"))
-	deck_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	_label(board, "点击没有被压住的卡牌", Vector2(22, 48), Vector2(230, 23), 12, Color("#6e452f"))
+	_label(board, "🃏 牌堆", Vector2(20, 10), Vector2(150, 30), 20)
+	deck_label = _label(board, "", Vector2(150, 8), Vector2(200, 34), 24, Color("#ffe9a8"))
+	_outline(deck_label, 6)
+	_label(board, "点击没有被压住的卡牌", Vector2(22, 44), Vector2(230, 23), 12, Color("#6e452f"))
+	_build_wave_bar()
 	card_layer = Control.new()
 	card_layer.position = Vector2(26, 80)
 	card_layer.size = Vector2(596, 526)
@@ -759,6 +769,7 @@ func _build_overlay() -> void:
 	panel.add_child(result_menu_button)
 	_build_pause_overlay()
 	_build_tutorial_overlay()
+	_build_card_info_overlay()
 
 func _build_pause_overlay() -> void:
 	pause_overlay = Control.new()
@@ -1786,10 +1797,109 @@ func _rebuild_tray_visuals() -> void:
 			icon.texture = load(path)
 		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		icon.mouse_filter = Control.MOUSE_FILTER_STOP
+		icon.gui_input.connect(_on_tray_card_input.bind(index))
 		tray.add_child(icon)
 		tray_views.append(icon)
 	_update_progress_ui()
+
+func _on_tray_card_input(event: InputEvent, index: int) -> void:
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+		if event.pressed:
+			tray_press_index = index
+			var timer := get_tree().create_timer(CARD_INFO_HOLD)
+			timer.timeout.connect(_on_tray_hold_elapsed.bind(index))
+		else:
+			tray_press_index = -1
+	elif event is InputEventMouseMotion and tray_press_index == index:
+		var motion := event as InputEventMouseMotion
+		if motion.relative.length() > 12.0:
+			tray_press_index = -1
+
+func _on_tray_hold_elapsed(index: int) -> void:
+	if tray_press_index != index or index >= tray_cards.size():
+		return
+	tray_press_index = -1
+	_show_card_info(tray_cards[index])
+
+func _build_card_info_overlay() -> void:
+	card_info_overlay = Control.new()
+	card_info_overlay.size = VIEW_SIZE
+	card_info_overlay.z_index = 4095
+	card_info_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	card_info_overlay.visible = false
+	card_info_overlay.gui_input.connect(_on_card_info_input)
+	add_child(card_info_overlay)
+	var shade := ColorRect.new()
+	shade.size = VIEW_SIZE
+	shade.color = Color(0.05, 0.03, 0.02, 0.55)
+	shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card_info_overlay.add_child(shade)
+	var panel := Panel.new()
+	panel.position = Vector2(70, 430)
+	panel.size = Vector2(580, 420)
+	panel.add_theme_stylebox_override("panel", _panel_style(Color("#c58a53"), Color("#70412c"), 24, 3))
+	card_info_overlay.add_child(panel)
+	card_info_title_label = _label(panel, "", Vector2(0, 26), Vector2(580, 40), 26)
+	card_info_title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	card_info_text_label = RichTextLabel.new()
+	card_info_text_label.bbcode_enabled = true
+	card_info_text_label.scroll_active = false
+	card_info_text_label.position = Vector2(40, 78)
+	card_info_text_label.size = Vector2(500, 258)
+	card_info_text_label.add_theme_font_size_override("normal_font_size", 18)
+	card_info_text_label.add_theme_color_override("default_color", Color("#fff0c7"))
+	panel.add_child(card_info_text_label)
+	var close_button := _menu_button(panel, "关闭", Vector2(190, 344), Vector2(200, 52), 18)
+	close_button.pressed.connect(_hide_card_info)
+
+func _on_card_info_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+		_hide_card_info()
+
+func _show_card_info(card_id: String) -> void:
+	if card_info_overlay == null:
+		return
+	var card: Dictionary = GameData.CARDS.get(card_id, {})
+	card_info_title_label.text = str(card.get("name", card_id))
+	card_info_text_label.text = _card_info_text(card_id)
+	move_child(card_info_overlay, get_child_count() - 1)
+	card_info_overlay.visible = true
+	_play_button_sfx()
+
+func _hide_card_info() -> void:
+	if card_info_overlay != null:
+		card_info_overlay.visible = false
+
+func _card_info_text(card_id: String) -> String:
+	var held := 0
+	for held_card in tray_cards:
+		if held_card == card_id:
+			held += 1
+	if _is_effect_card(card_id):
+		var effect := _effect_by_id(_effect_id_from_card(card_id))
+		var lines := [
+			"类型：[b]效果卡[/b]",
+			"发动：同名 [b]2 张[/b]自动发动（不上场）",
+			"效果：%s" % str(effect.get("desc", "—")),
+		]
+		var duration := float(effect.get("duration", 0.0))
+		if duration > 0.0:
+			lines.append("持续：%.0f 秒" % duration)
+		lines.append("合成台已有：%d / 2 张" % held)
+		return "\n".join(lines)
+	var hero := GameData.hero_for_card(card_id)
+	if hero.is_empty():
+		return "合成台已有：%d 张" % held
+	var info := [
+		"类型：[b]小兵卡[/b]（%s・%s）" % [str(hero.get("era_name", "")), str(hero.get("role_name", ""))],
+		"合成：同名 [b]3 张[/b] → %s" % str(hero.get("name", card_id)),
+		"生命 %.0f　攻击 %.0f" % [float(hero.get("hp", 0.0)), float(hero.get("attack", 0.0))],
+		"攻速 %.2f 次/秒　射程 %.0f" % [float(hero.get("attack_speed", 0.0)), float(hero.get("range", 0.0))],
+		"移速 %.0f" % float(hero.get("move_speed", 0.0)),
+		"合成台已有：%d / 3 张" % held,
+	]
+	return "\n".join(info)
 
 func _check_merges() -> void:
 	for effect_id in _all_effect_ids():
@@ -2309,7 +2419,53 @@ func _finish_round(message: String) -> void:
 	if result_overlay != null:
 		result_overlay.visible = true
 
+func _outline(label: Label, size: int, color := Color("#2b1409")) -> void:
+	label.add_theme_constant_override("outline_size", size)
+	label.add_theme_color_override("font_outline_color", color)
+
+func _build_wave_bar() -> void:
+	# 植物大战僵尸式波次进度条：走满一格 = 一波，走到头就是整备期
+	wave_bar = ProgressBar.new()
+	wave_bar.position = Vector2(360, 12)
+	wave_bar.size = Vector2(268, 30)
+	wave_bar.min_value = 0.0
+	wave_bar.max_value = 1.0
+	wave_bar.step = 0.001
+	wave_bar.show_percentage = false
+	wave_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	wave_bar.add_theme_stylebox_override("background", _panel_style(Color("#4a2b1b"), Color("#2b1409"), 14, 2))
+	wave_bar.add_theme_stylebox_override("fill", _panel_style(Color("#4cbf4c"), Color("#2b1409"), 14, 0))
+	board.add_child(wave_bar)
+	wave_bar_label = _label(board, "", Vector2(360, 15), Vector2(268, 26), 16, Color("#ffffff"))
+	wave_bar_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_outline(wave_bar_label, 6)
+
+func _update_wave_bar() -> void:
+	if wave_bar == null:
+		return
+	var in_wave := 0.0
+	if wave_spawning:
+		in_wave = clampf(1.0 - wave_active_timer / WAVE_DURATION, 0.0, 1.0)
+	var done_waves := wave_number % PREP_WAVE_INTERVAL
+	if wave_spawning and done_waves > 0:
+		done_waves -= 1
+	elif wave_spawning:
+		done_waves = PREP_WAVE_INTERVAL - 1
+	var ratio := clampf((float(done_waves) + in_wave) / float(PREP_WAVE_INTERVAL), 0.0, 1.0)
+	wave_bar.value = ratio
+	wave_bar.add_theme_stylebox_override("fill", _panel_style(Color("#4cbf4c").lerp(Color("#e2452f"), ratio), Color("#2b1409"), 14, 0))
+	if not battle_active or battle_ended:
+		wave_bar_label.text = "备战中"
+		wave_bar.value = 0.0
+	elif paused and auto_prep:
+		wave_bar_label.text = "整备期"
+	elif wave_number <= 0:
+		wave_bar_label.text = "敌军将至"
+	else:
+		wave_bar_label.text = "第 %d 波" % wave_number
+
 func _update_progress_ui() -> void:
+	_update_wave_bar()
 	if era_label == null:
 		return
 	var state := "备战"
@@ -2330,7 +2486,7 @@ func _update_progress_ui() -> void:
 	else:
 		score_label.text = "击杀积分 %d" % kill_score
 	if deck_label != null:
-		deck_label.text = "剩 %d 张 · 合成台 %d/%d" % [deck_cards.size(), tray_cards.size(), TRAY_SLOTS]
+		deck_label.text = "剩 %d 张" % deck_cards.size()
 
 func _update_tower_ui() -> void:
 	if ally_tower_bar == null:
