@@ -1085,31 +1085,31 @@ func _effect_color(effect_id: String, actor: String) -> Color:
 func _effect_symbol(effect_id: String) -> String:
 	match effect_id:
 		"reinforcement":
-			return "✚"
+			return "＋"
 		"boss_call":
-			return "♛"
+			return "◆"
 		"field_aid":
 			return "＋"
 		"freeze":
-			return "❄"
+			return "○"
 		"frenzy":
-			return "⚡"
+			return "△"
 		"morale":
 			return "★"
 		"bulwark":
-			return "⬢"
+			return "□"
 		"haste":
-			return "➤"
+			return "→"
 		"lifesteal":
-			return "♥"
+			return "●"
 		"thorns":
-			return "✦"
+			return "※"
 		"tower_repair":
-			return "⚒"
+			return "＋"
 		"tower_power":
-			return "☼"
+			return "◎"
 		"bounty":
-			return "💰"
+			return "¤"
 		_:
 			return "◆"
 
