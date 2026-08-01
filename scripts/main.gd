@@ -418,7 +418,11 @@ func _process(delta: float) -> void:
 	if paused:
 		return
 	_update_minimap()
-	if not battle_active or battle_ended:
+	if not battle_active and not battle_ended:
+		return
+	if battle_ended:
+		_step_battle_ended(delta)
+		_update_camera_follow(delta)
 		return
 	_tick_buffs(delta)
 	_update_wave_bar()
@@ -2429,6 +2433,24 @@ func _step_battle(delta: float) -> void:
 	elif ally_tower_hp <= 0.0:
 		_finish_battle(false, "失败！己方防御塔被摧毁")
 
+func _step_battle_ended(delta: float) -> void:
+	var ally_units := _living_units("ally")
+	var enemy_units := _living_units("enemy")
+	for unit in battle_units:
+		if not is_instance_valid(unit) or not unit.alive:
+			continue
+		unit.attack_cooldown = maxf(0.0, unit.attack_cooldown - delta)
+		var target := _find_target(unit, ally_units, enemy_units)
+		if target != null:
+			var distance := absf(target.position.x - unit.position.x)
+			if distance > float(unit.stats.range):
+				_move_unit(unit, target.position.x, delta)
+			elif unit.attack_cooldown <= 0.0:
+				_attack(unit, target)
+		else:
+			var march_x := ENEMY_TOWER_X + 300.0 if unit.faction == "ally" else ALLY_TOWER_X - 300.0
+			_move_unit(unit, march_x, delta)
+
 func _find_tower_target(ally: bool, candidates: Array[BattleUnit]) -> BattleUnit:
 	var tower_x := ALLY_TOWER_X if ally else ENEMY_TOWER_X
 	var nearest: BattleUnit
@@ -2619,6 +2641,9 @@ func _on_unit_expired(unit: BattleUnit) -> void:
 	AudioManager.play_sfx("unit_death", {"priority": 1})
 	if faction == "ally":
 		occupied_units = maxi(0, occupied_units - 1)
+	if battle_ended:
+		unit.queue_free()
+		return
 	if faction == "enemy" and not unit.score_awarded:
 		unit.score_awarded = true
 		var kill_score_value := int(unit.stats.get("kill_score", 0))
