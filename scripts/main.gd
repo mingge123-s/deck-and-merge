@@ -68,29 +68,38 @@ const EFFECT_CARD_PAIR_SIZE := 2
 const EFFECT_CARDS_PER_ERA_MIN := 2
 const EFFECT_CARDS_PER_ERA_MAX := 3
 const EFFECT_CARD_COLOR := Color("#8754d8")
-const TUTORIAL_TEXT := """[b]目标[/b]
-打光敌方塔的血量即获胜；自己的塔被打光则失败。战场上方是双方阵地，下方是你的牌桌。
-
-[b]① 取牌[/b]
-点击牌堆里没被压住的卡牌，把它收进上方的合成台（共 7 格）。
-
-[b]② 合成[/b]
-小兵卡 3 张同名自动合成英雄并上场作战；效果卡 2 张同名立刻发动效果（如召唤援军、修复我方塔、塔炮升级）。
-
-[b]③ 合成台满了[/b]
-合成台放满且凑不出任何合成时，自动扣 200 金币清空；金币不足则判负。所以别乱收用不上的牌。
-
-[b]④ 战场[/b]
-英雄自动前进作战，你不用操作。左右拖动可查看整个战场，右上角小地图显示双方单位与塔。击杀敌人获得金币。
-
-[b]⑤ 轮次与时代[/b]
-牌堆取空即进入下一轮，并自动推进时代：石器 → 铁器 → 工业 → 现代 → 未来。时代越高，双方塔的血量与攻击越强，牌堆里也会混入新时代的卡牌与效果卡。
-
-[b]⑥ 波次[/b]
-敌人按波次进攻，每 3 波进入一次整备期，整备期里你可以继续取牌合成。
-
-[b]小提示[/b]
-优先凑齐当前时代的卡；BOSS 卡（图腾/王冠/烟囱/军徽/AI核心）虽然少，但合成后战力最高。"""
+const TUTORIAL_STEPS := [
+	{
+		"title": "欢迎来到牌桌远征",
+		"text": "目标：打光敌方塔的血量即获胜，自己的塔被打光则失败。\n跟着下面几步走一遍，十秒学会。",
+		"rect": Rect2(),
+	},
+	{
+		"title": "第 1 步：从牌堆取牌",
+		"text": "这里是牌堆。点击[b]没被压住[/b]的卡牌，它会飞进上方的合成台；被压在下面的卡点不动。\n牌堆取空就进入下一轮，自动发一批新牌。",
+		"rect": BOARD_RECT,
+	},
+	{
+		"title": "第 2 步：在合成台合成",
+		"text": "合成台共 7 格。小兵卡[b]3 张同名[/b]自动合成英雄并上场；效果卡[b]2 张同名[/b]立刻发动（召唤援军、修复我方塔、塔炮升级等）。\n注意：7 格放满且凑不出任何合成时，会自动扣 200 金币清空，金币不足就判负。别乱收用不上的牌。",
+		"rect": TRAY_RECT,
+	},
+	{
+		"title": "第 3 步：看战场",
+		"text": "合成出的英雄会自动前进作战，你不用指挥。左右拖动可查看整个战场，右上角小地图显示双方单位与塔血。\n击杀敌人获得金币；敌人按波次进攻，每 3 波会有一段整备期。",
+		"rect": BATTLE_RECT,
+	},
+	{
+		"title": "第 4 步：时代会自己升级",
+		"text": "顶栏显示当前时代、轮次、波次与金币。每过一轮自动推进一个时代：石器 → 铁器 → 工业 → 现代 → 未来。\n时代越高，双方塔的血量与攻击越强，牌堆也会混入新时代的卡。右上角 ? 可随时重看本教程。",
+		"rect": Rect2(30, 30, 660, 70),
+	},
+	{
+		"title": "开始吧",
+		"text": "一句话口诀：[b]先凑当前时代的三连，别把合成台塑死[/b]。\nBOSS 卡（图腾/王冠/烟囱/军徽/AI核心）少但最强，碰到优先凑齐。",
+		"rect": Rect2(),
+	},
+]
 
 const ERA_TOWER_TINTS := {
 	"stone": Color(1.0, 0.93, 0.82),
@@ -150,6 +159,17 @@ var pause_hint_label: Label
 var tutorial_overlay: Control
 var help_button: Button
 var tutorial_resume_paused := false
+var tutorial_hid_menu := false
+var tutorial_step := 0
+var tutorial_dims: Array[ColorRect] = []
+var tutorial_focus: Panel
+var tutorial_card: Panel
+var tutorial_title_label: Label
+var tutorial_text_label: RichTextLabel
+var tutorial_step_label: Label
+var tutorial_prev_button: Button
+var tutorial_next_button: Button
+var tutorial_skip_button: Button
 var result_overlay: Control
 var music_slider: HSlider
 var sfx_slider: HSlider
@@ -774,34 +794,93 @@ func _build_tutorial_overlay() -> void:
 	tutorial_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
 	tutorial_overlay.visible = false
 	add_child(tutorial_overlay)
-	var shade := ColorRect.new()
-	shade.size = VIEW_SIZE
-	shade.color = Color(0.05, 0.03, 0.02, 0.62)
-	tutorial_overlay.add_child(shade)
-	var panel := Panel.new()
-	panel.position = Vector2(54, 190)
-	panel.size = Vector2(612, 900)
-	panel.add_theme_stylebox_override("panel", _panel_style(Color("#c58a53"), Color("#70412c"), 24, 3))
-	tutorial_overlay.add_child(panel)
-	var title := _label(panel, "玩法介绍", Vector2(0, 34), Vector2(612, 46), 30)
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	var scroll := ScrollContainer.new()
-	scroll.position = Vector2(42, 100)
-	scroll.size = Vector2(528, 580)
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	panel.add_child(scroll)
-	var content := RichTextLabel.new()
-	content.bbcode_enabled = true
-	content.fit_content = true
-	content.scroll_active = false
-	content.custom_minimum_size = Vector2(528, 0)
-	content.add_theme_font_size_override("normal_font_size", 17)
-	content.add_theme_font_size_override("bold_font_size", 19)
-	content.add_theme_color_override("default_color", Color("#fff0c7"))
-	content.text = TUTORIAL_TEXT
-	scroll.add_child(content)
-	var acknowledge_button := _menu_button(panel, "知道了", Vector2(206, 710), Vector2(200, 58), 20)
-	acknowledge_button.pressed.connect(_hide_tutorial)
+	tutorial_dims.clear()
+	for _i in range(4):
+		var dim := ColorRect.new()
+		dim.color = Color(0.05, 0.03, 0.02, 0.72)
+		tutorial_overlay.add_child(dim)
+		tutorial_dims.append(dim)
+	tutorial_focus = Panel.new()
+	tutorial_focus.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tutorial_focus.add_theme_stylebox_override("panel", _panel_style(Color(1, 1, 1, 0.0), Color("#ffd07a"), 18, 4))
+	tutorial_overlay.add_child(tutorial_focus)
+	tutorial_card = Panel.new()
+	tutorial_card.size = Vector2(612, 330)
+	tutorial_card.add_theme_stylebox_override("panel", _panel_style(Color("#c58a53"), Color("#70412c"), 24, 3))
+	tutorial_overlay.add_child(tutorial_card)
+	tutorial_title_label = _label(tutorial_card, "", Vector2(0, 24), Vector2(612, 40), 26)
+	tutorial_title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	tutorial_text_label = RichTextLabel.new()
+	tutorial_text_label.bbcode_enabled = true
+	tutorial_text_label.scroll_active = false
+	tutorial_text_label.position = Vector2(42, 74)
+	tutorial_text_label.size = Vector2(528, 160)
+	tutorial_text_label.add_theme_font_size_override("normal_font_size", 18)
+	tutorial_text_label.add_theme_color_override("default_color", Color("#fff0c7"))
+	tutorial_card.add_child(tutorial_text_label)
+	tutorial_step_label = _label(tutorial_card, "", Vector2(0, 240), Vector2(612, 22), 13, Color("#e6c199"))
+	tutorial_step_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	tutorial_prev_button = _menu_button(tutorial_card, "上一步", Vector2(42, 262), Vector2(150, 50), 17)
+	tutorial_prev_button.pressed.connect(_tutorial_prev)
+	tutorial_skip_button = _menu_button(tutorial_card, "跳过", Vector2(232, 262), Vector2(120, 50), 17)
+	tutorial_skip_button.pressed.connect(_hide_tutorial)
+	tutorial_next_button = _menu_button(tutorial_card, "下一步", Vector2(392, 262), Vector2(178, 50), 17)
+	tutorial_next_button.pressed.connect(_tutorial_next)
+
+func _tutorial_next() -> void:
+	_play_button_sfx()
+	if tutorial_step >= TUTORIAL_STEPS.size() - 1:
+		_hide_tutorial()
+		return
+	tutorial_step += 1
+	_refresh_tutorial_step()
+
+func _tutorial_prev() -> void:
+	_play_button_sfx()
+	if tutorial_step <= 0:
+		return
+	tutorial_step -= 1
+	_refresh_tutorial_step()
+
+func _refresh_tutorial_step() -> void:
+	var step: Dictionary = TUTORIAL_STEPS[tutorial_step]
+	tutorial_title_label.text = str(step.get("title", ""))
+	tutorial_text_label.text = str(step.get("text", ""))
+	tutorial_step_label.text = "%d / %d" % [tutorial_step + 1, TUTORIAL_STEPS.size()]
+	tutorial_prev_button.disabled = tutorial_step == 0
+	tutorial_next_button.text = "开始游戏" if tutorial_step == TUTORIAL_STEPS.size() - 1 else "下一步"
+	var focus_rect: Rect2 = step.get("rect", Rect2())
+	_layout_tutorial_focus(focus_rect)
+
+func _layout_tutorial_focus(focus_rect: Rect2) -> void:
+	var has_focus := focus_rect.size.x > 0.0 and focus_rect.size.y > 0.0
+	tutorial_focus.visible = has_focus
+	if has_focus:
+		var pad := 8.0
+		tutorial_focus.position = focus_rect.position - Vector2(pad, pad)
+		tutorial_focus.size = focus_rect.size + Vector2(pad, pad) * 2.0
+		# 四块遮罩拼出中间的镟空
+		var hole := Rect2(tutorial_focus.position, tutorial_focus.size)
+		_set_dim(0, Rect2(0, 0, VIEW_SIZE.x, hole.position.y))
+		_set_dim(1, Rect2(0, hole.end.y, VIEW_SIZE.x, VIEW_SIZE.y - hole.end.y))
+		_set_dim(2, Rect2(0, hole.position.y, hole.position.x, hole.size.y))
+		_set_dim(3, Rect2(hole.end.x, hole.position.y, VIEW_SIZE.x - hole.end.x, hole.size.y))
+		var below := hole.end.y + 20.0
+		if below + tutorial_card.size.y <= VIEW_SIZE.y - 20.0:
+			tutorial_card.position = Vector2(54, below)
+		else:
+			tutorial_card.position = Vector2(54, max(20.0, hole.position.y - tutorial_card.size.y - 20.0))
+	else:
+		_set_dim(0, Rect2(0, 0, VIEW_SIZE.x, VIEW_SIZE.y))
+		for index in range(1, 4):
+			_set_dim(index, Rect2())
+		tutorial_card.position = Vector2(54, (VIEW_SIZE.y - tutorial_card.size.y) * 0.5)
+
+func _set_dim(index: int, rect: Rect2) -> void:
+	var dim := tutorial_dims[index]
+	dim.position = rect.position
+	dim.size = rect.size
+	dim.visible = rect.size.x > 0.0 and rect.size.y > 0.0
 
 func _toggle_pause() -> void:
 	if not battle_active or battle_ended:
@@ -874,14 +953,23 @@ func _show_tutorial() -> void:
 		return
 	tutorial_resume_paused = paused
 	paused = true
+	# 教程要高亮真实的牌堆/合成台/战场，从主菜单打开时先把菜单收起来
+	tutorial_hid_menu = main_menu != null and main_menu.visible
+	if tutorial_hid_menu:
+		main_menu.visible = false
 	if tutorial_overlay != null:
 		move_child(tutorial_overlay, get_child_count() - 1)
+		tutorial_step = 0
+		_refresh_tutorial_step()
 		tutorial_overlay.visible = true
 
 func _hide_tutorial() -> void:
 	if tutorial_overlay != null:
 		tutorial_overlay.visible = false
 	SaveManager.set_tutorial_seen(true)
+	if tutorial_hid_menu and main_menu != null:
+		main_menu.visible = true
+	tutorial_hid_menu = false
 	paused = tutorial_resume_paused
 	tutorial_resume_paused = false
 
