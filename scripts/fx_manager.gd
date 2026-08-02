@@ -3,7 +3,8 @@ extends Node2D
 
 const MAX_EMITTERS := 16
 const MAX_PARTICLES := 400
-const MAX_TRAILS := 8
+const MAX_PROJECTILE_TRAILS := 24
+const MAX_EFFECT_LINES := 8
 const MAX_SHARDS := 24
 
 const MATERIALS := {
@@ -56,11 +57,14 @@ var emitter_active: Array[bool] = []
 var emitter_until: Array[float] = []
 var emitter_amount: Array[int] = []
 var emitter_tier: Array[int] = []
-var trail_pool: Array[Line2D] = []
-var trail_active: Array[bool] = []
-var trail_until: Array[float] = []
-var trail_started: Array[float] = []
-var trail_duration: Array[float] = []
+var projectile_trail_pool: Array[Line2D] = []
+var projectile_trail_active: Array[bool] = []
+var effect_line_pool: Array[Line2D] = []
+var effect_line_active: Array[bool] = []
+var effect_line_until: Array[float] = []
+var effect_line_started: Array[float] = []
+var effect_line_duration: Array[float] = []
+var effect_line_kind: Array[String] = []
 var shard_pool: Array[Sprite2D] = []
 var shard_active: Array[bool] = []
 var shard_until: Array[float] = []
@@ -83,18 +87,28 @@ func setup(get_unit_count: Callable) -> void:
 		emitter_until.append(0.0)
 		emitter_amount.append(0)
 		emitter_tier.append(2)
-	for _index in range(MAX_TRAILS):
+	for _index in range(MAX_PROJECTILE_TRAILS):
 		var trail := Line2D.new()
 		trail.width = 3.0
 		trail.antialiased = true
 		trail.z_index = 6
 		trail.visible = false
 		add_child(trail)
-		trail_pool.append(trail)
-		trail_active.append(false)
-		trail_until.append(0.0)
-		trail_started.append(0.0)
-		trail_duration.append(0.0)
+		projectile_trail_pool.append(trail)
+		projectile_trail_active.append(false)
+	for _index in range(MAX_EFFECT_LINES):
+		var line := Line2D.new()
+		line.width = 3.0
+		line.antialiased = true
+		line.z_index = 6
+		line.visible = false
+		add_child(line)
+		effect_line_pool.append(line)
+		effect_line_active.append(false)
+		effect_line_until.append(0.0)
+		effect_line_started.append(0.0)
+		effect_line_duration.append(0.0)
+		effect_line_kind.append("")
 	for _index in range(MAX_SHARDS):
 		var shard := Sprite2D.new()
 		shard.texture = textures["shard"]
@@ -174,9 +188,9 @@ func emit(
 	emitter.gravity = _preset_gravity(preset, material)
 	emitter.scale_amount_min = 0.16 if preset == "hit" else 0.2
 	emitter.scale_amount_max = 0.42 if preset == "hit" else 0.55
-	var primary: Color = material.primary
+	var primary: Color = material.primary.lerp(material.secondary, 0.22)
 	if color_override.a >= 0.0:
-		primary = color_override
+		primary = color_override.lerp(material.secondary, 0.22)
 	emitter.color = Color(primary, 0.92)
 	emitter.emitting = true
 	emitter_active[slot] = true
@@ -187,12 +201,12 @@ func emit(
 	return true
 
 func emit_ring(position: Vector2, color: Color, radius: float, duration := 0.45, tier := 2) -> bool:
-	var slot := _acquire_trail(tier)
+	var slot := _acquire_effect_line(tier)
 	if slot < 0:
 		if tier == 2:
 			dropped_tier2 += 1
 		return false
-	var ring := trail_pool[slot]
+	var ring := effect_line_pool[slot]
 	var points := PackedVector2Array()
 	for index in range(20):
 		var angle := TAU * float(index) / 19.0
@@ -205,18 +219,19 @@ func emit_ring(position: Vector2, color: Color, radius: float, duration := 0.45,
 	ring.scale = Vector2(0.25, 0.45)
 	ring.modulate.a = 1.0
 	ring.visible = true
-	trail_active[slot] = true
-	trail_started[slot] = elapsed
-	trail_duration[slot] = duration
-	trail_until[slot] = elapsed + duration
+	effect_line_active[slot] = true
+	effect_line_started[slot] = elapsed
+	effect_line_duration[slot] = duration
+	effect_line_until[slot] = elapsed + duration
+	effect_line_kind[slot] = "ring"
 	return true
 
 func emit_impact_line(position: Vector2, direction: Vector2, color := Color.WHITE, duration := 0.1) -> bool:
-	var slot := _acquire_trail(2)
+	var slot := _acquire_effect_line(2)
 	if slot < 0:
 		dropped_tier2 += 1
 		return false
-	var line := trail_pool[slot]
+	var line := effect_line_pool[slot]
 	var facing := direction.normalized()
 	line.position = position
 	line.points = PackedVector2Array([-facing * 18.0, facing * 8.0])
@@ -225,28 +240,26 @@ func emit_impact_line(position: Vector2, direction: Vector2, color := Color.WHIT
 	line.scale = Vector2.ONE
 	line.modulate.a = 1.0
 	line.visible = true
-	trail_active[slot] = true
-	trail_started[slot] = elapsed
-	trail_duration[slot] = duration
-	trail_until[slot] = elapsed + duration
+	effect_line_active[slot] = true
+	effect_line_started[slot] = elapsed
+	effect_line_duration[slot] = duration
+	effect_line_until[slot] = elapsed + duration
+	effect_line_kind[slot] = "line"
 	return true
 
 func acquire_projectile_trail(color: Color, tier := 2) -> Line2D:
-	var slot := _acquire_trail(tier)
+	var slot := _acquire_projectile_trail()
 	if slot < 0:
 		if tier == 2:
 			dropped_tier2 += 1
 		return null
-	var trail := trail_pool[slot]
+	var trail := projectile_trail_pool[slot]
 	trail.default_color = Color(color, 0.72)
 	trail.width = 3.0
 	trail.scale = Vector2.ONE
 	trail.modulate.a = 1.0
 	trail.visible = true
-	trail_active[slot] = true
-	trail_started[slot] = elapsed
-	trail_duration[slot] = INF
-	trail_until[slot] = INF
+	projectile_trail_active[slot] = true
 	return trail
 
 func update_projectile_trail(trail: Line2D, position: Vector2, previous: Vector2) -> void:
@@ -259,12 +272,10 @@ func update_projectile_trail(trail: Line2D, position: Vector2, previous: Vector2
 func release_projectile_trail(trail: Line2D) -> void:
 	if trail == null or not is_instance_valid(trail):
 		return
-	var slot := trail_pool.find(trail)
+	var slot := projectile_trail_pool.find(trail)
 	if slot < 0:
 		return
-	trail_active[slot] = false
-	trail_until[slot] = 0.0
-	trail_duration[slot] = 0.0
+	projectile_trail_active[slot] = false
 	trail.visible = false
 
 func emit_death(position: Vector2, direction := Vector2.UP, era := "stone") -> void:
@@ -309,6 +320,9 @@ func emit_tower_power(position: Vector2, era := "stone") -> void:
 	emit("tower_power", position, Vector2.UP, era, 1, 12)
 	emit_ring(position, Color("#ffd273"), 44.0, 0.6, 1)
 
+func emit_boss_entry(position: Vector2, color: Color, era := "stone") -> void:
+	emit("boss_entry", position, Vector2.UP, era, 0, 42, color)
+
 func budget_stats() -> Dictionary:
 	var emitters := 0
 	for active in emitter_active:
@@ -331,15 +345,18 @@ func _process(delta: float) -> void:
 			emitter_active[index] = false
 			active_particle_count = maxi(0, active_particle_count - emitter_amount[index])
 			emitter_amount[index] = 0
-	for index in range(trail_pool.size()):
-		if trail_active[index] and trail_until[index] != INF and elapsed >= trail_until[index]:
-			trail_active[index] = false
-			trail_pool[index].visible = false
-			trail_pool[index].points = PackedVector2Array()
-		elif trail_active[index] and trail_until[index] != INF:
-			var progress := clampf((elapsed - trail_started[index]) / maxf(0.01, trail_duration[index]), 0.0, 1.0)
-			trail_pool[index].scale = Vector2(0.25 + progress * 0.95, 0.45)
-			trail_pool[index].modulate.a = 1.0 - progress
+	for index in range(effect_line_pool.size()):
+		if effect_line_active[index] and elapsed >= effect_line_until[index]:
+			effect_line_active[index] = false
+			effect_line_pool[index].visible = false
+			effect_line_pool[index].points = PackedVector2Array()
+		elif effect_line_active[index]:
+			var progress := clampf((elapsed - effect_line_started[index]) / maxf(0.01, effect_line_duration[index]), 0.0, 1.0)
+			if effect_line_kind[index] == "ring":
+				effect_line_pool[index].scale = Vector2(0.25 + progress * 0.95, 0.45)
+			else:
+				effect_line_pool[index].scale = Vector2.ONE
+			effect_line_pool[index].modulate.a = 1.0 - progress
 	for index in range(shard_pool.size()):
 		if shard_active[index] and elapsed >= shard_until[index]:
 			shard_active[index] = false
@@ -367,17 +384,28 @@ func _acquire_emitter(tier: int, amount: int) -> int:
 					return index
 	return -1
 
-func _acquire_trail(tier: int) -> int:
-	for index in range(trail_pool.size()):
-		if not trail_active[index]:
+func _acquire_projectile_trail() -> int:
+	for index in range(projectile_trail_pool.size()):
+		if not projectile_trail_active[index]:
+			return index
+	return -1
+
+func _acquire_effect_line(tier: int) -> int:
+	for index in range(effect_line_pool.size()):
+		if not effect_line_active[index]:
 			return index
 	if tier == 0:
-		for index in range(trail_pool.size()):
-			if trail_active[index] and trail_until[index] != INF:
-				trail_active[index] = false
-				trail_pool[index].visible = false
-				preempted_tier2 += 1
-				return index
+		var oldest := -1
+		var oldest_time := INF
+		for index in range(effect_line_pool.size()):
+			if effect_line_active[index] and effect_line_started[index] < oldest_time:
+				oldest = index
+				oldest_time = effect_line_started[index]
+		if oldest >= 0:
+			effect_line_active[oldest] = false
+			effect_line_pool[oldest].visible = false
+			preempted_tier2 += 1
+			return oldest
 	return -1
 
 func _unit_count() -> int:
@@ -397,6 +425,7 @@ func _preset_amount(preset: String) -> int:
 		"tower_hit": 8,
 		"tower_destroy": 24,
 		"tower_power": 12,
+		"boss_entry": 42,
 	}.get(preset, 8)
 
 func _preset_lifetime(preset: String) -> float:
@@ -411,6 +440,7 @@ func _preset_lifetime(preset: String) -> float:
 		"tower_hit": 0.4,
 		"tower_destroy": 0.9,
 		"tower_power": 0.55,
+		"boss_entry": 0.9,
 	}.get(preset, 0.5)
 
 func _preset_texture(preset: String, material: Dictionary) -> String:
@@ -421,6 +451,8 @@ func _preset_texture(preset: String, material: Dictionary) -> String:
 			return "puff"
 		"tower_destroy", "death", "tower_hit":
 			return "shard"
+		"boss_entry":
+			return "dot"
 		"tower_power":
 			return str(material.textures[1]) if material.textures.size() > 1 else str(material.textures[0])
 		_:
@@ -429,6 +461,8 @@ func _preset_texture(preset: String, material: Dictionary) -> String:
 
 func _preset_spread(preset: String, material_spread: float) -> float:
 	match preset:
+		"boss_entry":
+			return 170.0
 		"hit":
 			return 55.0
 		"lifesteal":
@@ -440,6 +474,8 @@ func _preset_spread(preset: String, material_spread: float) -> float:
 
 func _preset_speed_min(preset: String, material: Dictionary) -> float:
 	match preset:
+		"boss_entry":
+			return 34.0
 		"lifesteal":
 			return 42.0
 		"heal":
@@ -451,6 +487,8 @@ func _preset_speed_min(preset: String, material: Dictionary) -> float:
 
 func _preset_speed_max(preset: String, material: Dictionary) -> float:
 	match preset:
+		"boss_entry":
+			return 108.0
 		"lifesteal":
 			return 78.0
 		"heal":
@@ -462,6 +500,8 @@ func _preset_speed_max(preset: String, material: Dictionary) -> float:
 
 func _preset_gravity(preset: String, material: Dictionary) -> Vector2:
 	match preset:
+		"boss_entry":
+			return Vector2(0, -18)
 		"lifesteal":
 			return Vector2.ZERO
 		"heal":

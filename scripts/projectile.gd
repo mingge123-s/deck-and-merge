@@ -67,14 +67,17 @@ func _process(delta: float) -> void:
 	queue_redraw()
 
 func _finish(apply_hit: bool) -> void:
-	if not is_inside_tree():
-		return
 	if fx_manager != null and trail != null:
 		fx_manager.release_projectile_trail(trail)
 		trail = null
 	if apply_hit and hit_callback.is_valid():
 		hit_callback.call()
 	queue_free()
+
+func _exit_tree() -> void:
+	if fx_manager != null and trail != null:
+		fx_manager.release_projectile_trail(trail)
+		trail = null
 
 func _draw() -> void:
 	match era:

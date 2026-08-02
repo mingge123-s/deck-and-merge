@@ -245,6 +245,7 @@ var hit_fx_pool: Array[Label] = []
 var camera_shake_offset := Vector2.ZERO
 var camera_shake_tween: Tween
 var walk_dust_cooldowns: Dictionary = {}
+var fx_unit_count_cache := 0
 
 func _diff() -> Dictionary:
 	return DIFFICULTIES[current_difficulty]
@@ -419,6 +420,7 @@ func _process(delta: float) -> void:
 	_update_minimap()
 	if not battle_active or battle_ended:
 		return
+	fx_unit_count_cache = _living_units("ally").size() + _living_units("enemy").size()
 	_tick_buffs(delta)
 	_sync_persistent_status_vfx(delta)
 	_update_tower_alarm_vfx(delta)
@@ -698,7 +700,7 @@ func _build_battlefield() -> void:
 	_apply_camera()
 
 func _fx_unit_count() -> int:
-	return _living_units("ally").size() + _living_units("enemy").size()
+	return fx_unit_count_cache
 
 func _create_tower_alarm_vfx(ally: bool) -> Node2D:
 	var root := Node2D.new()
@@ -1481,7 +1483,7 @@ func _play_boss_entry_vfx(position: Vector2, ally: bool, hero_name: String) -> v
 	var color := Color("#ffd273") if ally else Color("#ff625c")
 	if fx_manager != null:
 		var era := current_era if ally else enemy_era
-		fx_manager.emit("tower_destroy", position, Vector2.UP, era, 0, 42, color)
+		fx_manager.emit_boss_entry(position, color, era)
 		fx_manager.emit_ring(position, color, 86.0, 0.8, 0)
 		fx_manager.emit_ring(position, color.lightened(0.18), 56.0, 0.65, 0)
 	_shake_battlefield()
