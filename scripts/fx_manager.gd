@@ -202,11 +202,39 @@ func emit(
 	emitter.gravity = _preset_gravity(preset, material)
 	emitter.scale_amount_min = 0.16 if preset == "hit" else 0.2
 	emitter.scale_amount_max = 0.42 if preset == "hit" else 0.55
+	match preset:
+		"hit":
+			emitter.scale_amount_min = 0.75
+			emitter.scale_amount_max = 1.55
+		"death":
+			emitter.scale_amount_min = 1.0
+			emitter.scale_amount_max = 2.2
+		"dust":
+			emitter.scale_amount_min = 0.42
+			emitter.scale_amount_max = 0.95
+		"lifesteal":
+			emitter.scale_amount_min = 0.55
+			emitter.scale_amount_max = 1.15
+		"heal":
+			emitter.scale_amount_min = 0.55
+			emitter.scale_amount_max = 1.1
+		"tower_hit":
+			emitter.scale_amount_min = 0.95
+			emitter.scale_amount_max = 1.9
+		"tower_destroy":
+			emitter.scale_amount_min = 1.4
+			emitter.scale_amount_max = 2.8
+		"boss_entry":
+			emitter.scale_amount_min = 1.15
+			emitter.scale_amount_max = 2.45
+		"tower_power":
+			emitter.scale_amount_min = 0.7
+			emitter.scale_amount_max = 1.45
 	if color_override.a >= 0.0:
 		emitter.color_ramp = null
 		emitter.color = Color(color_override, 0.92)
 	else:
-		emitter.color = Color.WHITE
+		emitter.color = Color(material.primary, 0.96)
 		emitter.color_ramp = color_ramps.get(era)
 	emitter.emitting = true
 	emitter_active[slot] = true
@@ -230,7 +258,7 @@ func emit_ring(position: Vector2, color: Color, radius: float, duration := 0.45,
 	ring.position = position
 	ring.points = points
 	ring.closed = true
-	ring.width = 4.0
+	ring.width = 7.0
 	ring.default_color = Color(color, 0.9)
 	ring.scale = Vector2(0.25, 0.45)
 	ring.modulate.a = 1.0
@@ -250,8 +278,8 @@ func emit_impact_line(position: Vector2, direction: Vector2, color := Color.WHIT
 	var line := effect_line_pool[slot]
 	var facing := direction.normalized()
 	line.position = position
-	line.points = PackedVector2Array([-facing * 18.0, facing * 8.0])
-	line.width = 3.0
+	line.points = PackedVector2Array([-facing * 28.0, facing * 16.0])
+	line.width = 6.5
 	line.default_color = color
 	line.scale = Vector2.ONE
 	line.modulate.a = 1.0
@@ -270,8 +298,8 @@ func acquire_projectile_trail(color: Color, tier := 2) -> Line2D:
 			dropped_tier2 += 1
 		return null
 	var trail := projectile_trail_pool[slot]
-	trail.default_color = Color(color, 0.72)
-	trail.width = 3.0
+	trail.default_color = Color(color, 0.84)
+	trail.width = 5.5
 	trail.scale = Vector2.ONE
 	trail.modulate.a = 1.0
 	trail.visible = true
@@ -283,7 +311,7 @@ func update_projectile_trail(trail: Line2D, position: Vector2, previous: Vector2
 		return
 	trail.position = Vector2.ZERO
 	var offset := position - previous
-	trail.points = PackedVector2Array([position - offset * 0.9, position - offset * 0.35])
+	trail.points = PackedVector2Array([position - offset * 1.55, position - offset * 1.0, position - offset * 0.45, position])
 
 func release_projectile_trail(trail: Line2D) -> void:
 	if trail == null or not is_instance_valid(trail):
@@ -295,10 +323,12 @@ func release_projectile_trail(trail: Line2D) -> void:
 	trail.visible = false
 
 func emit_death(position: Vector2, direction := Vector2.UP, era := "stone") -> void:
-	emit("death", position, direction, era, 1, 8)
-	emit("dust", position, Vector2.UP, era, 1, 2)
+	emit("death", position, direction, era, 1, 16)
+	emit("dust", position + Vector2(0, 4), Vector2.UP, era, 1, 8)
+	emit("dust", position + Vector2(0, -6), Vector2.UP, era, 1, 6)
 	emit_ground_stain(position)
-	emit_ring(position, Color(0.12, 0.08, 0.05, 0.55), 28.0, 0.42, 1)
+	emit_ring(position, Color(0.12, 0.08, 0.05, 0.58), 44.0, 0.5, 1)
+	emit_ring(position + Vector2(0, -10), Color(0.7, 0.58, 0.36, 0.35), 22.0, 0.32, 1)
 
 func emit_ground_stain(position: Vector2, duration := 0.8) -> bool:
 	for index in range(shard_pool.size()):
@@ -307,8 +337,8 @@ func emit_ground_stain(position: Vector2, duration := 0.8) -> bool:
 		var stain := shard_pool[index]
 		stain.texture = textures["puff"]
 		stain.position = position + Vector2(0, 8)
-		stain.scale = Vector2(1.8, 0.52)
-		stain.modulate = Color(0.1, 0.07, 0.05, 0.42)
+		stain.scale = Vector2(3.0, 1.1)
+		stain.modulate = Color(0.12, 0.09, 0.07, 0.52)
 		stain.visible = true
 		shard_active[index] = true
 		shard_until[index] = elapsed + duration
@@ -323,21 +353,25 @@ func emit_heal(position: Vector2, era := "stone") -> void:
 	emit("heal", position, Vector2.UP, era, 2, 6, Color("#8ce68c"))
 
 func emit_tower_hit(position: Vector2, era := "stone") -> void:
-	emit("tower_hit", position, Vector2.UP, era, 1, 8)
-	emit_impact_line(position, Vector2.UP, Color("#fff0c7"), 0.1)
+	emit("tower_hit", position, Vector2.UP, era, 1, 24)
+	emit("dust", position, Vector2.UP, era, 1, 10)
+	emit_ring(position, Color("#fff0c7"), 34.0, 0.24, 1)
+	emit_impact_line(position, Vector2.UP, Color("#fff8df"), 0.16)
 
 func emit_tower_destroy(position: Vector2, era := "stone") -> void:
-	emit("tower_destroy", position, Vector2.UP, era, 0, 24)
-	emit("tower_destroy", position, Vector2.LEFT, era, 0, 24)
-	emit_ring(position, Color("#ffd273"), 92.0, 0.75, 0)
-	emit_ring(position, Color("#ff8e70"), 52.0, 0.5, 0)
+	emit("tower_destroy", position + Vector2(0, -22), Vector2.UP, era, 0, 72)
+	emit("tower_destroy", position + Vector2(0, -8), Vector2.LEFT, era, 0, 56)
+	emit("tower_destroy", position + Vector2(0, -8), Vector2.RIGHT, era, 0, 56)
+	emit_ring(position, Color("#ffd273"), 128.0, 0.85, 0)
+	emit_ring(position + Vector2(0, -8), Color("#ff8e70"), 82.0, 0.68, 0)
+	emit_ring(position + Vector2(0, -12), Color("#fff0c7"), 48.0, 0.5, 0)
 
 func emit_tower_power(position: Vector2, era := "stone") -> void:
 	emit("tower_power", position, Vector2.UP, era, 1, 12)
 	emit_ring(position, Color("#ffd273"), 44.0, 0.6, 1)
 
 func emit_boss_entry(position: Vector2, color: Color, era := "stone") -> void:
-	emit("boss_entry", position, Vector2.UP, era, 0, 42, color)
+	emit("boss_entry", position, Vector2.UP, era, 0, 60, color)
 
 func budget_stats() -> Dictionary:
 	var emitters := 0
