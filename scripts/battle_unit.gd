@@ -6,12 +6,14 @@ signal death_started(unit: BattleUnit)
 
 static var _meta_cache: Dictionary = {}
 static var _frames_cache: Dictionary = {}
+static var _outline_material: ShaderMaterial
 
 var unit_id := ""
 var faction := ""
 var stats: Dictionary = {}
 var max_hp := 1.0
 var hp := 1.0
+var body_height := 104.0
 var attack_cooldown := 0.0
 var alive := true
 var flash_time := 0.0
@@ -41,7 +43,8 @@ func setup(id: String, side: String, data: Dictionary, texture: Texture2D) -> vo
 	max_hp = float(data.hp)
 	hp = max_hp
 	var role_scale := float(data.get("scale", 1.0))
-	var desired_height := (104.0 if side == "ally" else 92.0) * role_scale
+	var desired_height := (118.0 if side == "ally" else 104.0) * role_scale
+	body_height = desired_height
 	if _setup_animated(str(data.get("anim", id)), side, desired_height):
 		animated = true
 	else:
@@ -104,6 +107,22 @@ func _aura_ring_points() -> PackedVector2Array:
 		var angle := TAU * float(index) / 24.0
 		points.append(Vector2(cos(angle) * 36.0, sin(angle) * 14.0))
 	return points
+
+func _ellipse_points(radius_x: float, radius_y: float, center: Vector2) -> PackedVector2Array:
+	var points := PackedVector2Array()
+	for index in range(25):
+		var angle := TAU * float(index) / 24.0
+		points.append(center + Vector2(cos(angle) * radius_x, sin(angle) * radius_y))
+	return points
+
+func _get_outline_material() -> ShaderMaterial:
+	if _outline_material == null:
+		var shader := load("res://assets/fx/unit_outline.gdshader") as Shader
+		if shader == null:
+			return null
+		_outline_material = ShaderMaterial.new()
+		_outline_material.shader = shader
+	return _outline_material
 
 func _rebuild_buff_dots() -> void:
 	for child in _buff_dots_root.get_children():
@@ -168,6 +187,7 @@ func _setup_animated(id: String, side: String, desired_height: float) -> bool:
 	anim.animation_finished.connect(_on_anim_finished)
 	add_child(anim)
 	visual = anim
+	visual.material = _get_outline_material()
 	visual_base_scale = anim.scale
 	anim.play("idle")
 	return true
@@ -213,6 +233,7 @@ func _setup_static(side: String, desired_height: float, texture: Texture2D) -> v
 	sprite.position.y = -desired_height * 0.5
 	add_child(sprite)
 	visual = sprite
+	visual.material = _get_outline_material()
 	visual_base_scale = sprite.scale
 
 func set_moving(moving: bool) -> void:
@@ -297,9 +318,16 @@ func spend_attack_time() -> void:
 func _draw() -> void:
 	if not alive:
 		return
+	var shadow_width := body_height * 0.42
+	var shadow_half_height := body_height * 0.13
+	draw_colored_polygon(
+		_ellipse_points(shadow_width * 0.5, shadow_half_height, Vector2(0, -2)),
+		Color(0, 0, 0, 0.28)
+	)
 	var bar_width := 72.0
-	var bar_y := -122.0 if faction == "ally" else -111.0
-	draw_rect(Rect2(-bar_width * 0.5, bar_y, bar_width, 8), Color("#43251d", 0.9), true)
+	var bar_y := -(body_height + 14.0)
+	draw_rect(Rect2(-bar_width * 0.5 - 1, bar_y - 1, bar_width + 2, 10), Color(0.05, 0.03, 0.02, 0.9), true)
+	draw_rect(Rect2(-bar_width * 0.5, bar_y, bar_width, 8), Color("#43251d", 0.95), true)
 	var ratio := hp / max_hp
 	var bar_color := Color("#7fd65e") if faction == "ally" else Color("#ef6a4f")
 	draw_rect(Rect2(-bar_width * 0.5 + 2, bar_y + 2, (bar_width - 4) * ratio, 4), bar_color, true)
