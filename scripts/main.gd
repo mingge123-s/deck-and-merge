@@ -475,10 +475,31 @@ func _update_tower_alarm_vfx(delta: float) -> void:
 			continue
 		var phase := Time.get_ticks_msec() * 0.003 + float(entry.phase)
 		node.modulate.a = 0.92 + sin(phase) * 0.06
-		node.position.y = (BATTLE_GROUND_Y - TOWER_HEIGHT - 18.0) - sin(phase * 0.7) * 5.0
-		var ember := node.get_node_or_null("AlarmEmber") as Line2D
-		if ember != null:
-			ember.modulate.a = 0.5 + maxf(0.0, sin(phase * 2.1)) * 0.5
+		node.position.y = BATTLE_GROUND_Y - TOWER_HEIGHT + 2.0
+		for index in range(3):
+			var puff := node.get_node_or_null("SmokePuff%d" % index) as Polygon2D
+			if puff == null:
+				continue
+			var puff_phase := phase * (0.72 + index * 0.08) + index * 1.9
+			var rise := fmod(puff_phase, TAU) / TAU
+			puff.position = Vector2(
+				(index - 1) * 7.0 + sin(puff_phase) * (3.0 + index),
+				-3.0 - index * 15.0 - rise * 5.0
+			)
+			puff.scale = Vector2.ONE * (0.78 + index * 0.14 + rise * 0.24)
+			puff.modulate.a = 0.78 - rise * 0.42
+		for index in range(4):
+			var ember := node.get_node_or_null("AlarmEmber%d" % index) as Polygon2D
+			if ember == null:
+				continue
+			var ember_phase := phase * (1.1 + index * 0.13) + index * 1.7
+			var ember_rise := fmod(ember_phase, TAU) / TAU
+			ember.position = Vector2(
+				(index - 1.5) * 6.0 + sin(ember_phase * 1.4) * 4.0,
+				-4.0 - ember_rise * 38.0
+			)
+			ember.scale = Vector2.ONE * (0.72 + (1.0 - ember_rise) * 0.42)
+			ember.modulate.a = (1.0 - ember_rise) * (0.45 + maxf(0.0, sin(ember_phase * 2.0)) * 0.55)
 
 func _panel_style(color: Color, border := Color("#70412c"), radius := 20, width := 3) -> StyleBoxFlat:
 	var style := StyleBoxFlat.new()
@@ -705,7 +726,7 @@ func _fx_unit_count() -> int:
 func _create_tower_alarm_vfx(ally: bool) -> Node2D:
 	var root := Node2D.new()
 	root.name = "AllyTowerAlarmVfx" if ally else "EnemyTowerAlarmVfx"
-	root.position = Vector2(ALLY_TOWER_X if ally else ENEMY_TOWER_X, BATTLE_GROUND_Y - TOWER_HEIGHT - 8.0)
+	root.position = Vector2(ALLY_TOWER_X if ally else ENEMY_TOWER_X, BATTLE_GROUND_Y - TOWER_HEIGHT + 2.0)
 	root.z_index = 5
 	root.visible = false
 	for index in range(3):
@@ -713,27 +734,21 @@ func _create_tower_alarm_vfx(ally: bool) -> Node2D:
 		var points := PackedVector2Array()
 		for point_index in range(11):
 			var angle := TAU * float(point_index) / 11.0
-			points.append(Vector2(cos(angle), sin(angle)) * (12.0 + index * 5.0))
+			points.append(Vector2(cos(angle), sin(angle)) * (11.0 + index * 4.0))
 		puff.polygon = points
-		puff.color = Color(0.72, 0.71, 0.68, 0.42)
-		puff.position = Vector2((index - 1) * 12.0, -index * 18.0)
+		puff.name = "SmokePuff%d" % index
+		puff.color = Color(0.38, 0.37, 0.35, 0.72)
 		root.add_child(puff)
-	for index in range(2):
-		var haze := Polygon2D.new()
-		var haze_points := PackedVector2Array()
-		for point_index in range(11):
-			var angle := TAU * float(point_index) / 10.0
-			haze_points.append(Vector2(cos(angle), sin(angle)) * (18.0 + index * 8.0))
-		haze.polygon = haze_points
-		haze.color = Color(0.42, 0.41, 0.38, 0.25)
-		haze.position = Vector2((index * 10.0) - 6.0, -24.0 - index * 16.0)
-		root.add_child(haze)
-	var ember := Line2D.new()
-	ember.name = "AlarmEmber"
-	ember.width = 5.0
-	ember.default_color = Color("#ffd78c")
-	ember.points = PackedVector2Array([Vector2(-8, 0), Vector2(8, -18), Vector2(22, -34)])
-	root.add_child(ember)
+	for index in range(4):
+		var ember := Polygon2D.new()
+		var ember_points := PackedVector2Array()
+		for point_index in range(8):
+			var angle := TAU * float(point_index) / 8.0
+			ember_points.append(Vector2(cos(angle), sin(angle)) * 2.8)
+		ember.name = "AlarmEmber%d" % index
+		ember.polygon = ember_points
+		ember.color = Color("#ffd78c")
+		root.add_child(ember)
 	world.add_child(root)
 	return root
 

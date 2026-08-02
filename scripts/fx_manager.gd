@@ -62,9 +62,9 @@ const PRESETS := {
 		"gravity": Vector2.ZERO, "spin": false, "curve": "shrink",
 	},
 	"death": {
-		"texture": "shard", "role": "material", "amount": 12, "lifetime": 0.7,
-		"scale": Vector2(0.55, 1.1), "speed": Vector2(90, 210), "spread": 68.0,
-		"gravity": Vector2(0, 420), "spin": true, "curve": "shrink",
+		"texture": "shard", "role": "material", "amount": 18, "lifetime": 0.8,
+		"scale": Vector2(0.7, 1.35), "speed": Vector2(110, 240), "spread": 72.0,
+		"gravity": Vector2(0, 440), "spin": true, "curve": "shrink",
 	},
 	"dust": {
 		"texture": "puff", "role": "smoke", "amount": 4, "lifetime": 0.6,
@@ -102,9 +102,9 @@ const PRESETS := {
 		"gravity": Vector2(0, 460), "spin": true, "curve": "shrink",
 	},
 	"tower_destroy": {
-		"texture": "shard", "role": "material", "amount": 26, "lifetime": 1.1,
-		"scale": Vector2(0.8, 1.8), "speed": Vector2(180, 430), "spread": 85.0,
-		"gravity": Vector2(0, 520), "spin": true, "curve": "shrink",
+		"texture": "shard", "role": "material", "amount": 24, "lifetime": 0.82,
+		"scale": Vector2(0.8, 1.75), "speed": Vector2(90, 190), "spread": 32.0,
+		"gravity": Vector2(0, 440), "spin": true, "curve": "shrink",
 	},
 	"blast": {
 		"texture": "dot", "role": "hot", "amount": 16, "lifetime": 0.4,
@@ -414,10 +414,10 @@ func emit_hit(position: Vector2, direction := Vector2.LEFT, era := "stone") -> v
 	emit_impact_line(position, direction, Color(1, 1, 1, 0.95), 0.12)
 
 func emit_death(position: Vector2, direction := Vector2.UP, era := "stone") -> void:
-	emit("death", position + Vector2(0, -10), direction.rotated(-0.5), era, 1, 14)
-	emit("dust", position + Vector2(0, 6), Vector2.UP, era, 1, 6)
+	emit("death", position + Vector2(0, -10), direction.rotated(-0.5), era, 1, 18)
+	emit("dust", position + Vector2(0, 6), Vector2.UP, era, 1, 9)
 	emit_ground_stain(position)
-	emit_ring(position, Color(0.16, 0.11, 0.07, 0.5), 34.0, 0.45, 1)
+	emit_ring(position, Color(0.16, 0.11, 0.07, 0.5), 38.0, 0.48, 1)
 
 func emit_ground_stain(position: Vector2, duration := 0.8) -> bool:
 	for index in range(shard_pool.size()):
@@ -449,9 +449,9 @@ func emit_tower_hit(position: Vector2, era := "stone") -> void:
 
 func emit_tower_destroy(position: Vector2, era := "stone") -> void:
 	emit("blast", position + Vector2(0, -30), Vector2.UP, era, 0, 16, Color("#ffe9a0"))
-	emit("tower_destroy", position + Vector2(0, -20), Vector2.UP, era, 0, 26)
-	emit("tower_destroy", position + Vector2(0, -6), Vector2.LEFT, era, 0, 18)
-	emit("tower_destroy", position + Vector2(0, -6), Vector2.RIGHT, era, 0, 18)
+	emit("tower_destroy", position + Vector2(0, -20), Vector2.UP, era, 0, 24)
+	emit("tower_destroy", position + Vector2(0, -6), Vector2.LEFT, era, 0, 16)
+	emit("tower_destroy", position + Vector2(0, -6), Vector2.RIGHT, era, 0, 16)
 	emit("smoke", position + Vector2(0, -24), Vector2.UP, era, 0, 14)
 	emit_ring(position, Color("#ffd273"), 96.0, 0.7, 0)
 	emit_ring(position + Vector2(0, -14), Color("#ff8e70"), 58.0, 0.55, 0)
@@ -461,8 +461,8 @@ func emit_tower_destroy(position: Vector2, era := "stone") -> void:
 		if not is_inside_tree():
 			return
 		emit("blast", position + Vector2(26, -54), Vector2.UP, era, 0, 10, Color("#ffcf7a"))
-		emit("tower_destroy", position + Vector2(18, -40), Vector2.UP, era, 0, 16)
-		emit_ring(position + Vector2(18, -40), Color("#ffd273"), 62.0, 0.5, 0)
+		emit("tower_destroy", position + Vector2(12, -32), Vector2.UP, era, 0, 12)
+		emit_ring(position + Vector2(12, -32), Color("#ffd273"), 62.0, 0.5, 0)
 	)
 
 func emit_tower_power(position: Vector2, era := "stone") -> void:
