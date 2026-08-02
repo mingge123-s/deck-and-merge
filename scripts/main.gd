@@ -464,8 +464,8 @@ func _update_tower_alarm_vfx(delta: float) -> void:
 	var ally_active := ally_tower_max_hp > 0.0 and ally_tower_hp / ally_tower_max_hp <= 0.25
 	var enemy_active := enemy_tower_max_hp > 0.0 and enemy_tower_hp / enemy_tower_max_hp <= 0.25
 	for entry in [
-		{"node": ally_tower_alarm_vfx, "active": ally_active, "phase": 0.0},
-		{"node": enemy_tower_alarm_vfx, "active": enemy_active, "phase": 1.7},
+		{"node": ally_tower_alarm_vfx, "tower": ally_tower_sprite, "active": ally_active, "phase": 0.0},
+		{"node": enemy_tower_alarm_vfx, "tower": enemy_tower_sprite, "active": enemy_active, "phase": 1.7},
 	]:
 		var node: Node2D = entry.node
 		if node == null:
@@ -475,7 +475,7 @@ func _update_tower_alarm_vfx(delta: float) -> void:
 			continue
 		var phase := Time.get_ticks_msec() * 0.003 + float(entry.phase)
 		node.modulate.a = 0.92 + sin(phase) * 0.06
-		node.position.y = BATTLE_GROUND_Y - TOWER_HEIGHT + 2.0
+		node.position = _tower_alarm_anchor(entry.tower)
 		for index in range(3):
 			var puff := node.get_node_or_null("SmokePuff%d" % index) as Polygon2D
 			if puff == null:
@@ -500,6 +500,15 @@ func _update_tower_alarm_vfx(delta: float) -> void:
 			)
 			ember.scale = Vector2.ONE * (0.72 + (1.0 - ember_rise) * 0.42)
 			ember.modulate.a = (1.0 - ember_rise) * (0.45 + maxf(0.0, sin(ember_phase * 2.0)) * 0.55)
+
+func _tower_alarm_anchor(tower: Sprite2D) -> Vector2:
+	if tower == null or tower.texture == null:
+		return Vector2(ALLY_TOWER_X if tower == ally_tower_sprite else ENEMY_TOWER_X, BATTLE_GROUND_Y - TOWER_HEIGHT)
+	var image := tower.texture.get_image()
+	var used := image.get_used_rect()
+	var local_center_x := (float(used.position.x) + float(used.size.x) * 0.5 - float(image.get_width()) * 0.5) * tower.scale.x
+	var local_top := (float(used.position.y) - float(image.get_height()) * 0.5) * tower.scale.y
+	return tower.position + Vector2(local_center_x, local_top + 2.0)
 
 func _panel_style(color: Color, border := Color("#70412c"), radius := 20, width := 3) -> StyleBoxFlat:
 	var style := StyleBoxFlat.new()

@@ -62,13 +62,13 @@ const PRESETS := {
 		"gravity": Vector2.ZERO, "spin": false, "curve": "shrink",
 	},
 	"death": {
-		"texture": "shard", "role": "material", "amount": 18, "lifetime": 0.8,
-		"scale": Vector2(0.7, 1.35), "speed": Vector2(110, 240), "spread": 72.0,
-		"gravity": Vector2(0, 440), "spin": true, "curve": "shrink",
+		"texture": "shard", "role": "material", "amount": 22, "lifetime": 0.82,
+		"scale": Vector2(0.9, 1.55), "speed": Vector2(130, 280), "spread": 76.0,
+		"gravity": Vector2(0, 450), "spin": true, "curve": "shrink",
 	},
 	"dust": {
 		"texture": "puff", "role": "smoke", "amount": 4, "lifetime": 0.6,
-		"scale": Vector2(0.7, 1.5), "speed": Vector2(14, 44), "spread": 120.0,
+		"scale": Vector2(0.9, 1.8), "speed": Vector2(14, 48), "spread": 120.0,
 		"gravity": Vector2(0, -26), "spin": false, "curve": "grow",
 	},
 	"smoke": {
@@ -414,10 +414,10 @@ func emit_hit(position: Vector2, direction := Vector2.LEFT, era := "stone") -> v
 	emit_impact_line(position, direction, Color(1, 1, 1, 0.95), 0.12)
 
 func emit_death(position: Vector2, direction := Vector2.UP, era := "stone") -> void:
-	emit("death", position + Vector2(0, -10), direction.rotated(-0.5), era, 1, 18)
-	emit("dust", position + Vector2(0, 6), Vector2.UP, era, 1, 9)
+	emit("death", position + Vector2(0, -10), direction.rotated(-0.5), era, 1, 22)
+	emit("dust", position + Vector2(0, 6), Vector2.UP, era, 1, 12)
 	emit_ground_stain(position)
-	emit_ring(position, Color(0.16, 0.11, 0.07, 0.5), 38.0, 0.48, 1)
+	emit_ring(position, Color(0.16, 0.11, 0.07, 0.58), 44.0, 0.5, 1)
 
 func emit_ground_stain(position: Vector2, duration := 0.8) -> bool:
 	for index in range(shard_pool.size()):
