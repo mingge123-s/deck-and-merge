@@ -1696,20 +1696,16 @@ func _do_clear_tray() -> void:
 	if not battle_active or battle_ended or tray_cards.size() < 3:
 		return
 	coin_count = maxi(0, coin_count - CLEAR_TRAY_COST)
-	var removals: Array[String] = tray_cards.duplicate()
-	removals.sort_custom(func(a: String, b: String) -> bool:
-		var count_a := tray_cards.count(a)
-		var count_b := tray_cards.count(b)
-		if count_a == count_b:
-			return _card_sort_key(a) < _card_sort_key(b)
-		return count_a < count_b
-	)
-	var removed := mini(3, removals.size())
-	for index in range(removed):
-		tray_cards.erase(removals[index])
+	var returned: Array[String] = tray_cards.duplicate()
+	tray_cards.clear()
+	# 整台清空：被清的卡无感补回牌堆底部，避免销毁后剩余同名卡永远凑不齐
+	for card_id in returned:
+		_spawn_card(card_id, deck_cards.size(), true)
 	_rebuild_tray_visuals()
-	battle_hint.text = "已扣 %d 金币清理合成台（移除 %d 张）" % [CLEAR_TRAY_COST, removed]
+	_refresh_covered()
+	battle_hint.text = "已扣 %d 金币清空合成台（%d 张补回牌堆）" % [CLEAR_TRAY_COST, returned.size()]
 	_update_coin_ui()
+	_update_progress_ui()
 
 func _build_era_select_panel() -> void:
 	era_select_panel = Panel.new()
