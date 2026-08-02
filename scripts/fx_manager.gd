@@ -121,6 +121,31 @@ const PRESETS := {
 		"scale": Vector2(0.6, 1.4), "speed": Vector2(60, 170), "spread": 170.0,
 		"gravity": Vector2(0, -24), "spin": false, "curve": "shrink",
 	},
+	"card_pick": {
+		"texture": "star", "role": "hot", "amount": 10, "lifetime": 0.42,
+		"scale": Vector2(0.35, 0.9), "speed": Vector2(28, 82), "spread": 150.0,
+		"gravity": Vector2(0, -22), "spin": true, "curve": "shrink",
+	},
+	"card_merge": {
+		"texture": "ring", "role": "hot", "amount": 24, "lifetime": 0.65,
+		"scale": Vector2(0.5, 1.2), "speed": Vector2(48, 128), "spread": 180.0,
+		"gravity": Vector2(0, -36), "spin": false, "curve": "shrink",
+	},
+	"era_transition": {
+		"texture": "star", "role": "hot", "amount": 36, "lifetime": 1.0,
+		"scale": Vector2(0.45, 1.4), "speed": Vector2(58, 150), "spread": 180.0,
+		"gravity": Vector2(0, -20), "spin": true, "curve": "shrink",
+	},
+	"wave_start": {
+		"texture": "ring", "role": "hot", "amount": 28, "lifetime": 0.7,
+		"scale": Vector2(0.4, 1.1), "speed": Vector2(36, 112), "spread": 180.0,
+		"gravity": Vector2(0, -28), "spin": false, "curve": "shrink",
+	},
+	"victory": {
+		"texture": "star", "role": "hot", "amount": 44, "lifetime": 1.2,
+		"scale": Vector2(0.5, 1.6), "speed": Vector2(70, 190), "spread": 180.0,
+		"gravity": Vector2(0, 34), "spin": true, "curve": "shrink",
+	},
 }
 
 var unit_count_getter: Callable
@@ -219,6 +244,15 @@ func _build_textures() -> void:
 	textures["ring"] = _make_texture(func(image: Image, x: int, y: int) -> void:
 		var distance := Vector2(x, y).distance_to(Vector2(7.5, 7.5))
 		var alpha := 1.0 if distance > 5.2 and distance < 7.2 else 0.0
+		image.set_pixel(x, y, Color(1, 1, 1, alpha))
+	, 16)
+	textures["star"] = _make_texture(func(image: Image, x: int, y: int) -> void:
+		var center := Vector2(7.5, 7.5)
+		var distance := Vector2(x, y).distance_to(center)
+		var cross := minf(absf(float(x) - center.x), absf(float(y) - center.y))
+		var alpha := clampf(1.0 - distance / 8.0, 0.0, 1.0)
+		if cross < 1.5:
+			alpha = maxf(alpha, 0.8)
 		image.set_pixel(x, y, Color(1, 1, 1, alpha))
 	, 16)
 
@@ -471,6 +505,28 @@ func emit_tower_power(position: Vector2, era := "stone") -> void:
 
 func emit_boss_entry(position: Vector2, color: Color, era := "stone") -> void:
 	emit("boss_entry", position, Vector2.UP, era, 0, 60, color)
+
+func emit_card_pick(position: Vector2, color: Color, era := "stone") -> void:
+	emit("card_pick", position, Vector2.UP, era, 1, 10, color)
+	emit_ring(position, color, 26.0, 0.28, 1)
+
+func emit_card_merge(position: Vector2, color: Color, era := "stone") -> void:
+	emit("card_merge", position, Vector2.UP, era, 0, 24, color)
+	emit_ring(position, color.lightened(0.18), 58.0, 0.55, 0)
+	emit_impact_line(position, Vector2.UP, color.lightened(0.35), 0.18)
+
+func emit_era_transition(position: Vector2, color: Color, era := "stone") -> void:
+	emit("era_transition", position, Vector2.UP, era, 0, 36, color)
+	emit_ring(position, color, 118.0, 0.9, 0)
+	emit_ring(position, color.lightened(0.25), 68.0, 0.55, 0)
+
+func emit_wave_start(position: Vector2, color: Color, era := "stone") -> void:
+	emit("wave_start", position, Vector2.UP, era, 1, 20, color)
+	emit_ring(position, color, 86.0, 0.65, 1)
+
+func emit_victory(position: Vector2, color: Color, era := "stone") -> void:
+	emit("victory", position, Vector2.UP, era, 0, 44, color)
+	emit_ring(position, color, 130.0, 0.9, 0)
 
 func budget_stats() -> Dictionary:
 	var emitters := 0

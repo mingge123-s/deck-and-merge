@@ -2152,7 +2152,15 @@ func _on_card_clicked(card: CardView) -> void:
 			card.queue_free()
 		_add_to_tray(selected_id)
 		AudioManager.play_sfx("place")
+		if fx_manager != null:
+			fx_manager.emit_card_pick(_slot_position(target_index), _card_fx_color(selected_id), current_era)
 	)
+
+func _card_fx_color(card_id: String) -> Color:
+	if _is_effect_card(card_id):
+		return Color("#d58cff")
+	var data: Dictionary = GameData.CARDS.get(card_id, {})
+	return data.get("color", Color("#ffd273"))
 
 func _can_pick_cards() -> bool:
 	return battle_active and not battle_ended and (not paused or auto_prep)
@@ -2349,6 +2357,8 @@ func _check_merges() -> void:
 			var effect := _effect_by_id(effect_id)
 			print("效果合成: %d x %s -> %s" % [EFFECT_CARD_PAIR_SIZE, effect_card_id, str(effect.name)])
 			AudioManager.play_sfx("merge")
+			if fx_manager != null:
+				fx_manager.emit_card_merge(tray.global_position + Vector2(324, 40), Color("#d58cff"), current_era)
 			_rebuild_tray_visuals()
 			_apply_random_effect(effect)
 			battle_hint.text = "效果卡发动：%s" % str(effect.name)
@@ -2363,6 +2373,8 @@ func _check_merges() -> void:
 			var hero_id: String = GameData.CARDS[card_id].hero
 			print("合成成功: 3 x %s -> %s" % [card_id, hero_id])
 			AudioManager.play_sfx("merge")
+			if fx_manager != null:
+				fx_manager.emit_card_merge(tray.global_position + Vector2(324, 40), Color("#ffd273"), current_era)
 			_rebuild_tray_visuals()
 			_spawn_ally(hero_id)
 			_check_merges()
@@ -2429,6 +2441,8 @@ func _spawn_wave() -> void:
 	wave_boss_pending = wave_number % int(d.boss_wave) == 0
 	enemy_spawn_index = 0
 	enemy_spawn_timer = 0.0
+	if fx_manager != null:
+		fx_manager.emit_wave_start(Vector2(360, BATTLE_GROUND_Y - 36.0), Color("#ff9a78"), enemy_era)
 	_enemy_ai_take_turn()
 
 func _wave_field_target() -> int:
@@ -2468,7 +2482,7 @@ func _enemy_rally_surge() -> void:
 	var saved_boss := wave_boss_pending
 	wave_boss_pending = false
 	for _i in range(burst):
-		_spawn_one_enemy(true)
+	_spawn_one_enemy(true)
 	wave_boss_pending = saved_boss
 	_announce_enemy_action("敌方拼死反扑！", "")
 	AudioManager.play_sfx("era")
@@ -2852,6 +2866,8 @@ func _advance_era() -> void:
 	current_era = GameData.ERAS[era_index]
 	SaveManager.unlock_era(era_index)
 	AudioManager.play_sfx("era")
+	if fx_manager != null:
+		fx_manager.emit_era_transition(Vector2(360, 280), _era_fx_color(current_era), current_era)
 	_rescale_towers_for_era()
 	_update_progress_ui()
 	battle_hint.text = "文明进阶：%s！新一轮牌堆解锁更高级卡牌" % GameData.ERA_NAMES[current_era]
@@ -2870,7 +2886,13 @@ func _advance_enemy_era() -> void:
 	_refresh_era_visuals(true)
 	_update_tower_ui()
 	AudioManager.play_sfx("era")
+	if fx_manager != null:
+		fx_manager.emit_era_transition(Vector2(360, 280), _era_fx_color(enemy_era), enemy_era)
 	_announce_enemy_action("敌方进阶：%s" % str(GameData.ERA_NAMES.get(enemy_era, enemy_era)), "")
+
+func _era_fx_color(era: String) -> Color:
+	var material: Dictionary = fx_manager.era_material(era) if fx_manager != null else {}
+	return material.get("primary", Color("#ffd273"))
 
 func _rescale_towers_for_era() -> void:
 	var ally_target := GameData.tower_hp(current_era) * float(_diff().tower_mult)
@@ -2919,6 +2941,9 @@ func _finish_battle(won: bool, message: String) -> void:
 	battle_won = won
 	_update_progress_ui()
 	AudioManager.play_sfx("victory" if won else "defeat")
+	if fx_manager != null:
+		if won:
+			fx_manager.emit_victory(Vector2(360, BATTLE_GROUND_Y - 42.0), Color("#ffd273"), current_era)
 	print("战斗结束: %s" % message)
 	if won:
 		var reward := _era_amount(VICTORY_REWARD_BASE)
