@@ -3,6 +3,7 @@ extends Node2D
 
 signal expired(unit: BattleUnit)
 signal death_started(unit: BattleUnit)
+signal poison_tick(unit: BattleUnit, dps_amount: float, source: String)
 
 static var _meta_cache: Dictionary = {}
 static var _frames_cache: Dictionary = {}
@@ -28,6 +29,24 @@ var score_awarded := false
 var visual_base_scale := Vector2.ONE
 var hit_punch_tween: Tween
 var last_damage_source := "hero"
+var energy := 0.0
+var skill_cost := 0
+var skill_once := false
+var skill_used := false
+var stun_time := 0.0
+var shield_time := 0.0
+var shield_reduce := 0.0
+var reflect_time := 0.0
+var reflect_frac := 0.0
+var reflect_shield_reduce := 0.0
+var berserk_time := 0.0
+var berserk_atk := 1.0
+var berserk_aspd := 1.0
+var poison_time := 0.0
+var poison_dps := 0.0
+var poison_source := "hero"
+var taunted_by: BattleUnit
+var taunt_time := 0.0
 var _buff_aura_root: Node2D
 var _buff_ring: Line2D
 var _buff_dots_root: Node2D
@@ -40,6 +59,11 @@ func setup(id: String, side: String, data: Dictionary, texture: Texture2D) -> vo
 	unit_id = id
 	faction = side
 	stats = data
+	var skill_data: Dictionary = data.get("skill", {})
+	skill_cost = int(skill_data.get("cost", 0))
+	skill_once = bool(skill_data.get("once", false))
+	energy = 0.0
+	skill_used = false
 	max_hp = float(data.hp)
 	hp = max_hp
 	var role_scale := float(data.get("scale", 1.0))
@@ -266,6 +290,64 @@ func _process(delta: float) -> void:
 	if flash_time > 0.0 and is_instance_valid(visual):
 		flash_time -= delta
 		visual.modulate = Color(1.0, 0.7, 0.5) if flash_time > 0.0 else Color.WHITE
+	stun_time = maxf(0.0, stun_time - delta)
+	shield_time = maxf(0.0, shield_time - delta)
+	reflect_time = maxf(0.0, reflect_time - delta)
+	berserk_time = maxf(0.0, berserk_time - delta)
+	taunt_time = maxf(0.0, taunt_time - delta)
+	poison_time = maxf(0.0, poison_time - delta)
+	if poison_time > 0.0 and alive and poison_dps > 0.0:
+		_poison_tick_accumulator += delta
+		while _poison_tick_accumulator >= 1.0:
+			_poison_tick_accumulator -= 1.0
+			poison_tick.emit(self, poison_dps, poison_source)
+	else:
+		_poison_tick_accumulator = 0.0
+	queue_redraw()
+
+var _poison_tick_accumulator := 0.0
+
+func gain_energy(amount := 1.0) -> void:
+	if skill_cost <= 0 or skill_used:
+		return
+	energy = minf(float(skill_cost), energy + amount)
+	queue_redraw()
+
+func skill_ready() -> bool:
+	return skill_cost > 0 and energy >= float(skill_cost) and (not skill_once or not skill_used)
+
+func add_stun(duration: float) -> void:
+	stun_time = maxf(stun_time, duration)
+	set_moving(false)
+	queue_redraw()
+
+func add_shield(duration: float, reduce: float) -> void:
+	shield_time = maxf(shield_time, duration)
+	shield_reduce = maxf(shield_reduce, reduce)
+	queue_redraw()
+
+func add_reflect(duration: float, reduction: float, reflect: float) -> void:
+	reflect_time = maxf(reflect_time, duration)
+	reflect_shield_reduce = maxf(reflect_shield_reduce, reduction)
+	reflect_frac = maxf(reflect_frac, reflect)
+	queue_redraw()
+
+func add_berserk(duration: float, attack_multiplier: float, attack_speed_multiplier: float) -> void:
+	berserk_time = maxf(berserk_time, duration)
+	berserk_atk = maxf(berserk_atk, attack_multiplier)
+	berserk_aspd = maxf(berserk_aspd, attack_speed_multiplier)
+	queue_redraw()
+
+func add_poison(duration: float, dps: float, source: String) -> void:
+	poison_time = duration
+	poison_dps = dps
+	poison_source = source
+	queue_redraw()
+
+func add_taunt(source: BattleUnit, duration: float) -> void:
+	taunted_by = source
+	taunt_time = maxf(taunt_time, duration)
+	queue_redraw()
 
 func receive_damage(amount: float, source := "hero") -> void:
 	if not alive:
@@ -332,3 +414,22 @@ func _draw() -> void:
 	var bar_color := Color("#7fd65e") if faction == "ally" else Color("#ef6a4f")
 	draw_rect(Rect2(-bar_width * 0.5 + 2, bar_y + 2, (bar_width - 4) * ratio, 4), bar_color, true)
 	draw_line(Vector2(-bar_width * 0.5, bar_y + 9), Vector2(bar_width * 0.5, bar_y + 9), Color("#f7dfac", 0.7), 1.0)
+	if skill_cost > 0:
+		var energy_y := bar_y + 13.0
+		var energy_ratio := clampf(energy / float(skill_cost), 0.0, 1.0)
+		draw_rect(Rect2(-bar_width * 0.5 - 1, energy_y - 1, bar_width + 2, 7), Color(0.05, 0.03, 0.02, 0.86), true)
+		var energy_color := Color("#ffe27a") if energy_ratio < 1.0 else Color("#fff4ae")
+		draw_rect(Rect2(-bar_width * 0.5, energy_y, bar_width * energy_ratio, 5), energy_color, true)
+		if energy_ratio >= 1.0:
+			draw_line(Vector2(-bar_width * 0.5, energy_y), Vector2(bar_width * 0.5, energy_y), Color("#fff8d0", 0.9), 1.0)
+	if shield_time > 0.0 or reflect_time > 0.0:
+		var shield_color := Color("#ffd273") if shield_time > 0.0 else Color("#d7e9ff")
+		draw_arc(Vector2(0, -body_height * 0.42), 42.0, 0.0, TAU, 32, Color(shield_color, 0.75), 3.0)
+	if stun_time > 0.0:
+		var star_y := -(body_height + 35.0)
+		for index in range(3):
+			var angle := Time.get_ticks_msec() * 0.004 + float(index) * TAU / 3.0
+			var center := Vector2(cos(angle) * 22.0, star_y + sin(angle) * 4.0)
+			draw_circle(center, 4.0, Color("#fff4ae"))
+			draw_line(center + Vector2(-7, 0), center + Vector2(7, 0), Color("#fff8d0"), 1.5)
+			draw_line(center + Vector2(0, -7), center + Vector2(0, 7), Color("#fff8d0"), 1.5)

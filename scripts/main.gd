@@ -1622,7 +1622,21 @@ func _sync_unit_buff_auras(faction: String) -> void:
 		ids.append("freeze")
 		colors.append(_effect_color("freeze", faction))
 	for unit in _living_units(faction):
-		unit.set_buff_aura(ids, colors)
+		var unit_ids := ids.duplicate()
+		var unit_colors := colors.duplicate()
+		if unit.shield_time > 0.0:
+			unit_ids.append("skill_shield")
+			unit_colors.append(Color("#ffd273"))
+		if unit.reflect_time > 0.0:
+			unit_ids.append("skill_reflect")
+			unit_colors.append(Color("#d7e9ff"))
+		if unit.berserk_time > 0.0:
+			unit_ids.append("skill_berserk")
+			unit_colors.append(Color("#ff665c"))
+		if unit.poison_time > 0.0:
+			unit_ids.append("skill_poison")
+			unit_colors.append(Color("#8ee56d"))
+		unit.set_buff_aura(unit_ids, unit_colors)
 
 func _sync_tower_power_vfx() -> void:
 	_update_tower_aura(ally_tower_aura, tower_attack_bonus > 1.0)
@@ -2428,6 +2442,7 @@ func _spawn_ally(hero_id: String) -> BattleUnit:
 	unit.z_index = 4 + lane
 	unit.expired.connect(_on_unit_expired)
 	unit.death_started.connect(_on_unit_death_started)
+	unit.poison_tick.connect(_on_unit_poison_tick)
 	world.add_child(unit)
 	battle_units.append(unit)
 	occupied_units += 1
@@ -2541,6 +2556,7 @@ func _spawn_enemy(hero_id: String, index: int, total_count: int) -> BattleUnit:
 	unit.z_index = 4 + lane
 	unit.expired.connect(_on_unit_expired)
 	unit.death_started.connect(_on_unit_death_started)
+	unit.poison_tick.connect(_on_unit_poison_tick)
 	world.add_child(unit)
 	battle_units.append(unit)
 	var is_boss := str(data.get("role", "")) == "boss"
@@ -2563,7 +2579,13 @@ func _step_battle(delta: float) -> void:
 		if unit.faction == "ally" and ally_freeze_time > 0.0:
 			unit.set_moving(false)
 			continue
+		if unit.stun_time > 0.0:
+			unit.set_moving(false)
+			continue
 		unit.attack_cooldown = maxf(0.0, unit.attack_cooldown - delta)
+		if unit.skill_ready() and _skill_type(unit) == "blink_crit":
+			if unit.attack_cooldown <= 0.0 and _try_cast_skill(unit, null):
+				continue
 		var target := _find_target(unit, ally_units, enemy_units)
 		if target != null:
 			var distance := absf(target.position.x - unit.position.x)
@@ -2572,9 +2594,11 @@ func _step_battle(delta: float) -> void:
 			if distance > engage:
 				_move_unit(unit, target.position.x, delta)
 				if in_range and unit.attack_cooldown <= 0.0:
-					_attack(unit, target)
+					if not _try_cast_skill(unit, target):
+						_attack(unit, target)
 			elif unit.attack_cooldown <= 0.0:
-				_attack(unit, target)
+				if not _try_cast_skill(unit, target):
+					_attack(unit, target)
 		else:
 			var tower_x := ENEMY_TOWER_X if unit.faction == "ally" else ALLY_TOWER_X
 			if absf(tower_x - unit.position.x) > TOWER_RANGE:
@@ -2669,6 +2693,8 @@ func _unit_damage(attacker: BattleUnit) -> float:
 	var damage := float(attacker.stats.attack)
 	if _buff_active_side(attacker.faction, "morale"):
 		damage *= 1.25
+	if attacker.berserk_time > 0.0:
+		damage *= attacker.berserk_atk
 	return damage
 
 func _deal_damage(target: BattleUnit, amount: float, source: String, attacker: BattleUnit = null) -> void:
@@ -2677,6 +2703,10 @@ func _deal_damage(target: BattleUnit, amount: float, source: String, attacker: B
 	var damage := amount
 	if _buff_active_side(target.faction, "bulwark"):
 		damage *= 0.7
+	if target.shield_time > 0.0:
+		damage *= 1.0 - target.shield_reduce
+	if target.reflect_time > 0.0:
+		damage *= 1.0 - target.reflect_shield_reduce
 	target.receive_damage(damage, source)
 	if attacker == null or not is_instance_valid(attacker) or not attacker.alive:
 		return
@@ -2692,11 +2722,15 @@ func _deal_damage(target: BattleUnit, amount: float, source: String, attacker: B
 	var melee := float(attacker.stats.get("range", 0.0)) < PROJECTILE_RANGE_THRESHOLD
 	if melee and attacker.faction != target.faction and _buff_active_side(target.faction, "thorns"):
 		attacker.receive_damage(damage * 0.3, "hero")
+	if melee and attacker.faction != target.faction and target.reflect_time > 0.0:
+		attacker.receive_damage(damage * target.reflect_frac, "hero")
 
 func _find_target(unit: BattleUnit, ally_units: Array[BattleUnit], enemy_units: Array[BattleUnit]) -> BattleUnit:
 	var candidates := enemy_units if unit.faction == "ally" else ally_units
 	if candidates.is_empty():
 		return null
+	if unit.taunt_time > 0.0 and is_instance_valid(unit.taunted_by) and unit.taunted_by.alive:
+		return unit.taunted_by
 	var aggro_tanks: Array[BattleUnit] = []
 	for candidate in candidates:
 		if not is_instance_valid(candidate) or not candidate.alive:
@@ -2731,10 +2765,186 @@ func _is_front_candidate(unit: BattleUnit, candidate: BattleUnit) -> bool:
 		return candidate.position.x >= unit.position.x - FRONT_TOLERANCE
 	return candidate.position.x <= unit.position.x + FRONT_TOLERANCE
 
+func _skill_data(unit: BattleUnit) -> Dictionary:
+	var value: Variant = unit.stats.get("skill", {})
+	return value if value is Dictionary else {}
+
+func _skill_type(unit: BattleUnit) -> String:
+	return str(_skill_data(unit).get("type", ""))
+
+func _skill_color(unit: BattleUnit) -> Color:
+	return Color("#ffd273") if unit.faction == "ally" else Color("#ff8e70")
+
+func _spend_unit_attack_time(unit: BattleUnit) -> void:
+	unit.spend_attack_time()
+	if _buff_active_side(unit.faction, "frenzy"):
+		unit.attack_cooldown /= 1.4
+	if unit.berserk_time > 0.0:
+		unit.attack_cooldown /= unit.berserk_aspd
+
+func _try_cast_skill(unit: BattleUnit, target: BattleUnit) -> bool:
+	if not unit.skill_ready():
+		return false
+	var skill_type := _skill_type(unit)
+	if skill_type == "blink_crit":
+		target = _lowest_health_enemy(unit, 600.0)
+	elif target == null or not is_instance_valid(target) or not target.alive:
+		return false
+	if skill_type == "blink_crit" and target == null:
+		return false
+	_spend_unit_attack_time(unit)
+	unit.play_attack()
+	unit.energy = 0.0
+	if unit.skill_once:
+		unit.skill_used = true
+	_cast_skill(unit, target)
+	return true
+
+func _cast_skill(unit: BattleUnit, target: BattleUnit) -> void:
+	var skill_type := _skill_type(unit)
+	var skill_name := str(_skill_data(unit).get("name", skill_type))
+	var color := _skill_color(unit)
+	_spawn_hit_fx(unit.position, color, skill_name, 0.8, -12.0)
+	var era := str(unit.stats.get("era", "stone"))
+	match skill_type:
+		"taunt_shield":
+			unit.add_shield(4.0, 0.4)
+			for enemy in _living_units("enemy" if unit.faction == "ally" else "ally"):
+				if enemy.position.distance_to(unit.position) <= 180.0:
+					enemy.add_taunt(unit, 3.0)
+			if fx_manager != null:
+				fx_manager.emit_ring(unit.position, Color("#ffd273"), 58.0, 0.7, 0)
+				fx_manager.emit("effect", unit.position + Vector2(0, -48), Vector2.UP, era, 1, 18, Color("#ffe8a0"))
+		"smash_stun":
+			_deal_damage(target, _unit_damage(unit) * 2.0, "hero", unit)
+			target.add_stun(1.5)
+			_spawn_hit_fx(target.position, Color("#fff0bd"), "眩晕", 0.65)
+			if fx_manager != null:
+				fx_manager.emit("blast", target.position, Vector2.UP, era, 0, 22, color)
+				fx_manager.emit_impact_line(target.position, target.position - unit.position, Color("#fff4c4"), 0.2)
+		"poison":
+			target.add_poison(5.0, _unit_damage(unit) * 0.6, unit.faction)
+			_spawn_hit_fx(target.position, Color("#9df078"), "中毒", 0.7)
+			if fx_manager != null:
+				fx_manager.emit("smoke", target.position + Vector2(0, -34), Vector2.UP, era, 1, 12, Color("#7bd66a"))
+				fx_manager.emit_ring(target.position, Color("#8ee56d"), 34.0, 0.5, 1)
+		"boulder_splash":
+			_cast_boulder_splash(unit, target)
+		"aoe_stun":
+			var enemies := _living_units("enemy" if unit.faction == "ally" else "ally")
+			for enemy in enemies:
+				if enemy.position.distance_to(unit.position) <= 200.0:
+					enemy.add_stun(2.5)
+					_spawn_hit_fx(enemy.position, Color("#fff0bd"), "眩晕", 0.65)
+			if fx_manager != null:
+				fx_manager.emit_shockwave(unit.position, color, 200.0)
+			_shake_battlefield()
+		"thorns_shield":
+			unit.add_reflect(5.0, 0.3, 0.5)
+			if fx_manager != null:
+				fx_manager.emit_ring(unit.position, Color("#d7e9ff"), 60.0, 0.7, 0)
+				for index in range(4):
+					fx_manager.emit_impact_line(unit.position, Vector2.RIGHT.rotated(float(index) * TAU / 4.0), Color("#eaf4ff"), 0.2)
+		"whirlwind":
+			var enemies := _living_units("enemy" if unit.faction == "ally" else "ally")
+			for enemy in enemies:
+				if enemy.position.distance_to(unit.position) <= 120.0:
+					_deal_damage(enemy, _unit_damage(unit) * 1.6, "hero", unit)
+					_spawn_hit_fx(enemy.position, color, "斩击", 0.45)
+			if fx_manager != null:
+				fx_manager.emit_slash_arc(unit.position + Vector2(0, -54), color, 120.0, 1.0 if unit.faction == "ally" else -1.0)
+		"blink_crit":
+			var from := unit.position
+			var facing := 1.0 if unit.faction == "ally" else -1.0
+			unit.position = target.position + Vector2(-facing * 44.0, 0)
+			_deal_damage(target, _unit_damage(unit) * 2.5, "hero", unit)
+			_spawn_hit_fx(target.position, Color("#fff4ae"), "暴击!", 0.8)
+			if fx_manager != null:
+				fx_manager.emit_afterimage(from, unit.position, Color("#c78cff"))
+				fx_manager.emit_hit(target.position, Vector2(facing, 0), era)
+		"multishot":
+			_cast_multishot(unit, target)
+		"berserk":
+			unit.add_berserk(8.0, 1.5, 1.5)
+			if fx_manager != null:
+				fx_manager.emit_ring(unit.position, Color("#ff665c"), 62.0, 0.75, 0)
+				fx_manager.emit("effect", unit.position + Vector2(0, -52), Vector2.UP, era, 1, 20, Color("#ff665c"))
+			var pulse := create_tween()
+			pulse.tween_property(unit, "scale", Vector2(1.12, 1.12), 0.12)
+			pulse.tween_property(unit, "scale", Vector2.ONE, 0.18)
+
+func _lowest_health_enemy(unit: BattleUnit, radius: float) -> BattleUnit:
+	var candidates := _living_units("enemy" if unit.faction == "ally" else "ally")
+	var result: BattleUnit
+	var lowest := INF
+	for candidate in candidates:
+		if candidate.position.distance_to(unit.position) > radius:
+			continue
+		if candidate.hp < lowest:
+			result = candidate
+			lowest = candidate.hp
+	return result
+
+func _cast_boulder_splash(attacker: BattleUnit, target: BattleUnit) -> void:
+	var start_pos := attacker.position + Vector2(30.0 if attacker.faction == "ally" else -30.0, -56.0)
+	var impact_position := target.position
+	var target_pos := func() -> Variant:
+		if is_instance_valid(target) and target.alive:
+			return target.position + Vector2(0, -56.0)
+		return impact_position
+	var damage := _unit_damage(attacker) * 1.2
+	var on_hit := func() -> void:
+		var victims := _living_units("enemy" if attacker.faction == "ally" else "ally")
+		for victim in victims:
+			if victim.position.distance_to(impact_position) <= 90.0:
+				_deal_damage(victim, damage, "hero", attacker)
+		_spawn_hit_fx(impact_position, Color("#ffe09a"), "巨石!", 0.65)
+		if fx_manager != null:
+			fx_manager.emit("blast", impact_position, Vector2.UP, str(attacker.stats.era), 0, 28, Color("#dfbb79"))
+			fx_manager.emit_ring(impact_position, Color("#ffe09a"), 90.0, 0.6, 0)
+	var projectile := Projectile.new()
+	projectile.setup(start_pos, target_pos, 180.0, str(attacker.stats.era), Color("#dfbb79"), on_hit)
+	world.add_child(projectile)
+
+func _cast_multishot(attacker: BattleUnit, target: BattleUnit) -> void:
+	var candidates := _living_units("enemy" if attacker.faction == "ally" else "ally")
+	candidates.sort_custom(func(a: BattleUnit, b: BattleUnit) -> bool:
+		return a.position.distance_to(attacker.position) < b.position.distance_to(attacker.position)
+	)
+	var count := mini(3, candidates.size())
+	for index in range(count):
+		var victim: BattleUnit = candidates[index]
+		_deal_damage(victim, _unit_damage(attacker), "hero", attacker)
+		_spawn_hit_fx(victim.position, Color("#e7ff9b"), "箭", 0.35)
+		if fx_manager != null:
+			fx_manager.emit_hit(victim.position, (victim.position - attacker.position).normalized(), str(attacker.stats.era))
+
+func _apply_basic_splash(attacker: BattleUnit, target: BattleUnit, damage: float) -> void:
+	var splash_value: Variant = attacker.stats.get("basic_splash", null)
+	if not splash_value is Dictionary:
+		return
+	var splash: Dictionary = splash_value
+	var radius := float(splash.get("radius", 0.0))
+	var frac := float(splash.get("frac", 0.0))
+	var candidates := _living_units("enemy" if attacker.faction == "ally" else "ally")
+	for victim in candidates:
+		if victim == target:
+			continue
+		if victim.position.distance_to(target.position) <= radius:
+			_deal_damage(victim, damage * frac, "hero", attacker)
+			if fx_manager != null:
+				fx_manager.emit_hit(victim.position, Vector2.UP, str(attacker.stats.era))
+
+func _on_unit_poison_tick(unit: BattleUnit, dps_amount: float, source: String) -> void:
+	if not is_instance_valid(unit) or not unit.alive:
+		return
+	_deal_damage(unit, dps_amount, source)
+	_spawn_hit_fx(unit.position, Color("#8ee56d"), "毒", 0.25)
+	if fx_manager != null:
+		fx_manager.emit("effect", unit.position + Vector2(0, -34), Vector2.UP, str(unit.stats.get("era", "stone")), 1, 3, Color("#8ee56d"))
+
 func _attack(attacker: BattleUnit, target: BattleUnit) -> void:
-	attacker.spend_attack_time()
-	if _buff_active_side(attacker.faction, "frenzy"):
-		attacker.attack_cooldown /= 1.4
+	_spend_unit_attack_time(attacker)
 	attacker.play_attack()
 	var damage := _unit_damage(attacker)
 	if float(attacker.stats.get("range", 0.0)) >= PROJECTILE_RANGE_THRESHOLD:
@@ -2747,6 +2957,8 @@ func _attack(attacker: BattleUnit, target: BattleUnit) -> void:
 		var on_hit := func() -> void:
 			if is_instance_valid(target) and target.alive:
 				_deal_damage(target, damage, "hero", attacker)
+				_apply_basic_splash(attacker, target, damage)
+				attacker.gain_energy()
 				_spawn_hit_fx(target.position, Color("#ffd273"), "✦")
 				if fx_manager != null:
 					fx_manager.emit_hit(
@@ -2767,6 +2979,8 @@ func _attack(attacker: BattleUnit, target: BattleUnit) -> void:
 		world.add_child(projectile)
 		return
 	_deal_damage(target, damage, "hero", attacker)
+	_apply_basic_splash(attacker, target, damage)
+	attacker.gain_energy()
 	_spawn_hit_fx(target.position, Color("#ffd273"), "✦")
 	if fx_manager != null:
 		fx_manager.emit_hit(
@@ -2777,9 +2991,7 @@ func _attack(attacker: BattleUnit, target: BattleUnit) -> void:
 	AudioManager.play_sfx("hit")
 
 func _attack_tower(attacker: BattleUnit) -> void:
-	attacker.spend_attack_time()
-	if _buff_active_side(attacker.faction, "frenzy"):
-		attacker.attack_cooldown /= 1.4
+	_spend_unit_attack_time(attacker)
 	attacker.play_attack()
 	var damage := _unit_damage(attacker)
 	var tower_x := ENEMY_TOWER_X if attacker.faction == "ally" else ALLY_TOWER_X

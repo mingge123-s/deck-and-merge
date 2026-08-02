@@ -447,6 +447,26 @@ func emit_hit(position: Vector2, direction := Vector2.LEFT, era := "stone") -> v
 	emit("flash", position, Vector2.UP, era, 2, -1)
 	emit_impact_line(position, direction, Color(1, 1, 1, 0.95), 0.12)
 
+func emit_slash_arc(position: Vector2, color: Color, radius: float, facing: float) -> void:
+	var forward := Vector2(facing, 0)
+	for index in range(3):
+		var direction := forward.rotated(-0.72 + float(index) * 0.72)
+		emit_impact_line(position + direction * radius * 0.45, direction, color, 0.16 + float(index) * 0.03)
+	emit_ring(position, Color(color, 0.7), radius, 0.28, 1)
+
+func emit_afterimage(from: Vector2, to: Vector2, color: Color) -> void:
+	var direction := to - from
+	for index in range(4):
+		var progress := float(index) / 4.0
+		var point := from.lerp(to, progress)
+		emit("flash", point, direction.normalized(), "iron", 1, 3, Color(color, 0.65 - progress * 0.1))
+	emit_impact_line((from + to) * 0.5, direction.normalized(), Color(color, 0.8), 0.22)
+
+func emit_shockwave(position: Vector2, color: Color, radius: float) -> void:
+	emit("blast", position, Vector2.UP, "stone", 0, 24, color)
+	emit_ring(position, color, radius, 0.65, 0)
+	emit_ring(position, Color(color, 0.72), radius * 0.62, 0.42, 1)
+
 func emit_death(position: Vector2, direction := Vector2.UP, era := "stone") -> void:
 	emit("death", position + Vector2(0, -10), direction.rotated(-0.5), era, 1, 22)
 	emit("dust", position + Vector2(0, 6), Vector2.UP, era, 1, 12)
