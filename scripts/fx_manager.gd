@@ -50,9 +50,84 @@ const MATERIALS := {
 	},
 }
 
+const PRESETS := {
+	"hit": {
+		"texture": "spark", "role": "hot", "amount": 9, "lifetime": 0.32,
+		"scale": Vector2(1.1, 2.0), "speed": Vector2(110, 215), "spread": 34.0,
+		"gravity": Vector2(0, 200), "spin": true, "curve": "shrink",
+	},
+	"flash": {
+		"texture": "dot", "role": "hot", "amount": 3, "lifetime": 0.16,
+		"scale": Vector2(1.6, 2.6), "speed": Vector2(10, 40), "spread": 180.0,
+		"gravity": Vector2.ZERO, "spin": false, "curve": "shrink",
+	},
+	"death": {
+		"texture": "shard", "role": "material", "amount": 12, "lifetime": 0.7,
+		"scale": Vector2(0.55, 1.1), "speed": Vector2(90, 210), "spread": 68.0,
+		"gravity": Vector2(0, 420), "spin": true, "curve": "shrink",
+	},
+	"dust": {
+		"texture": "puff", "role": "smoke", "amount": 4, "lifetime": 0.6,
+		"scale": Vector2(0.7, 1.5), "speed": Vector2(14, 44), "spread": 120.0,
+		"gravity": Vector2(0, -26), "spin": false, "curve": "grow",
+	},
+	"smoke": {
+		"texture": "puff", "role": "smoke", "amount": 14, "lifetime": 1.15,
+		"scale": Vector2(1.2, 2.4), "speed": Vector2(24, 70), "spread": 55.0,
+		"gravity": Vector2(0, -54), "spin": false, "curve": "grow",
+	},
+	"spawn": {
+		"texture": "dot", "role": "hot", "amount": 12, "lifetime": 0.55,
+		"scale": Vector2(0.35, 0.8), "speed": Vector2(26, 70), "spread": 140.0,
+		"gravity": Vector2(0, 34), "spin": false, "curve": "shrink",
+	},
+	"effect": {
+		"texture": "dot", "role": "hot", "amount": 18, "lifetime": 0.8,
+		"scale": Vector2(0.45, 1.0), "speed": Vector2(40, 120), "spread": 140.0,
+		"gravity": Vector2(0, 20), "spin": false, "curve": "shrink",
+	},
+	"lifesteal": {
+		"texture": "dot", "role": "hot", "amount": 6, "lifetime": 0.45,
+		"scale": Vector2(0.4, 0.85), "speed": Vector2(90, 150), "spread": 16.0,
+		"gravity": Vector2.ZERO, "spin": false, "curve": "shrink",
+	},
+	"heal": {
+		"texture": "dot", "role": "hot", "amount": 8, "lifetime": 0.7,
+		"scale": Vector2(0.4, 0.9), "speed": Vector2(46, 92), "spread": 16.0,
+		"gravity": Vector2(0, -46), "spin": false, "curve": "shrink",
+	},
+	"tower_hit": {
+		"texture": "shard", "role": "material", "amount": 12, "lifetime": 0.55,
+		"scale": Vector2(0.6, 1.2), "speed": Vector2(120, 260), "spread": 78.0,
+		"gravity": Vector2(0, 460), "spin": true, "curve": "shrink",
+	},
+	"tower_destroy": {
+		"texture": "shard", "role": "material", "amount": 26, "lifetime": 1.1,
+		"scale": Vector2(0.8, 1.8), "speed": Vector2(180, 430), "spread": 85.0,
+		"gravity": Vector2(0, 520), "spin": true, "curve": "shrink",
+	},
+	"blast": {
+		"texture": "dot", "role": "hot", "amount": 16, "lifetime": 0.4,
+		"scale": Vector2(1.4, 3.2), "speed": Vector2(60, 190), "spread": 180.0,
+		"gravity": Vector2(0, -40), "spin": false, "curve": "shrink",
+	},
+	"tower_power": {
+		"texture": "dot", "role": "hot", "amount": 14, "lifetime": 0.6,
+		"scale": Vector2(0.45, 1.0), "speed": Vector2(40, 110), "spread": 120.0,
+		"gravity": Vector2(0, -70), "spin": false, "curve": "shrink",
+	},
+	"boss_entry": {
+		"texture": "dot", "role": "hot", "amount": 42, "lifetime": 0.9,
+		"scale": Vector2(0.6, 1.4), "speed": Vector2(60, 170), "spread": 170.0,
+		"gravity": Vector2(0, -24), "spin": false, "curve": "shrink",
+	},
+}
+
 var unit_count_getter: Callable
 var textures: Dictionary = {}
 var color_ramps: Dictionary = {}
+var shrink_curve: Curve
+var grow_curve: Curve
 var emitter_pool: Array[CPUParticles2D] = []
 var emitter_active: Array[bool] = []
 var emitter_until: Array[float] = []
@@ -77,6 +152,7 @@ var preempted_tier2 := 0
 func setup(get_unit_count: Callable) -> void:
 	unit_count_getter = get_unit_count
 	_build_textures()
+	_build_curves()
 	_build_color_ramps()
 	for _index in range(MAX_EMITTERS):
 		var emitter := CPUParticles2D.new()
@@ -124,27 +200,35 @@ func setup(get_unit_count: Callable) -> void:
 func _build_textures() -> void:
 	textures["dot"] = _make_texture(func(image: Image, x: int, y: int) -> void:
 		var distance := Vector2(x, y).distance_to(Vector2(7.5, 7.5))
-		image.set_pixel(x, y, Color(1, 1, 1, clampf(1.0 - distance / 8.0, 0.0, 1.0)))
+		image.set_pixel(x, y, Color(1, 1, 1, clampf(1.0 - distance / 7.0, 0.0, 1.0)))
 	, 16)
 	textures["spark"] = _make_texture(func(image: Image, x: int, y: int) -> void:
-		var center := Vector2(7.5, 7.5)
-		var point := Vector2(x, y)
-		var distance := absf((point - center).x + (point - center).y * 0.35)
-		image.set_pixel(x, y, Color(1, 1, 1, clampf(1.0 - distance / 2.7, 0.0, 1.0)))
+		var along := absf(y - 7.5)
+		var across := absf(x - 7.5)
+		var alpha := clampf(1.0 - across / 1.8, 0.0, 1.0) * clampf(1.0 - along / 7.0, 0.0, 1.0)
+		image.set_pixel(x, y, Color(1, 1, 1, alpha))
 	, 16)
 	textures["shard"] = _make_texture(func(image: Image, x: int, y: int) -> void:
-		var inside := (x >= 3 and x <= 12 and y >= 2 and y <= 13 and y <= 14 - x / 2)
+		var inside := x >= 4 and x <= 11 and y >= 3 and y <= 12 and (x + y) <= 20 and (x - y) <= 6
 		image.set_pixel(x, y, Color.WHITE if inside else Color(1, 1, 1, 0))
 	, 16)
 	textures["puff"] = _make_texture(func(image: Image, x: int, y: int) -> void:
 		var distance := Vector2(x, y).distance_to(Vector2(7.5, 7.5))
-		image.set_pixel(x, y, Color(1, 1, 1, clampf((1.0 - distance / 8.0) * 0.55, 0.0, 0.55)))
+		image.set_pixel(x, y, Color(1, 1, 1, clampf(1.0 - distance / 8.0, 0.0, 1.0) * 0.85))
 	, 16)
 	textures["ring"] = _make_texture(func(image: Image, x: int, y: int) -> void:
 		var distance := Vector2(x, y).distance_to(Vector2(7.5, 7.5))
 		var alpha := 1.0 if distance > 5.2 and distance < 7.2 else 0.0
 		image.set_pixel(x, y, Color(1, 1, 1, alpha))
 	, 16)
+
+func _build_curves() -> void:
+	shrink_curve = Curve.new()
+	shrink_curve.add_point(Vector2(0.0, 1.0))
+	shrink_curve.add_point(Vector2(1.0, 0.15))
+	grow_curve = Curve.new()
+	grow_curve.add_point(Vector2(0.0, 0.45))
+	grow_curve.add_point(Vector2(1.0, 1.0))
 
 func _make_texture(draw_pixel: Callable, size: int) -> ImageTexture:
 	var image := Image.create(size, size, false, Image.FORMAT_RGBA8)
@@ -157,14 +241,30 @@ func _make_texture(draw_pixel: Callable, size: int) -> ImageTexture:
 func _build_color_ramps() -> void:
 	for era in MATERIALS:
 		var material: Dictionary = MATERIALS[era]
-		var gradient := Gradient.new()
-		gradient.colors = PackedColorArray([
-			Color(material.primary, 0.92),
-			Color(material.secondary, 0.92),
-		])
-		var ramp := GradientTexture1D.new()
-		ramp.gradient = gradient
-		color_ramps[era] = ramp
+		color_ramps[era] = {
+			"hot": _make_ramp(Color.WHITE, material.primary, material.secondary),
+			"material": _make_ramp(Color(material.primary).lightened(0.35), material.primary, material.secondary),
+			"smoke": _make_ramp(
+				Color(material.secondary).darkened(0.35),
+				Color(material.secondary).darkened(0.15),
+				Color(material.secondary).darkened(0.1),
+				0.6
+			),
+		}
+
+func _make_ramp(start: Color, middle: Color, tail: Color, peak_alpha := 1.0) -> Gradient:
+	var gradient := Gradient.new()
+	gradient.offsets = PackedFloat32Array([0.0, 0.35, 1.0])
+	gradient.colors = PackedColorArray([
+		Color(start, peak_alpha),
+		Color(middle, peak_alpha * 0.9),
+		Color(tail, 0.0),
+	])
+	return gradient
+
+func _era_ramp(era: String, role: String) -> Gradient:
+	var ramps: Dictionary = color_ramps.get(era, color_ramps["stone"])
+	return ramps.get(role, ramps["material"])
 
 func era_material(era: String) -> Dictionary:
 	return MATERIALS.get(era, MATERIALS["stone"])
@@ -178,64 +278,50 @@ func emit(
 	amount := -1,
 	color_override := Color(-1, -1, -1, -1),
 ) -> bool:
+	var config: Dictionary = PRESETS.get(preset, PRESETS["hit"])
 	var material: Dictionary = era_material(era)
-	var particle_amount := _preset_amount(preset) if amount < 0 else amount
+	var particle_amount := int(config.amount) if amount < 0 else amount
 	if tier == 2 and _unit_count() > 40:
 		particle_amount = maxi(1, int(ceil(float(particle_amount) * 0.5)))
-	var lifetime := _preset_lifetime(preset)
+	var lifetime := float(config.lifetime)
 	var slot := _acquire_emitter(tier, particle_amount)
 	if slot < 0:
 		if tier == 2:
 			dropped_tier2 += 1
 		return false
 	var emitter := emitter_pool[slot]
-	var texture_name := _preset_texture(preset, material)
 	emitter.position = position
-	emitter.texture = textures[texture_name]
+	emitter.texture = textures[_preset_texture(preset, config, material)]
 	emitter.amount = particle_amount
 	emitter.lifetime = lifetime
-	emitter.explosiveness = 0.9
+	emitter.explosiveness = 0.92
 	emitter.direction = direction.normalized()
-	emitter.spread = _preset_spread(preset, float(material.spread))
-	emitter.initial_velocity_min = _preset_speed_min(preset, material)
-	emitter.initial_velocity_max = _preset_speed_max(preset, material)
-	emitter.gravity = _preset_gravity(preset, material)
-	emitter.scale_amount_min = 0.16 if preset == "hit" else 0.2
-	emitter.scale_amount_max = 0.42 if preset == "hit" else 0.55
-	match preset:
-		"hit":
-			emitter.scale_amount_min = 0.75
-			emitter.scale_amount_max = 1.55
-		"death":
-			emitter.scale_amount_min = 1.0
-			emitter.scale_amount_max = 2.2
-		"dust":
-			emitter.scale_amount_min = 0.42
-			emitter.scale_amount_max = 0.95
-		"lifesteal":
-			emitter.scale_amount_min = 0.55
-			emitter.scale_amount_max = 1.15
-		"heal":
-			emitter.scale_amount_min = 0.55
-			emitter.scale_amount_max = 1.1
-		"tower_hit":
-			emitter.scale_amount_min = 0.95
-			emitter.scale_amount_max = 1.9
-		"tower_destroy":
-			emitter.scale_amount_min = 1.4
-			emitter.scale_amount_max = 2.8
-		"boss_entry":
-			emitter.scale_amount_min = 1.15
-			emitter.scale_amount_max = 2.45
-		"tower_power":
-			emitter.scale_amount_min = 0.7
-			emitter.scale_amount_max = 1.45
-	if color_override.a >= 0.0:
-		emitter.color_ramp = null
-		emitter.color = Color(color_override, 0.92)
+	emitter.spread = float(config.spread)
+	emitter.initial_velocity_min = float(config.speed.x)
+	emitter.initial_velocity_max = float(config.speed.y)
+	emitter.gravity = config.gravity
+	emitter.scale_amount_min = float(config.scale.x)
+	emitter.scale_amount_max = float(config.scale.y)
+	emitter.scale_amount_curve = shrink_curve if config.curve == "shrink" else grow_curve
+	if bool(config.spin):
+		emitter.angle_min = -180.0
+		emitter.angle_max = 180.0
+		emitter.angular_velocity_min = -520.0
+		emitter.angular_velocity_max = 520.0
 	else:
-		emitter.color = Color(material.primary, 0.96)
-		emitter.color_ramp = color_ramps.get(era)
+		emitter.angle_min = 0.0
+		emitter.angle_max = 0.0
+		emitter.angular_velocity_min = 0.0
+		emitter.angular_velocity_max = 0.0
+	emitter.color = Color.WHITE
+	if color_override.a >= 0.0:
+		emitter.color_ramp = _make_ramp(
+			Color(color_override).lightened(0.45),
+			color_override,
+			Color(material.secondary)
+		)
+	else:
+		emitter.color_ramp = _era_ramp(era, str(config.role))
 	emitter.emitting = true
 	emitter_active[slot] = true
 	emitter_until[slot] = elapsed + lifetime + 0.08
@@ -322,13 +408,16 @@ func release_projectile_trail(trail: Line2D) -> void:
 	projectile_trail_active[slot] = false
 	trail.visible = false
 
+func emit_hit(position: Vector2, direction := Vector2.LEFT, era := "stone") -> void:
+	emit("hit", position, direction, era, 2, -1)
+	emit("flash", position, Vector2.UP, era, 2, -1)
+	emit_impact_line(position, direction, Color(1, 1, 1, 0.95), 0.12)
+
 func emit_death(position: Vector2, direction := Vector2.UP, era := "stone") -> void:
-	emit("death", position, direction, era, 1, 16)
-	emit("dust", position + Vector2(0, 4), Vector2.UP, era, 1, 8)
-	emit("dust", position + Vector2(0, -6), Vector2.UP, era, 1, 6)
+	emit("death", position + Vector2(0, -10), direction.rotated(-0.5), era, 1, 14)
+	emit("dust", position + Vector2(0, 6), Vector2.UP, era, 1, 6)
 	emit_ground_stain(position)
-	emit_ring(position, Color(0.12, 0.08, 0.05, 0.58), 44.0, 0.5, 1)
-	emit_ring(position + Vector2(0, -10), Color(0.7, 0.58, 0.36, 0.35), 22.0, 0.32, 1)
+	emit_ring(position, Color(0.16, 0.11, 0.07, 0.5), 34.0, 0.45, 1)
 
 func emit_ground_stain(position: Vector2, duration := 0.8) -> bool:
 	for index in range(shard_pool.size()):
@@ -353,18 +442,28 @@ func emit_heal(position: Vector2, era := "stone") -> void:
 	emit("heal", position, Vector2.UP, era, 2, 6, Color("#8ce68c"))
 
 func emit_tower_hit(position: Vector2, era := "stone") -> void:
-	emit("tower_hit", position, Vector2.UP, era, 1, 24)
-	emit("dust", position, Vector2.UP, era, 1, 10)
-	emit_ring(position, Color("#fff0c7"), 34.0, 0.24, 1)
-	emit_impact_line(position, Vector2.UP, Color("#fff8df"), 0.16)
+	emit("tower_hit", position, Vector2.UP, era, 1, 12)
+	emit("dust", position, Vector2.UP, era, 1, 4)
+	emit_ring(position, Color("#fff0c7"), 26.0, 0.22, 1)
+	emit_impact_line(position, Vector2.UP, Color("#fff8df"), 0.14)
 
 func emit_tower_destroy(position: Vector2, era := "stone") -> void:
-	emit("tower_destroy", position + Vector2(0, -22), Vector2.UP, era, 0, 72)
-	emit("tower_destroy", position + Vector2(0, -8), Vector2.LEFT, era, 0, 56)
-	emit("tower_destroy", position + Vector2(0, -8), Vector2.RIGHT, era, 0, 56)
-	emit_ring(position, Color("#ffd273"), 128.0, 0.85, 0)
-	emit_ring(position + Vector2(0, -8), Color("#ff8e70"), 82.0, 0.68, 0)
-	emit_ring(position + Vector2(0, -12), Color("#fff0c7"), 48.0, 0.5, 0)
+	emit("blast", position + Vector2(0, -30), Vector2.UP, era, 0, 16, Color("#ffe9a0"))
+	emit("tower_destroy", position + Vector2(0, -20), Vector2.UP, era, 0, 26)
+	emit("tower_destroy", position + Vector2(0, -6), Vector2.LEFT, era, 0, 18)
+	emit("tower_destroy", position + Vector2(0, -6), Vector2.RIGHT, era, 0, 18)
+	emit("smoke", position + Vector2(0, -24), Vector2.UP, era, 0, 14)
+	emit_ring(position, Color("#ffd273"), 96.0, 0.7, 0)
+	emit_ring(position + Vector2(0, -14), Color("#ff8e70"), 58.0, 0.55, 0)
+	emit_ground_stain(position, 1.4)
+	var delayed := get_tree().create_timer(0.28)
+	delayed.timeout.connect(func() -> void:
+		if not is_inside_tree():
+			return
+		emit("blast", position + Vector2(26, -54), Vector2.UP, era, 0, 10, Color("#ffcf7a"))
+		emit("tower_destroy", position + Vector2(18, -40), Vector2.UP, era, 0, 16)
+		emit_ring(position + Vector2(18, -40), Color("#ffd273"), 62.0, 0.5, 0)
+	)
 
 func emit_tower_power(position: Vector2, era := "stone") -> void:
 	emit("tower_power", position, Vector2.UP, era, 1, 12)
@@ -463,98 +562,10 @@ func _unit_count() -> int:
 		return int(unit_count_getter.call())
 	return 0
 
-func _preset_amount(preset: String) -> int:
-	return {
-		"spawn": 12,
-		"effect": 18,
-		"hit": 6,
-		"death": 8,
-		"dust": 2,
-		"lifesteal": 5,
-		"heal": 6,
-		"tower_hit": 8,
-		"tower_destroy": 24,
-		"tower_power": 12,
-		"boss_entry": 42,
-	}.get(preset, 8)
-
-func _preset_lifetime(preset: String) -> float:
-	return {
-		"spawn": 0.55,
-		"effect": 0.8,
-		"hit": 0.22,
-		"death": 0.55,
-		"dust": 0.4,
-		"lifesteal": 0.45,
-		"heal": 0.65,
-		"tower_hit": 0.4,
-		"tower_destroy": 0.9,
-		"tower_power": 0.55,
-		"boss_entry": 0.9,
-	}.get(preset, 0.5)
-
-func _preset_texture(preset: String, material: Dictionary) -> String:
-	match preset:
-		"lifesteal", "heal":
-			return "dot"
-		"dust":
-			return "puff"
-		"tower_destroy", "death", "tower_hit":
-			return "shard"
-		"boss_entry":
-			return "dot"
-		"tower_power":
-			return str(material.textures[1]) if material.textures.size() > 1 else str(material.textures[0])
-		_:
-			var choices: Array = material.textures
-			return str(choices[0])
-
-func _preset_spread(preset: String, material_spread: float) -> float:
-	match preset:
-		"boss_entry":
-			return 170.0
-		"hit":
-			return 55.0
-		"lifesteal":
-			return 20.0
-		"heal":
-			return 18.0
-		_:
-			return material_spread
-
-func _preset_speed_min(preset: String, material: Dictionary) -> float:
-	match preset:
-		"boss_entry":
-			return 34.0
-		"lifesteal":
-			return 42.0
-		"heal":
-			return 26.0
-		"tower_destroy":
-			return 60.0
-		_:
-			return float(material.speed.x)
-
-func _preset_speed_max(preset: String, material: Dictionary) -> float:
-	match preset:
-		"boss_entry":
-			return 108.0
-		"lifesteal":
-			return 78.0
-		"heal":
-			return 54.0
-		"tower_destroy":
-			return 140.0
-		_:
-			return float(material.speed.y)
-
-func _preset_gravity(preset: String, material: Dictionary) -> Vector2:
-	match preset:
-		"boss_entry":
-			return Vector2(0, -18)
-		"lifesteal":
-			return Vector2.ZERO
-		"heal":
-			return Vector2(0, -20)
-		_:
-			return material.gravity
+func _preset_texture(preset: String, config: Dictionary, material: Dictionary) -> String:
+	if preset in ["death", "tower_hit", "tower_destroy"]:
+		var choices: Array = material.textures
+		for choice in choices:
+			if str(choice) != "puff":
+				return str(choice)
+	return str(config.texture)

@@ -2679,8 +2679,11 @@ func _attack(attacker: BattleUnit, target: BattleUnit) -> void:
 				_deal_damage(target, damage, "hero", attacker)
 				_spawn_hit_fx(target.position, Color("#ffd273"), "✦")
 				if fx_manager != null:
-					fx_manager.emit("hit", target.position, (attacker.position - target.position).normalized(), str(attacker.stats.era), 2, 6)
-					fx_manager.emit_impact_line(target.position, (target.position - attacker.position).normalized(), Color.WHITE, 0.1)
+					fx_manager.emit_hit(
+						target.position,
+						(target.position - attacker.position).normalized(),
+						str(attacker.stats.era)
+					)
 				AudioManager.play_sfx("hit")
 		var projectile := Projectile.new()
 		projectile.setup(
@@ -2696,8 +2699,11 @@ func _attack(attacker: BattleUnit, target: BattleUnit) -> void:
 	_deal_damage(target, damage, "hero", attacker)
 	_spawn_hit_fx(target.position, Color("#ffd273"), "✦")
 	if fx_manager != null:
-		fx_manager.emit("hit", target.position, (target.position - attacker.position).normalized(), str(attacker.stats.era), 2, 6)
-		fx_manager.emit_impact_line(target.position, (target.position - attacker.position).normalized(), Color.WHITE, 0.1)
+		fx_manager.emit_hit(
+			target.position,
+			(target.position - attacker.position).normalized(),
+			str(attacker.stats.era)
+		)
 	AudioManager.play_sfx("hit")
 
 func _attack_tower(attacker: BattleUnit) -> void:
