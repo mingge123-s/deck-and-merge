@@ -2126,6 +2126,8 @@ func _finish_sandbox(text: String) -> void:
 	battle_won = text.begins_with("我方胜利")
 	AudioManager.play_sfx("victory")
 	status_label.text = text
+	if sandbox_control_panel != null:
+		sandbox_control_panel.visible = false
 	if result_overlay != null:
 		result_overlay.visible = true
 	_update_progress_ui()
