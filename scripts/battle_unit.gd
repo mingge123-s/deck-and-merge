@@ -2,6 +2,7 @@ class_name BattleUnit
 extends Node2D
 
 signal expired(unit: BattleUnit)
+signal death_started(unit: BattleUnit)
 
 static var _meta_cache: Dictionary = {}
 static var _frames_cache: Dictionary = {}
@@ -269,6 +270,7 @@ func _play_hit_punch() -> void:
 func _die() -> void:
 	alive = false
 	clear_buff_aura(true)
+	death_started.emit(self)
 	queue_redraw()
 	if animated:
 		anim.play("die")

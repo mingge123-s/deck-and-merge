@@ -330,7 +330,6 @@ func _ready() -> void:
 	Updater.status_changed.connect(_on_update_status)
 	Updater.update_ready.connect(_on_update_ready)
 	Updater.check_for_update(false)
-
 func _on_battlefield_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		dragging = event.pressed
@@ -2372,6 +2371,7 @@ func _spawn_ally(hero_id: String) -> BattleUnit:
 	)
 	unit.z_index = 4
 	unit.expired.connect(_on_unit_expired)
+	unit.death_started.connect(_on_unit_death_started)
 	world.add_child(unit)
 	battle_units.append(unit)
 	occupied_units += 1
@@ -2479,6 +2479,7 @@ func _spawn_enemy(hero_id: String, index: int, total_count: int) -> BattleUnit:
 	)
 	unit.z_index = 4
 	unit.expired.connect(_on_unit_expired)
+	unit.death_started.connect(_on_unit_death_started)
 	world.add_child(unit)
 	battle_units.append(unit)
 	var is_boss := str(data.get("role", "")) == "boss"
@@ -2752,12 +2753,6 @@ func _on_unit_expired(unit: BattleUnit) -> void:
 	var faction := unit.faction
 	battle_units.erase(unit)
 	walk_dust_cooldowns.erase(unit.get_instance_id())
-	if fx_manager != null:
-		fx_manager.emit_death(
-			unit.position,
-			Vector2.LEFT if faction == "enemy" else Vector2.RIGHT,
-			current_era if faction == "ally" else enemy_era
-		)
 	AudioManager.play_sfx("unit_death", {"priority": 1})
 	if faction == "ally":
 		occupied_units = maxi(0, occupied_units - 1)
@@ -2776,6 +2771,16 @@ func _on_unit_expired(unit: BattleUnit) -> void:
 		var reward := float(_era_amount_for(enemy_era, int(unit.stats.get("kill_score", 0)))) * float(_diff().ai_income_mult) * KILL_COIN_MULT
 		enemy_coin += reward
 	unit.queue_free()
+
+func _on_unit_death_started(unit: BattleUnit) -> void:
+	if fx_manager == null or not is_instance_valid(unit):
+		return
+	var faction := unit.faction
+	fx_manager.emit_death(
+		unit.position,
+		Vector2.LEFT if faction == "enemy" else Vector2.RIGHT,
+		current_era if faction == "ally" else enemy_era
+	)
 
 func _nudge_tower(ally: bool) -> void:
 	var tower := ally_tower_sprite if ally else enemy_tower_sprite

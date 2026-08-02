@@ -52,6 +52,7 @@ const MATERIALS := {
 
 var unit_count_getter: Callable
 var textures: Dictionary = {}
+var color_ramps: Dictionary = {}
 var emitter_pool: Array[CPUParticles2D] = []
 var emitter_active: Array[bool] = []
 var emitter_until: Array[float] = []
@@ -76,6 +77,7 @@ var preempted_tier2 := 0
 func setup(get_unit_count: Callable) -> void:
 	unit_count_getter = get_unit_count
 	_build_textures()
+	_build_color_ramps()
 	for _index in range(MAX_EMITTERS):
 		var emitter := CPUParticles2D.new()
 		emitter.one_shot = true
@@ -152,6 +154,18 @@ func _make_texture(draw_pixel: Callable, size: int) -> ImageTexture:
 			draw_pixel.call(image, x, y)
 	return ImageTexture.create_from_image(image)
 
+func _build_color_ramps() -> void:
+	for era in MATERIALS:
+		var material: Dictionary = MATERIALS[era]
+		var gradient := Gradient.new()
+		gradient.colors = PackedColorArray([
+			Color(material.primary, 0.92),
+			Color(material.secondary, 0.92),
+		])
+		var ramp := GradientTexture1D.new()
+		ramp.gradient = gradient
+		color_ramps[era] = ramp
+
 func era_material(era: String) -> Dictionary:
 	return MATERIALS.get(era, MATERIALS["stone"])
 
@@ -188,10 +202,12 @@ func emit(
 	emitter.gravity = _preset_gravity(preset, material)
 	emitter.scale_amount_min = 0.16 if preset == "hit" else 0.2
 	emitter.scale_amount_max = 0.42 if preset == "hit" else 0.55
-	var primary: Color = material.primary.lerp(material.secondary, 0.22)
 	if color_override.a >= 0.0:
-		primary = color_override.lerp(material.secondary, 0.22)
-	emitter.color = Color(primary, 0.92)
+		emitter.color_ramp = null
+		emitter.color = Color(color_override, 0.92)
+	else:
+		emitter.color = Color.WHITE
+		emitter.color_ramp = color_ramps.get(era)
 	emitter.emitting = true
 	emitter_active[slot] = true
 	emitter_until[slot] = elapsed + lifetime + 0.08
