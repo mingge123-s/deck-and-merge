@@ -133,6 +133,19 @@ def make_sfx() -> dict[str, np.ndarray]:
 		(low_tone(180.0, 0.18, 0.45, 9.0), 0),
 		(low_tone(125.0, 0.2, 0.32, 10.0), int(SAMPLE_RATE * 0.06)),
 	])
+	boss_ally_entry = mix_parts([
+		(noise_burst(0.72, 0.2, 3.5, 28), 0),
+		(low_tone(92.0, 0.42, 0.5, 3.2), 0),
+		(note(220.0, 0.32, 0.34), int(SAMPLE_RATE * 0.08)),
+		(note(330.0, 0.34, 0.3), int(SAMPLE_RATE * 0.24)),
+		(note(440.0, 0.42, 0.28), int(SAMPLE_RATE * 0.42)),
+	])
+	boss_enemy_entry = mix_parts([
+		(noise_burst(0.78, 0.24, 3.0, 29), 0),
+		(low_tone(58.0, 0.72, 0.68, 2.4), 0),
+		(low_tone(78.0, 0.46, 0.36, 3.5), int(SAMPLE_RATE * 0.12)),
+		(note(116.0, 0.5, 0.2), int(SAMPLE_RATE * 0.2)),
+	])
 	return {
 		"click": note(1250.0, 0.055),
 		"place": mix_parts([(note(430.0, 0.12), 0), (note(720.0, 0.09), int(SAMPLE_RATE * 0.04))]),
@@ -150,6 +163,8 @@ def make_sfx() -> dict[str, np.ndarray]:
 		"unit_death_1": unit_death_b,
 		"unit_death_2": unit_death_c,
 		"ui_denied": ui_denied,
+		"boss_ally_entry": boss_ally_entry,
+		"boss_enemy_entry": boss_enemy_entry,
 	}
 
 

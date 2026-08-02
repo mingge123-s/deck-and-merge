@@ -15,6 +15,8 @@ const SFX := {
 	"tower_alarm": "tower_alarm",
 	"unit_death": "unit_death",
 	"ui_denied": "ui_denied",
+	"boss_ally_entry": "boss_ally_entry",
+	"boss_enemy_entry": "boss_enemy_entry",
 }
 
 const SFX_PRIORITIES := {
@@ -32,6 +34,8 @@ const SFX_PRIORITIES := {
 	"hit": 2,
 	"card_locked": 2,
 	"ui_denied": 2,
+	"boss_ally_entry": 0,
+	"boss_enemy_entry": 0,
 }
 
 const SFX_BUSES := {
