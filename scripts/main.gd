@@ -197,6 +197,14 @@ var tutorial_skip_button: Button
 var card_info_overlay: Control
 var card_info_title_label: Label
 var card_info_text_label: RichTextLabel
+var codex_panel: Panel
+var codex_rows: VBoxContainer
+var codex_category := "unit"
+var codex_category_buttons: Dictionary = {}
+var codex_detail_overlay: Control
+var codex_detail_icon: TextureRect
+var codex_detail_title: Label
+var codex_detail_text: RichTextLabel
 var tray_press_index := -1
 var wave_bar: ProgressBar
 var wave_bar_label: Label
@@ -977,6 +985,7 @@ func _build_overlay() -> void:
 	_build_pause_overlay()
 	_build_tutorial_overlay()
 	_build_card_info_overlay()
+	_build_codex_detail_overlay()
 
 func _build_pause_overlay() -> void:
 	pause_overlay = Control.new()
@@ -1247,6 +1256,8 @@ func _build_main_menu() -> void:
 	settings_button.pressed.connect(_show_settings)
 	var menu_help_button := _menu_button(card, "玩法介绍", Vector2(388, 34), Vector2(160, 50), 17)
 	menu_help_button.pressed.connect(_show_tutorial)
+	var codex_button := _menu_button(card, "图鉴", Vector2(40, 34), Vector2(160, 50), 17)
+	codex_button.pressed.connect(_show_codex)
 	var difficulty_label := _label(card, "难度", Vector2(0, 646), Vector2(588, 26), 15, Color("#fff0c7"))
 	difficulty_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	var difficulty_keys := ["easy", "normal", "hard"]
@@ -1267,6 +1278,7 @@ func _build_main_menu() -> void:
 	_build_settings_panel(card)
 	_build_era_select_panel()
 	_build_sandbox_config_panel()
+	_build_codex_panel()
 
 func _on_check_update_pressed() -> void:
 	_play_button_sfx()
@@ -1949,6 +1961,271 @@ func _on_sandbox_start_pressed() -> void:
 		main_menu.visible = false
 	_start_sandbox_battle()
 
+func _build_codex_panel() -> void:
+	codex_panel = Panel.new()
+	codex_panel.position = Vector2(60, 150)
+	codex_panel.size = Vector2(600, 1000)
+	codex_panel.z_index = 20
+	codex_panel.add_theme_stylebox_override("panel", _panel_style(Color("#c58a53"), Color("#70412c"), 24, 3))
+	codex_panel.visible = false
+	main_menu.add_child(codex_panel)
+	var title := _label(codex_panel, "图鉴", Vector2(0, 22), Vector2(600, 42), 28)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var unit_button := _menu_button(codex_panel, "小兵图鉴", Vector2(20, 70), Vector2(270, 42), 16)
+	unit_button.pressed.connect(_set_codex_category.bind("unit"))
+	codex_category_buttons["unit"] = unit_button
+	var effect_button := _menu_button(codex_panel, "效果卡图鉴", Vector2(310, 70), Vector2(270, 42), 16)
+	effect_button.pressed.connect(_set_codex_category.bind("effect"))
+	codex_category_buttons["effect"] = effect_button
+	var scroll := ScrollContainer.new()
+	scroll.position = Vector2(20, 120)
+	scroll.size = Vector2(560, 780)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	codex_panel.add_child(scroll)
+	codex_rows = VBoxContainer.new()
+	codex_rows.custom_minimum_size = Vector2(540, 0)
+	codex_rows.add_theme_constant_override("separation", 6)
+	scroll.add_child(codex_rows)
+	var close_button := _menu_button(codex_panel, "返回", Vector2(200, 924), Vector2(200, 54), 18)
+	close_button.pressed.connect(_hide_codex)
+
+func _set_codex_category(category: String) -> void:
+	if category != "unit" and category != "effect":
+		return
+	codex_category = category
+	_refresh_codex()
+
+func _refresh_codex() -> void:
+	if codex_rows == null:
+		return
+	for child in codex_rows.get_children():
+		child.queue_free()
+	_refresh_codex_category_buttons()
+	if codex_category == "effect":
+		for effect in RANDOM_EFFECTS:
+			_codex_add_effect_row(str(effect.id))
+		return
+	for era in GameData.ERAS:
+		var heroes := GameData.heroes_for_era(era)
+		for role in GameData.ROLES:
+			for hero_id in heroes:
+				var data: Dictionary = GameData.HEROES.get(hero_id, {})
+				if str(data.get("role", "")) == role:
+					_codex_add_unit_row(str(hero_id))
+
+func _refresh_codex_category_buttons() -> void:
+	for category in codex_category_buttons:
+		var button: Button = codex_category_buttons[category]
+		var selected := str(category) == codex_category
+		var normal_color := Color("#e0a34d") if selected else Color("#b86a3e")
+		var hover_color := Color("#f0b962") if selected else Color("#d5864b")
+		button.add_theme_stylebox_override("normal", _panel_style(normal_color, Color("#713722"), 16, 3))
+		button.add_theme_stylebox_override("hover", _panel_style(hover_color, Color("#713722"), 16, 3))
+
+func _codex_add_unit_row(hero_id: String) -> void:
+	var hero: Dictionary = GameData.HEROES.get(hero_id, {})
+	if hero.is_empty():
+		return
+	var button := _codex_row_button()
+	var path := GameData.card_texture_path(str(hero.get("card", hero_id)))
+	var placeholder_color := Color("#888888")
+	if hero.get("color_value", null) is Color:
+		placeholder_color = hero["color_value"]
+	_codex_add_row_icon(button, path, placeholder_color)
+	var title := _label(button, str(hero.get("name", hero_id)), Vector2(68, 10), Vector2(450, 25), 16)
+	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var subtitle := _label(
+		button,
+		"%s·%s" % [str(hero.get("era_name", hero.get("era", ""))), str(hero.get("role_name", hero.get("role", "")))],
+		Vector2(68, 36),
+		Vector2(450, 18),
+		11,
+		Color("#e6c199")
+	)
+	subtitle.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	button.pressed.connect(_show_codex_detail_unit.bind(hero_id))
+	codex_rows.add_child(button)
+
+func _codex_add_effect_row(effect_id: String) -> void:
+	var effect := _effect_by_id(effect_id)
+	if effect.is_empty():
+		return
+	var button := _codex_row_button()
+	_codex_add_row_icon(button, EFFECT_ICON_PATH % effect_id, EFFECT_CARD_COLOR)
+	var title := _label(button, str(effect.get("name", effect_id)), Vector2(68, 10), Vector2(450, 25), 16)
+	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var duration := float(effect.get("duration", 0.0))
+	var subtitle_text := "效果卡 ｜ 持续 %.0f 秒" % duration if duration > 0.0 else "效果卡 ｜ 立即生效"
+	var subtitle := _label(button, subtitle_text, Vector2(68, 36), Vector2(450, 18), 11, Color("#e6c199"))
+	subtitle.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	button.pressed.connect(_show_codex_detail_effect.bind(effect_id))
+	codex_rows.add_child(button)
+
+func _codex_row_button() -> Button:
+	var button := Button.new()
+	button.custom_minimum_size = Vector2(540, 64)
+	button.size = Vector2(540, 64)
+	button.add_theme_stylebox_override("normal", _panel_style(Color("#a75d38"), Color("#70412c"), 12, 2))
+	button.add_theme_stylebox_override("hover", _panel_style(Color("#d5864b"), Color("#70412c"), 12, 2))
+	button.add_theme_stylebox_override("pressed", _panel_style(Color("#e0a34d"), Color("#70412c"), 12, 2))
+	button.pressed.connect(_play_button_sfx)
+	return button
+
+func _codex_add_row_icon(parent: Button, path: String, placeholder_color: Color) -> void:
+	if ResourceLoader.exists(path):
+		var icon := TextureRect.new()
+		icon.position = Vector2(10, 10)
+		icon.size = Vector2(44, 44)
+		icon.texture = load(path) as Texture2D
+		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		parent.add_child(icon)
+		return
+	var placeholder := Panel.new()
+	placeholder.position = Vector2(10, 10)
+	placeholder.size = Vector2(44, 44)
+	placeholder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	placeholder.add_theme_stylebox_override("panel", _panel_style(placeholder_color, Color("#70412c"), 10, 2))
+	parent.add_child(placeholder)
+
+func _show_codex() -> void:
+	_hide_settings()
+	_hide_era_select()
+	_hide_sandbox_config()
+	codex_category = "unit"
+	_refresh_codex()
+	if codex_panel != null:
+		codex_panel.visible = true
+
+func _hide_codex() -> void:
+	if codex_panel != null:
+		codex_panel.visible = false
+	_hide_codex_detail()
+
+func _build_codex_detail_overlay() -> void:
+	codex_detail_overlay = Control.new()
+	codex_detail_overlay.size = VIEW_SIZE
+	codex_detail_overlay.z_index = 4096
+	codex_detail_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	codex_detail_overlay.visible = false
+	codex_detail_overlay.gui_input.connect(_on_codex_detail_input)
+	add_child(codex_detail_overlay)
+	var shade := ColorRect.new()
+	shade.size = VIEW_SIZE
+	shade.color = Color(0.05, 0.03, 0.02, 0.55)
+	shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	codex_detail_overlay.add_child(shade)
+	var panel := Panel.new()
+	panel.position = Vector2(70, 360)
+	panel.size = Vector2(580, 540)
+	panel.add_theme_stylebox_override("panel", _panel_style(Color("#c58a53"), Color("#70412c"), 24, 3))
+	codex_detail_overlay.add_child(panel)
+	codex_detail_icon = TextureRect.new()
+	codex_detail_icon.position = Vector2(242, 24)
+	codex_detail_icon.size = Vector2(96, 96)
+	codex_detail_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	codex_detail_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	codex_detail_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_child(codex_detail_icon)
+	codex_detail_title = _label(panel, "", Vector2(20, 126), Vector2(540, 42), 26)
+	codex_detail_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	codex_detail_text = RichTextLabel.new()
+	codex_detail_text.bbcode_enabled = true
+	codex_detail_text.scroll_active = true
+	codex_detail_text.position = Vector2(40, 178)
+	codex_detail_text.size = Vector2(500, 280)
+	codex_detail_text.add_theme_font_size_override("normal_font_size", 18)
+	codex_detail_text.add_theme_color_override("default_color", Color("#fff0c7"))
+	panel.add_child(codex_detail_text)
+	var close_button := _menu_button(panel, "关闭", Vector2(190, 472), Vector2(200, 52), 18)
+	close_button.pressed.connect(_hide_codex_detail)
+
+func _on_codex_detail_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+		_hide_codex_detail()
+
+func _show_codex_detail_unit(hero_id: String) -> void:
+	var hero: Dictionary = GameData.HEROES.get(hero_id, {})
+	if hero.is_empty() or codex_detail_overlay == null:
+		return
+	var path := GameData.card_texture_path(str(hero.get("card", hero_id)))
+	codex_detail_icon.texture = load(path) as Texture2D if ResourceLoader.exists(path) else null
+	codex_detail_title.text = str(hero.get("name", hero_id))
+	var lines := [
+		"类型：[b]小兵/角色卡[/b]（%s·%s）" % [str(hero.get("era_name", hero.get("era", ""))), str(hero.get("role_name", hero.get("role", "")))],
+		"合成：同名 [b]3 张[/b] 上场",
+		"生命 %.0f　攻击 %.0f" % [float(hero.get("hp", 0.0)), float(hero.get("attack", 0.0))],
+		"攻速 %.2f 次/秒　射程 %.0f" % [float(hero.get("attack_speed", 0.0)), float(hero.get("range", 0.0))],
+		"移速 %.0f　击杀分 %d" % [float(hero.get("move_speed", 0.0)), int(hero.get("kill_score", 0))],
+	]
+	var splash: Variant = hero.get("basic_splash", {})
+	if splash is Dictionary and not splash.is_empty():
+		lines.append("普攻溅射：半径%.0f，%.0f%% 伤害" % [
+			float(splash.get("radius", 0.0)),
+			float(splash.get("frac", 0.0)) * 100.0,
+		])
+	var skill: Variant = hero.get("skill", {})
+	if skill is Dictionary and not skill.is_empty():
+		lines.append("")
+		var skill_line := "技能：[b]%s[/b]" % str(skill.get("name", "特殊技能"))
+		if skill.has("cost"):
+			skill_line += "（消耗 %d）" % int(skill.get("cost", 0))
+		lines.append(skill_line)
+		lines.append(_skill_description(str(skill.get("type", ""))))
+	codex_detail_text.text = "\n".join(lines)
+	move_child(codex_detail_overlay, get_child_count() - 1)
+	codex_detail_overlay.visible = true
+	_play_button_sfx()
+
+func _show_codex_detail_effect(effect_id: String) -> void:
+	var effect := _effect_by_id(effect_id)
+	if effect.is_empty() or codex_detail_overlay == null:
+		return
+	var path := EFFECT_ICON_PATH % effect_id
+	codex_detail_icon.texture = load(path) as Texture2D if ResourceLoader.exists(path) else null
+	codex_detail_title.text = str(effect.get("name", effect_id))
+	var lines := [
+		"类型：[b]效果卡[/b]",
+		"发动：同名 [b]2 张[/b]自动发动（不上场）",
+		"效果：%s" % str(effect.get("desc", "—")),
+	]
+	var duration := float(effect.get("duration", 0.0))
+	lines.append("持续：%.0f 秒" % duration if duration > 0.0 else "生效：立即")
+	codex_detail_text.text = "\n".join(lines)
+	move_child(codex_detail_overlay, get_child_count() - 1)
+	codex_detail_overlay.visible = true
+	_play_button_sfx()
+
+func _hide_codex_detail() -> void:
+	if codex_detail_overlay != null:
+		codex_detail_overlay.visible = false
+
+func _skill_description(skill_type: String) -> String:
+	match skill_type:
+		"taunt_shield":
+			return "为自身附加护盾，并嘲讽周围敌人 3 秒"
+		"smash_stun":
+			return "对目标造成双倍伤害并眩晕 1.5 秒"
+		"poison":
+			return "使目标中毒，持续掉血 5 秒"
+		"boulder_splash":
+			return "投掷巨石，对落点范围造成溅射伤害"
+		"aoe_stun":
+			return "范围震吼，眩晕附近所有敌人 2.5 秒"
+		"thorns_shield":
+			return "进入反伤姿态，短时间反弹所受伤害"
+		"whirlwind":
+			return "回旋斩击，对周围敌人造成范围伤害"
+		"blink_crit":
+			return "瞬移到目标身后并造成 2.5 倍暴击伤害"
+		"multishot":
+			return "同时射击最多 3 个敌人"
+		"berserk":
+			return "进入狂暴，短时间大幅提升攻击与攻速"
+		_:
+			return "特殊技能"
+
 func _build_sandbox_control_panel() -> void:
 	sandbox_control_panel = Panel.new()
 	sandbox_control_panel.position = Vector2(36, 432)
@@ -2161,6 +2438,7 @@ func _show_main_menu() -> void:
 	_hide_settings()
 	_hide_era_select()
 	_hide_sandbox_config()
+	_hide_codex()
 	if result_overlay != null:
 		result_overlay.visible = false
 	if pause_overlay != null:
