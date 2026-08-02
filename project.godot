@@ -30,6 +30,11 @@ textures/vram_compression/import_etc2_astc=true
 textures/default_filters/use_nearest_mipmap_filter=false
 environment/defaults/default_clear_color=Color(0.18, 0.12, 0.08, 1)
 
+[input_devices]
+
+sensors/enable_accelerometer=true
+sensors/enable_gravity=true
+
 [gui]
 theme/custom_font="res://assets/fonts/ui_cjk.ttf"
 theme/default_font_multichannel_signed_distance_field=false
