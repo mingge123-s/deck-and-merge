@@ -115,6 +115,7 @@ var board: Control
 var tray: Control
 var battlefield: Control
 var world: Control
+var fx_manager: FxManager
 var minimap: BattleMinimap
 var camera_x := 0.0
 var camera_manual_timer := 0.0
@@ -130,6 +131,8 @@ var ally_tower_shadow: Sprite2D
 var enemy_tower_shadow: Sprite2D
 var ally_tower_aura: Line2D
 var enemy_tower_aura: Line2D
+var ally_tower_alarm_vfx: Node2D
+var enemy_tower_alarm_vfx: Node2D
 var ally_tower_aura_tween: Tween
 var enemy_tower_aura_tween: Tween
 var tray_cards: Array[String] = []
@@ -213,6 +216,7 @@ var ally_tower_hp := 1.0
 var enemy_tower_hp := 1.0
 var ally_tower_max_hp := 1.0
 var enemy_tower_max_hp := 1.0
+var tower_destruction_started := false
 var ally_alarm_50_played := false
 var ally_alarm_25_played := false
 var enemy_era_index := 0
@@ -240,7 +244,7 @@ var stuck_warned := false
 var hit_fx_pool: Array[Label] = []
 var camera_shake_offset := Vector2.ZERO
 var camera_shake_tween: Tween
-var effect_particle_texture: Texture2D
+var walk_dust_cooldowns: Dictionary = {}
 
 func _diff() -> Dictionary:
 	return DIFFICULTIES[current_difficulty]
@@ -417,6 +421,7 @@ func _process(delta: float) -> void:
 		return
 	_tick_buffs(delta)
 	_sync_persistent_status_vfx(delta)
+	_update_tower_alarm_vfx(delta)
 	_update_wave_bar()
 	if wave_spawning:
 		wave_active_timer -= delta
@@ -452,6 +457,26 @@ func _process(delta: float) -> void:
 	_step_battle(delta)
 	_update_camera_follow(delta)
 	_update_tower_ui()
+
+func _update_tower_alarm_vfx(delta: float) -> void:
+	var ally_active := ally_tower_max_hp > 0.0 and ally_tower_hp / ally_tower_max_hp <= 0.25
+	var enemy_active := enemy_tower_max_hp > 0.0 and enemy_tower_hp / enemy_tower_max_hp <= 0.25
+	for entry in [
+		{"node": ally_tower_alarm_vfx, "active": ally_active, "phase": 0.0},
+		{"node": enemy_tower_alarm_vfx, "active": enemy_active, "phase": 1.7},
+	]:
+		var node: Node2D = entry.node
+		if node == null:
+			continue
+		node.visible = bool(entry.active)
+		if not node.visible:
+			continue
+		var phase := Time.get_ticks_msec() * 0.003 + float(entry.phase)
+		node.modulate.a = 0.72 + sin(phase) * 0.18
+		node.position.y = (BATTLE_GROUND_Y - TOWER_HEIGHT - 8.0) - sin(phase * 0.7) * 3.0
+		var ember := node.get_node_or_null("AlarmEmber") as Line2D
+		if ember != null:
+			ember.modulate.a = 0.35 + maxf(0.0, sin(phase * 2.1)) * 0.65
 
 func _panel_style(color: Color, border := Color("#70412c"), radius := 20, width := 3) -> StyleBoxFlat:
 	var style := StyleBoxFlat.new()
@@ -622,12 +647,18 @@ func _build_battlefield() -> void:
 	world.add_child(battle_bg)
 	battle_bg_fade = _make_fade_twin(battle_bg)
 	world.add_child(battle_bg_fade)
+	fx_manager = FxManager.new()
+	fx_manager.name = "FxManager"
+	world.add_child(fx_manager)
+	fx_manager.setup(Callable(self, "_fx_unit_count"))
 	ally_tower_shadow = _create_tower_shadow(true)
 	enemy_tower_shadow = _create_tower_shadow(false)
 	ally_tower_sprite = _create_tower_sprite(true)
 	enemy_tower_sprite = _create_tower_sprite(false)
 	ally_tower_aura = _create_tower_aura(true)
 	enemy_tower_aura = _create_tower_aura(false)
+	ally_tower_alarm_vfx = _create_tower_alarm_vfx(true)
+	enemy_tower_alarm_vfx = _create_tower_alarm_vfx(false)
 	battle_hint = _label(battlefield, "拖动战场查看双方阵地", Vector2(16, 18), Vector2(300, 22), 12, Color("#f9deb0"))
 	buff_label = _rich_label(battlefield, Vector2(16, 36), Vector2(440, 66), 12, Color("#ffd98a"))
 	buff_label.fit_content = true
@@ -665,6 +696,34 @@ func _build_battlefield() -> void:
 	_create_tower_ui(true)
 	_create_tower_ui(false)
 	_apply_camera()
+
+func _fx_unit_count() -> int:
+	return _living_units("ally").size() + _living_units("enemy").size()
+
+func _create_tower_alarm_vfx(ally: bool) -> Node2D:
+	var root := Node2D.new()
+	root.name = "AllyTowerAlarmVfx" if ally else "EnemyTowerAlarmVfx"
+	root.position = Vector2(ALLY_TOWER_X if ally else ENEMY_TOWER_X, BATTLE_GROUND_Y - TOWER_HEIGHT - 8.0)
+	root.z_index = 3
+	root.visible = false
+	for index in range(3):
+		var puff := Polygon2D.new()
+		var points := PackedVector2Array()
+		for point_index in range(9):
+			var angle := TAU * float(point_index) / 8.0
+			points.append(Vector2(cos(angle), sin(angle)) * (7.0 + index * 2.0))
+		puff.polygon = points
+		puff.color = Color(0.08, 0.07, 0.06, 0.55)
+		puff.position = Vector2((index - 1) * 8.0, -index * 12.0)
+		root.add_child(puff)
+	var ember := Line2D.new()
+	ember.name = "AlarmEmber"
+	ember.width = 2.0
+	ember.default_color = Color("#ff9a4a")
+	ember.points = PackedVector2Array([Vector2(10, -4), Vector2(17, -18)])
+	root.add_child(ember)
+	world.add_child(root)
+	return root
 
 func _create_tower_sprite(ally: bool) -> Sprite2D:
 	var tower := Sprite2D.new()
@@ -1266,6 +1325,8 @@ func _apply_random_effect(effect: Dictionary, actor := "ally") -> void:
 			for unit in _living_units(actor):
 				unit.heal(unit.max_hp * 0.4)
 				_spawn_hit_fx(unit.position, Color("#8ce68c"), "＋", 0.9)
+				if fx_manager != null:
+					fx_manager.emit_heal(unit.position, current_era if actor == "ally" else enemy_era)
 		"freeze":
 			if actor == "ally":
 				enemy_freeze_time = maxf(enemy_freeze_time, duration)
@@ -1283,6 +1344,11 @@ func _apply_random_effect(effect: Dictionary, actor := "ally") -> void:
 				tower_attack_bonus = minf(tower_attack_bonus * 1.5, TOWER_POWER_MAX)
 			else:
 				enemy_tower_attack_bonus = minf(enemy_tower_attack_bonus * 1.5, TOWER_POWER_MAX)
+			if fx_manager != null:
+				fx_manager.emit_tower_power(
+					Vector2(ALLY_TOWER_X if actor == "ally" else ENEMY_TOWER_X, BATTLE_GROUND_Y - 82.0),
+					current_era if actor == "ally" else enemy_era
+				)
 		_:
 			var timers: Dictionary = buff_timers if actor == "ally" else enemy_buff_timers
 			timers[effect_id] = maxf(float(timers.get(effect_id, 0.0)), duration)
@@ -1383,56 +1449,14 @@ func _effect_sfx(effect_id: String) -> String:
 		_:
 			return "merge"
 
-func _effect_particle_texture() -> Texture2D:
-	if effect_particle_texture != null:
-		return effect_particle_texture
-	var image := Image.create(16, 16, false, Image.FORMAT_RGBA8)
-	for y in range(16):
-		for x in range(16):
-			var distance := Vector2(x, y).distance_to(Vector2(7.5, 7.5))
-			image.set_pixel(x, y, Color.WHITE if distance <= 7.5 else Color(1, 1, 1, 0))
-	effect_particle_texture = ImageTexture.create_from_image(image)
-	return effect_particle_texture
-
 func _play_effect_vfx(effect_id: String, position: Vector2, actor := "ally") -> void:
 	var color := _effect_color(effect_id, actor)
-	var parent: Node = self if effect_id == "bounty" else world
-	var root := Node2D.new()
-	root.position = position
-	root.z_index = 8
-	parent.add_child(root)
-	var particles := CPUParticles2D.new()
-	particles.amount = 26 if effect_id in ["freeze", "thorns"] else (12 if effect_id == "haste" else 18)
-	particles.lifetime = 0.8 if effect_id != "bounty" else 1.0
-	particles.one_shot = true
-	particles.explosiveness = 0.9
-	particles.texture = _effect_particle_texture()
-	particles.color = Color(color, 0.95)
-	particles.scale_amount_min = 0.18
-	particles.scale_amount_max = 0.48
-	particles.direction = Vector2.UP
-	particles.spread = 80.0 if effect_id == "haste" else (130.0 if effect_id == "freeze" else 180.0)
-	particles.initial_velocity_min = 34.0 if effect_id in ["frenzy", "tower_power"] else 24.0
-	particles.initial_velocity_max = 82.0 if effect_id in ["frenzy", "tower_power"] else 64.0
-	particles.gravity = Vector2(0, -18.0) if effect_id == "freeze" else Vector2(0, 42.0)
-	root.add_child(particles)
-	var ring := Line2D.new()
-	var points := PackedVector2Array()
-	var radius := 72.0 if effect_id in ["field_aid", "freeze", "bulwark"] else 64.0
-	var point_count := 6 if effect_id == "bulwark" else (12 if effect_id == "thorns" else 20)
-	for index in range(point_count):
-		var angle := -TAU * float(index) / float(point_count)
-		var point_radius := radius
-		if effect_id == "thorns" and index % 2 == 1:
-			point_radius *= 0.5
-		points.append(Vector2(cos(angle), sin(angle)) * point_radius)
-	ring.points = points
-	ring.closed = true
-	ring.width = 5.0
-	ring.default_color = Color(color, 0.92)
-	ring.scale = Vector2(0.85, 0.45)
-	ring.z_index = 2
-	root.add_child(ring)
+	var era := current_era if actor == "ally" else enemy_era
+	if fx_manager != null:
+		var amount := 26 if effect_id in ["freeze", "thorns"] else (12 if effect_id == "haste" else 18)
+		fx_manager.emit("effect", position, Vector2.UP, era, 1, amount, color)
+		var radius := 72.0 if effect_id in ["field_aid", "freeze", "bulwark"] else 64.0
+		fx_manager.emit_ring(position, color, radius, 0.7, 1)
 	var label_text := "%s %s" % [_effect_symbol(effect_id), _effect_name(effect_id)]
 	var text_offset := -24.0 if effect_id in ["tower_repair", "tower_power"] else -34.0
 	if effect_id == "bounty":
@@ -1445,98 +1469,21 @@ func _play_effect_vfx(effect_id: String, position: Vector2, actor := "ally") -> 
 	else:
 		_spawn_hit_fx(position, color, label_text, 0.85, text_offset)
 	AudioManager.play_sfx(_effect_sfx(effect_id))
-	var tween := create_tween()
-	tween.set_parallel(true)
-	tween.tween_property(ring, "scale", Vector2(1.2, 0.45), 0.7)
-	tween.tween_property(ring, "modulate:a", 0.0, 0.7)
-	tween.tween_property(root, "position:y", root.position.y - 18.0, 0.7)
-	tween.chain().tween_callback(root.queue_free)
 	if effect_id == "boss_call" or effect_id == "tower_power":
 		_shake_battlefield()
 
 func _play_spawn_vfx(position: Vector2, color := Color("#ff9a78")) -> void:
-	var root := Node2D.new()
-	root.position = position
-	root.z_index = 7
-	world.add_child(root)
-	var particles := CPUParticles2D.new()
-	particles.amount = 12
-	particles.lifetime = 0.55
-	particles.one_shot = true
-	particles.explosiveness = 1.0
-	particles.texture = _effect_particle_texture()
-	particles.color = Color(color, 0.72)
-	particles.scale_amount_min = 0.14
-	particles.scale_amount_max = 0.32
-	particles.direction = Vector2.UP
-	particles.spread = 140.0
-	particles.initial_velocity_min = 20.0
-	particles.initial_velocity_max = 48.0
-	particles.gravity = Vector2(0, 34.0)
-	root.add_child(particles)
-	var ring := Polygon2D.new()
-	var points := PackedVector2Array()
-	for index in range(16):
-		var angle := -TAU * float(index) / 16.0
-		points.append(Vector2(cos(angle), sin(angle)) * 52.0)
-	ring.polygon = points
-	ring.color = Color(color, 0.22)
-	ring.scale = Vector2(0.2, 0.2)
-	ring.z_index = 2
-	root.add_child(ring)
-	var tween := create_tween()
-	tween.set_parallel(true)
-	tween.tween_property(ring, "scale", Vector2(1.6, 1.6), 0.45)
-	tween.tween_property(ring, "modulate:a", 0.0, 0.45)
-	tween.chain().tween_callback(root.queue_free)
+	if fx_manager != null:
+		fx_manager.emit("spawn", position, Vector2.UP, current_era, 2, 12, color)
+		fx_manager.emit_ring(position, color, 52.0, 0.45, 2)
 
 func _play_boss_entry_vfx(position: Vector2, ally: bool, hero_name: String) -> void:
 	var color := Color("#ffd273") if ally else Color("#ff625c")
-	var root := Node2D.new()
-	root.position = position
-	root.z_index = 7
-	world.add_child(root)
-	var particles := CPUParticles2D.new()
-	particles.amount = 42
-	particles.lifetime = 0.9
-	particles.one_shot = true
-	particles.explosiveness = 0.95
-	particles.texture = _effect_particle_texture()
-	particles.color = Color(color, 0.9)
-	particles.scale_amount_min = 0.18
-	particles.scale_amount_max = 0.5
-	particles.direction = Vector2.UP
-	particles.spread = 170.0
-	particles.initial_velocity_min = 34.0
-	particles.initial_velocity_max = 108.0
-	particles.gravity = Vector2(0, 32.0)
-	root.add_child(particles)
-	var ring := Line2D.new()
-	ring.points = _entry_ring_points(86.0, 24)
-	ring.closed = true
-	ring.width = 6.0
-	ring.antialiased = true
-	ring.default_color = Color(color, 0.95)
-	ring.scale = Vector2(0.35, 0.45)
-	ring.z_index = 2
-	root.add_child(ring)
-	var inner_ring := Line2D.new()
-	inner_ring.points = _entry_ring_points(56.0, 20)
-	inner_ring.closed = true
-	inner_ring.width = 3.0
-	inner_ring.antialiased = true
-	inner_ring.default_color = Color(color.lightened(0.18), 0.82)
-	inner_ring.scale = Vector2(0.25, 0.45)
-	inner_ring.z_index = 2
-	root.add_child(inner_ring)
-	var tween := create_tween()
-	tween.set_parallel(true)
-	tween.tween_property(ring, "scale", Vector2(1.25, 0.45), 0.8)
-	tween.tween_property(inner_ring, "scale", Vector2(1.45, 0.45), 0.65)
-	tween.tween_property(ring, "modulate:a", 0.0, 0.8)
-	tween.tween_property(inner_ring, "modulate:a", 0.0, 0.65)
-	tween.tween_property(root, "position:y", root.position.y - 12.0, 0.8)
-	tween.chain().tween_callback(root.queue_free)
+	if fx_manager != null:
+		var era := current_era if ally else enemy_era
+		fx_manager.emit("tower_destroy", position, Vector2.UP, era, 0, 42, color)
+		fx_manager.emit_ring(position, color, 86.0, 0.8, 0)
+		fx_manager.emit_ring(position, color.lightened(0.18), 56.0, 0.65, 0)
 	_shake_battlefield()
 	_show_boss_entry_banner(hero_name, ally)
 	AudioManager.play_sfx("boss_ally_entry" if ally else "boss_enemy_entry", {"priority": 0})
@@ -1830,6 +1777,7 @@ func _start_round(start_era_index: int = 0) -> void:
 	ally_freeze_time = 0.0
 	tower_attack_bonus = 1.0
 	enemy_tower_attack_bonus = 1.0
+	tower_destruction_started = false
 	enemy_coin = 0.0
 	enemy_effect_cd = 0.0
 	enemy_rally_fired = 0
@@ -2570,9 +2518,9 @@ func _step_battle(delta: float) -> void:
 	_process_tower_attack(true, enemy_units)
 	_process_tower_attack(false, ally_units)
 	if enemy_tower_hp <= 0.0:
-		_finish_battle(true, "胜利！敌方防御塔已摧毁")
+		_trigger_tower_destruction(true)
 	elif ally_tower_hp <= 0.0:
-		_finish_battle(false, "失败！己方防御塔被摧毁")
+		_trigger_tower_destruction(false)
 
 func _find_tower_target(ally: bool, candidates: Array[BattleUnit]) -> BattleUnit:
 	var tower_x := ALLY_TOWER_X if ally else ENEMY_TOWER_X
@@ -2611,6 +2559,9 @@ func _process_tower_attack(ally: bool, candidates: Array[BattleUnit]) -> void:
 			return
 		_deal_damage(target, damage, "tower")
 		_spawn_hit_fx(target.position, Color("#ffd273"), "✦")
+		if fx_manager != null:
+			fx_manager.emit_tower_hit(target.position, tower_era)
+		_nudge_tower(ally)
 		AudioManager.play_sfx("hit")
 	var projectile := Projectile.new()
 	projectile.setup(start_pos, target_pos, 300.0, tower_era, Color("#ffd273"), on_hit)
@@ -2627,6 +2578,18 @@ func _move_unit(unit: BattleUnit, target_x: float, delta: float) -> void:
 		speed *= 1.5
 	unit.position.x += direction * speed * delta
 	unit.set_moving(true)
+	var unit_key := unit.get_instance_id()
+	var cooldown := float(walk_dust_cooldowns.get(unit_key, 0.0)) - delta
+	if cooldown <= 0.0:
+		var role := str(unit.stats.get("role", ""))
+		var nearby := absf(unit.position.x - camera_x) <= BATTLE_VIEW_W * 0.8
+		if nearby and (role in ["tank", "boss"] or float(unit.stats.get("size", 1.0)) >= 1.25):
+			if fx_manager != null:
+				fx_manager.emit("dust", unit.position + Vector2(0, 8), Vector2.UP, current_era if unit.faction == "ally" else enemy_era, 2, 2)
+			cooldown = 0.24
+		else:
+			cooldown = 0.5
+	walk_dust_cooldowns[unit_key] = cooldown
 
 func _unit_damage(attacker: BattleUnit) -> float:
 	var damage := float(attacker.stats.attack)
@@ -2644,7 +2607,14 @@ func _deal_damage(target: BattleUnit, amount: float, source: String, attacker: B
 	if attacker == null or not is_instance_valid(attacker) or not attacker.alive:
 		return
 	if _buff_active_side(attacker.faction, "lifesteal"):
-		attacker.heal(damage * 0.2)
+		var heal_amount := damage * 0.2
+		attacker.heal(heal_amount)
+		if fx_manager != null:
+			fx_manager.emit_lifesteal(
+				target.position,
+				attacker.position + Vector2(0, -56.0),
+				current_era if attacker.faction == "ally" else enemy_era
+			)
 	var melee := float(attacker.stats.get("range", 0.0)) < PROJECTILE_RANGE_THRESHOLD
 	if melee and attacker.faction != target.faction and _buff_active_side(target.faction, "thorns"):
 		attacker.receive_damage(damage * 0.3, "hero")
@@ -2694,6 +2664,9 @@ func _attack(attacker: BattleUnit, target: BattleUnit) -> void:
 			if is_instance_valid(target) and target.alive:
 				_deal_damage(target, damage, "hero", attacker)
 				_spawn_hit_fx(target.position, Color("#ffd273"), "✦")
+				if fx_manager != null:
+					fx_manager.emit("hit", target.position, (attacker.position - target.position).normalized(), str(attacker.stats.era), 2, 6)
+					fx_manager.emit_impact_line(target.position, (target.position - attacker.position).normalized(), Color.WHITE, 0.1)
 				AudioManager.play_sfx("hit")
 		var projectile := Projectile.new()
 		projectile.setup(
@@ -2708,6 +2681,9 @@ func _attack(attacker: BattleUnit, target: BattleUnit) -> void:
 		return
 	_deal_damage(target, damage, "hero", attacker)
 	_spawn_hit_fx(target.position, Color("#ffd273"), "✦")
+	if fx_manager != null:
+		fx_manager.emit("hit", target.position, (target.position - attacker.position).normalized(), str(attacker.stats.era), 2, 6)
+		fx_manager.emit_impact_line(target.position, (target.position - attacker.position).normalized(), Color.WHITE, 0.1)
 	AudioManager.play_sfx("hit")
 
 func _attack_tower(attacker: BattleUnit) -> void:
@@ -2727,11 +2703,17 @@ func _attack_tower(attacker: BattleUnit) -> void:
 			if attacker.faction == "ally":
 				enemy_tower_hp = maxf(0.0, enemy_tower_hp - damage)
 				_spawn_hit_fx(tower_point, Color("#ffd273"), "✦")
+				if fx_manager != null:
+					fx_manager.emit_tower_hit(tower_point, attacker.stats.era)
+				_nudge_tower(false)
 				AudioManager.play_sfx("tower")
 				_shake_battlefield()
 			else:
 				ally_tower_hp = maxf(0.0, ally_tower_hp - damage)
 				_spawn_hit_fx(tower_point, Color("#ff8e70"), "✦")
+				if fx_manager != null:
+					fx_manager.emit_tower_hit(tower_point, attacker.stats.era)
+				_nudge_tower(true)
 				AudioManager.play_sfx("tower")
 				_shake_battlefield()
 		var projectile := Projectile.new()
@@ -2748,11 +2730,17 @@ func _attack_tower(attacker: BattleUnit) -> void:
 	if attacker.faction == "ally":
 		enemy_tower_hp = maxf(0.0, enemy_tower_hp - damage)
 		_spawn_hit_fx(Vector2(ENEMY_TOWER_X, BATTLE_GROUND_Y - 40.0), Color("#ffd273"), "✦")
+		if fx_manager != null:
+			fx_manager.emit_tower_hit(Vector2(ENEMY_TOWER_X, BATTLE_GROUND_Y - 40.0), attacker.stats.era)
+		_nudge_tower(false)
 		AudioManager.play_sfx("tower")
 		_shake_battlefield()
 	else:
 		ally_tower_hp = maxf(0.0, ally_tower_hp - damage)
 		_spawn_hit_fx(Vector2(ALLY_TOWER_X, BATTLE_GROUND_Y - 40.0), Color("#ff8e70"), "✦")
+		if fx_manager != null:
+			fx_manager.emit_tower_hit(Vector2(ALLY_TOWER_X, BATTLE_GROUND_Y - 40.0), attacker.stats.era)
+		_nudge_tower(true)
 		AudioManager.play_sfx("tower")
 		_shake_battlefield()
 
@@ -2761,6 +2749,13 @@ func _on_unit_expired(unit: BattleUnit) -> void:
 		return
 	var faction := unit.faction
 	battle_units.erase(unit)
+	walk_dust_cooldowns.erase(unit.get_instance_id())
+	if fx_manager != null:
+		fx_manager.emit_death(
+			unit.position,
+			Vector2.LEFT if faction == "enemy" else Vector2.RIGHT,
+			current_era if faction == "ally" else enemy_era
+		)
 	AudioManager.play_sfx("unit_death", {"priority": 1})
 	if faction == "ally":
 		occupied_units = maxi(0, occupied_units - 1)
@@ -2779,6 +2774,28 @@ func _on_unit_expired(unit: BattleUnit) -> void:
 		var reward := float(_era_amount_for(enemy_era, int(unit.stats.get("kill_score", 0)))) * float(_diff().ai_income_mult) * KILL_COIN_MULT
 		enemy_coin += reward
 	unit.queue_free()
+
+func _nudge_tower(ally: bool) -> void:
+	var tower := ally_tower_sprite if ally else enemy_tower_sprite
+	if tower == null:
+		return
+	var base_x := ALLY_TOWER_X if ally else ENEMY_TOWER_X
+	var tween := create_tween()
+	tween.tween_property(tower, "position:x", base_x + (-5.0 if ally else 5.0), 0.045)
+	tween.tween_property(tower, "position:x", base_x, 0.08)
+
+func _trigger_tower_destruction(won: bool) -> void:
+	if tower_destruction_started:
+		return
+	tower_destruction_started = true
+	var destroyed_ally := not won
+	var position := Vector2(ALLY_TOWER_X if destroyed_ally else ENEMY_TOWER_X, BATTLE_GROUND_Y - 72.0)
+	if fx_manager != null:
+		fx_manager.emit_tower_destroy(position, current_era if destroyed_ally else enemy_era)
+	_shake_battlefield()
+	var tween := create_tween()
+	tween.tween_interval(0.6)
+	tween.tween_callback(_finish_battle.bind(won, "胜利！敌方防御塔已摧毁" if won else "失败！己方防御塔被摧毁"))
 
 func _advance_era() -> void:
 	if era_index >= GameData.ERAS.size() - 1:
