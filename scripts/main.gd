@@ -15,8 +15,8 @@ const SPAWN_STAGGER := 0.6
 const WAVE_DURATION := 180.0
 const KILL_COIN_MULT := 0.2
 const ERA_UP_ROUNDS := [2, 4, 7, 10] # 在这些轮次各升一级时代：1石器/2铁器/4工业/7现代/10未来
-const BATCH_BASE_GROUPS := 60
-const BATCH_GROUP_STEP := 10
+const BATCH_BASE_GROUPS := 40
+const BATCH_GROUP_STEP := 7
 const MIN_BOSS_GROUPS := 2 # 每批保底当前时代 BOSS 组数（保证至少能合成）
 const DIFFICULTIES := {
 	"easy": {"name": "简单", "wave_min": 6.0, "first_delay": 7.0, "count_base": 5, "count_step": 6, "count_max": 10, "enemy_mult": 0.6, "boss_wave": 8, "tower_mult": 1.9, "ai_income_mult": 0.6, "ai_trickle": 0.3, "ai_effect_chance": 0.25},
