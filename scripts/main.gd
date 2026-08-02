@@ -42,6 +42,7 @@ const TOWER_POWER_MAX := 3.0
 const TANK_AGGRO_RADIUS := 150.0
 const PROJECTILE_RANGE_THRESHOLD := 100.0
 const FRONT_TOLERANCE := 8.0
+const SANDBOX_SIDE_CAP := 20
 const UNIT_CAP := 30
 const ENEMY_UNIT_CAP := 60 # 敌方同屏上限（AI出兵x5后需高于己方）
 const VICTORY_REWARD_BASE := 120
@@ -166,6 +167,12 @@ var pause_button: Button
 var main_menu: Control
 var settings_panel: Panel
 var era_select_panel: Panel
+var sandbox_panel: Panel
+var sandbox_control_panel: Panel
+var sandbox_status_label: Label
+var sandbox_start_button: Button
+var sandbox_ally_count_labels: Dictionary = {}
+var sandbox_enemy_count_labels: Dictionary = {}
 var era_select_buttons: Array[Button] = []
 var pause_overlay: Control
 var pause_top_button: Button
@@ -205,6 +212,9 @@ var enemy_tower_bar: TowerHealthBar
 var battle_active := false
 var battle_ended := false
 var battle_won := false
+var sandbox_mode := false
+var sandbox_ally_counts: Dictionary = {}
+var sandbox_enemy_counts: Dictionary = {}
 var paused := false
 var wave_min_timer := 0.0
 var wave_spawning := false
@@ -332,6 +342,7 @@ func _ready() -> void:
 	_build_battlefield()
 	_build_overlay()
 	_build_main_menu()
+	_build_sandbox_control_panel()
 	Updater.status_changed.connect(_on_update_status)
 	Updater.update_ready.connect(_on_update_ready)
 	Updater.check_for_update(false)
@@ -424,6 +435,17 @@ func _process(delta: float) -> void:
 		return
 	_update_minimap()
 	if not battle_active or battle_ended:
+		return
+	if sandbox_mode:
+		fx_unit_count_cache = _living_units("ally").size() + _living_units("enemy").size()
+		_tick_buffs(delta)
+		_sync_persistent_status_vfx(delta)
+		_update_tower_alarm_vfx(delta)
+		_step_battle(delta)
+		_update_camera_follow(delta)
+		_update_tower_ui()
+		_update_sandbox_status()
+		_check_sandbox_end()
 		return
 	fx_unit_count_cache = _living_units("ally").size() + _living_units("enemy").size()
 	_tick_buffs(delta)
@@ -939,7 +961,7 @@ func _build_overlay() -> void:
 	restart_button.add_theme_font_size_override("font_size", 19)
 	restart_button.add_theme_stylebox_override("normal", _panel_style(Color("#d77a3d"), Color("#6d3724"), 15, 3))
 	restart_button.add_theme_stylebox_override("hover", _panel_style(Color("#ec994d"), Color("#6d3724"), 15, 3))
-	restart_button.pressed.connect(_start_round)
+	restart_button.pressed.connect(_on_restart_pressed)
 	restart_button.pressed.connect(_play_button_sfx)
 	panel.add_child(restart_button)
 	result_menu_button = Button.new()
@@ -1212,36 +1234,39 @@ func _build_main_menu() -> void:
 	tagline.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	var start_button := _menu_button(card, "开始游戏", Vector2(144, 330), Vector2(300, 68), 24)
 	start_button.pressed.connect(_enter_game)
-	var solo_button := _menu_button(card, "单机闯关", Vector2(144, 430), Vector2(300, 56), 19)
+	var solo_button := _menu_button(card, "单机闯关", Vector2(144, 406), Vector2(300, 50), 19)
 	solo_button.pressed.connect(_show_era_select)
-	var online_button := _menu_button(card, "联机匹配", Vector2(144, 508), Vector2(300, 56), 19)
+	var sandbox_button := _menu_button(card, "自定义对战", Vector2(144, 466), Vector2(300, 50), 19)
+	sandbox_button.pressed.connect(_show_sandbox_config)
+	var online_button := _menu_button(card, "联机匹配", Vector2(144, 526), Vector2(300, 50), 19)
 	online_button.disabled = true
 	online_button.tooltip_text = "敬请期待"
-	var soon := _label(card, "敬请期待", Vector2(458, 522), Vector2(94, 24), 12, Color("#e6c199"))
+	var soon := _label(card, "敬请期待", Vector2(458, 538), Vector2(94, 24), 12, Color("#e6c199"))
 	soon.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	var settings_button := _menu_button(card, "设置", Vector2(144, 586), Vector2(300, 56), 19)
+	var settings_button := _menu_button(card, "设置", Vector2(144, 586), Vector2(300, 50), 19)
 	settings_button.pressed.connect(_show_settings)
 	var menu_help_button := _menu_button(card, "玩法介绍", Vector2(388, 34), Vector2(160, 50), 17)
 	menu_help_button.pressed.connect(_show_tutorial)
-	var difficulty_label := _label(card, "难度", Vector2(0, 650), Vector2(588, 26), 15, Color("#fff0c7"))
+	var difficulty_label := _label(card, "难度", Vector2(0, 646), Vector2(588, 26), 15, Color("#fff0c7"))
 	difficulty_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	var difficulty_keys := ["easy", "normal", "hard"]
 	var difficulty_x_positions := [150, 250, 350]
 	for index in range(difficulty_keys.size()):
 		var key: String = difficulty_keys[index]
-		var button := _menu_button(card, DIFFICULTIES[key].name, Vector2(difficulty_x_positions[index], 684), Vector2(92, 46), 15)
+		var button := _menu_button(card, DIFFICULTIES[key].name, Vector2(difficulty_x_positions[index], 676), Vector2(92, 44), 15)
 		button.pressed.connect(_set_difficulty.bind(key))
 		difficulty_buttons[key] = button
 	_set_difficulty("normal")
-	_label(card, "点击开始，自动进入战斗", Vector2(0, 746), Vector2(588, 28), 14, Color("#e6c199")).horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	var check_update_button := _menu_button(card, "检查更新", Vector2(194, 792), Vector2(200, 44), 16)
+	_label(card, "点击开始，自动进入战斗", Vector2(0, 732), Vector2(588, 28), 14, Color("#e6c199")).horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var check_update_button := _menu_button(card, "检查更新", Vector2(194, 772), Vector2(200, 42), 16)
 	check_update_button.pressed.connect(_on_check_update_pressed)
-	var version_label := _label(card, "内容版本 v%d" % Updater.installed_version, Vector2(0, 842), Vector2(588, 18), 12, Color("#e6c199"))
+	var version_label := _label(card, "内容版本 v%d" % Updater.installed_version, Vector2(0, 818), Vector2(588, 18), 12, Color("#e6c199"))
 	version_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	update_status_label = _label(card, "", Vector2(0, 862), Vector2(588, 18), 12, Color("#ffe3a5"))
+	update_status_label = _label(card, "", Vector2(0, 836), Vector2(588, 18), 12, Color("#ffe3a5"))
 	update_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_build_settings_panel(card)
 	_build_era_select_panel()
+	_build_sandbox_config_panel()
 
 func _on_check_update_pressed() -> void:
 	_play_button_sfx()
@@ -1764,6 +1789,353 @@ func _hide_era_select() -> void:
 	if era_select_panel != null:
 		era_select_panel.visible = false
 
+func _build_sandbox_config_panel() -> void:
+	sandbox_panel = Panel.new()
+	sandbox_panel.position = Vector2(60, 150)
+	sandbox_panel.size = Vector2(600, 1000)
+	sandbox_panel.z_index = 20
+	sandbox_panel.add_theme_stylebox_override("panel", _panel_style(Color("#c58a53"), Color("#70412c"), 24, 3))
+	sandbox_panel.visible = false
+	main_menu.add_child(sandbox_panel)
+	var title := _label(sandbox_panel, "自定义对战", Vector2(0, 24), Vector2(600, 42), 28)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var subtitle := _label(
+		sandbox_panel,
+		"分别为 我方(蓝) / 敌方(红) 选择出战单位与数量",
+		Vector2(20, 68),
+		Vector2(560, 26),
+		14,
+		Color("#ffe3a5")
+	)
+	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var scroll := ScrollContainer.new()
+	scroll.position = Vector2(20, 104)
+	scroll.size = Vector2(560, 700)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	sandbox_panel.add_child(scroll)
+	var rows := VBoxContainer.new()
+	rows.custom_minimum_size = Vector2(540, 0)
+	rows.add_theme_constant_override("separation", 4)
+	scroll.add_child(rows)
+	sandbox_ally_count_labels.clear()
+	sandbox_enemy_count_labels.clear()
+	for era in GameData.ERAS:
+		var heroes := GameData.heroes_for_era(era)
+		for role in GameData.ROLES:
+			for hero_id in heroes:
+				var data: Dictionary = GameData.HEROES.get(hero_id, {})
+				if str(data.get("role", "")) != role:
+					continue
+				_sandbox_add_unit_row(rows, str(hero_id), data)
+	var total_label := _label(sandbox_panel, "", Vector2(24, 820), Vector2(552, 32), 18, Color("#fff0c7"))
+	total_label.name = "SandboxTotalLabel"
+	total_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	sandbox_panel.set_meta("total_label", total_label)
+	sandbox_start_button = _menu_button(sandbox_panel, "开战", Vector2(82, 872), Vector2(130, 54), 18)
+	sandbox_start_button.pressed.connect(_on_sandbox_start_pressed)
+	var clear_button := _menu_button(sandbox_panel, "清空", Vector2(235, 872), Vector2(130, 54), 18)
+	clear_button.pressed.connect(_clear_sandbox_counts)
+	var close_button := _menu_button(sandbox_panel, "返回", Vector2(388, 872), Vector2(130, 54), 18)
+	close_button.pressed.connect(_hide_sandbox_config)
+
+func _sandbox_add_unit_row(parent: VBoxContainer, hero_id: String, data: Dictionary) -> void:
+	var row := HBoxContainer.new()
+	row.custom_minimum_size = Vector2(540, 48)
+	row.add_theme_constant_override("separation", 4)
+	parent.add_child(row)
+	var info := VBoxContainer.new()
+	info.custom_minimum_size = Vector2(218, 48)
+	row.add_child(info)
+	var name_label := _label(info, str(data.get("name", hero_id)), Vector2.ZERO, Vector2(218, 25), 14)
+	name_label.custom_minimum_size = Vector2(218, 25)
+	var detail := "%s·%s" % [
+		str(GameData.ERA_NAMES.get(data.get("era", "stone"), data.get("era", "stone"))),
+		str(GameData.ROLE_NAMES.get(data.get("role", "warrior"), data.get("role", "warrior"))),
+	]
+	var detail_label := _label(info, detail, Vector2.ZERO, Vector2(218, 19), 10, Color("#e6c199"))
+	detail_label.custom_minimum_size = Vector2(218, 19)
+	_sandbox_add_side_controls(row, hero_id, "ally")
+	_sandbox_add_side_controls(row, hero_id, "enemy")
+
+func _sandbox_add_side_controls(parent: HBoxContainer, hero_id: String, side: String) -> void:
+	var side_box := HBoxContainer.new()
+	side_box.custom_minimum_size = Vector2(156, 44)
+	side_box.add_theme_constant_override("separation", 3)
+	parent.add_child(side_box)
+	var side_label := _label(
+		side_box,
+		"我" if side == "ally" else "敌",
+		Vector2.ZERO,
+		Vector2(22, 36),
+		14,
+		Color("#8fd8ff") if side == "ally" else Color("#ff8b72")
+	)
+	side_label.custom_minimum_size = Vector2(22, 36)
+	side_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	var minus := _sandbox_stepper_button("-")
+	side_box.add_child(minus)
+	minus.pressed.connect(_sandbox_change_count.bind(hero_id, side, -1))
+	var count_label := _label(side_box, "0", Vector2.ZERO, Vector2(34, 36), 14, Color("#fff0c7"))
+	count_label.custom_minimum_size = Vector2(34, 36)
+	count_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	count_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	var plus := _sandbox_stepper_button("+")
+	side_box.add_child(plus)
+	plus.pressed.connect(_sandbox_change_count.bind(hero_id, side, 1))
+	if side == "ally":
+		sandbox_ally_count_labels[hero_id] = count_label
+	else:
+		sandbox_enemy_count_labels[hero_id] = count_label
+
+func _sandbox_stepper_button(text: String) -> Button:
+	var button := Button.new()
+	button.text = text
+	button.custom_minimum_size = Vector2(36, 36)
+	button.add_theme_font_size_override("font_size", 17)
+	button.add_theme_stylebox_override("normal", _panel_style(Color("#a75d38"), Color("#70412c"), 10, 2))
+	button.add_theme_stylebox_override("hover", _panel_style(Color("#d5864b"), Color("#70412c"), 10, 2))
+	button.add_theme_stylebox_override("pressed", _panel_style(Color("#e0a34d"), Color("#70412c"), 10, 2))
+	button.pressed.connect(_play_button_sfx)
+	return button
+
+func _sandbox_count_total(counts: Dictionary) -> int:
+	var total := 0
+	for value in counts.values():
+		total += int(value)
+	return total
+
+func _sandbox_change_count(hero_id: String, side: String, delta: int) -> void:
+	var counts := sandbox_ally_counts if side == "ally" else sandbox_enemy_counts
+	var current := int(counts.get(hero_id, 0))
+	var next := clampi(current + delta, 0, 10)
+	if delta > 0 and _sandbox_count_total(counts) >= SANDBOX_SIDE_CAP:
+		return
+	counts[hero_id] = next
+	_sandbox_refresh_config_ui()
+
+func _sandbox_refresh_config_ui() -> void:
+	for hero_id in sandbox_ally_count_labels:
+		sandbox_ally_count_labels[hero_id].text = str(int(sandbox_ally_counts.get(hero_id, 0)))
+	for hero_id in sandbox_enemy_count_labels:
+		sandbox_enemy_count_labels[hero_id].text = str(int(sandbox_enemy_counts.get(hero_id, 0)))
+	var ally_total := _sandbox_count_total(sandbox_ally_counts)
+	var enemy_total := _sandbox_count_total(sandbox_enemy_counts)
+	if sandbox_panel != null:
+		var total_label := sandbox_panel.get_meta("total_label") as Label
+		if total_label != null:
+			total_label.text = "我方 %d ｜ 敌方 %d" % [ally_total, enemy_total]
+	if sandbox_start_button != null:
+		sandbox_start_button.disabled = ally_total < 1 or enemy_total < 1
+
+func _clear_sandbox_counts() -> void:
+	sandbox_ally_counts.clear()
+	sandbox_enemy_counts.clear()
+	_sandbox_refresh_config_ui()
+
+func _show_sandbox_config() -> void:
+	_hide_settings()
+	_hide_era_select()
+	_sandbox_refresh_config_ui()
+	if sandbox_panel != null:
+		sandbox_panel.visible = true
+
+func _hide_sandbox_config() -> void:
+	if sandbox_panel != null:
+		sandbox_panel.visible = false
+
+func _on_sandbox_start_pressed() -> void:
+	_hide_sandbox_config()
+	if main_menu != null:
+		main_menu.visible = false
+	_start_sandbox_battle()
+
+func _build_sandbox_control_panel() -> void:
+	sandbox_control_panel = Panel.new()
+	sandbox_control_panel.position = Vector2(36, 432)
+	sandbox_control_panel.size = Vector2(648, 808)
+	sandbox_control_panel.z_index = 3000
+	sandbox_control_panel.add_theme_stylebox_override("panel", _panel_style(Color("#c58a53"), Color("#70412c"), 24, 3))
+	sandbox_control_panel.visible = false
+	add_child(sandbox_control_panel)
+	sandbox_status_label = _label(
+		sandbox_control_panel,
+		"",
+		Vector2(24, 42),
+		Vector2(600, 72),
+		24,
+		Color("#fff2c4")
+	)
+	sandbox_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	sandbox_status_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	var hint := _label(
+		sandbox_control_panel,
+		"战斗将持续到一方单位全部倒下",
+		Vector2(24, 122),
+		Vector2(600, 30),
+		15,
+		Color("#ffe3a5")
+	)
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var restart := _menu_button(
+		sandbox_control_panel,
+		"重新模拟",
+		Vector2(174, 270),
+		Vector2(300, 58),
+		19
+	)
+	restart.pressed.connect(_start_sandbox_battle)
+	var edit := _menu_button(
+		sandbox_control_panel,
+		"修改配置",
+		Vector2(174, 344),
+		Vector2(300, 58),
+		19
+	)
+	edit.pressed.connect(_show_sandbox_config_from_battle)
+	var back := _menu_button(
+		sandbox_control_panel,
+		"返回主菜单",
+		Vector2(174, 418),
+		Vector2(300, 58),
+		19
+	)
+	back.pressed.connect(_show_main_menu)
+
+func _show_sandbox_config_from_battle() -> void:
+	_show_main_menu()
+	_show_sandbox_config()
+
+func _start_sandbox_battle() -> void:
+	AudioManager.set_music_filtered(false)
+	sandbox_mode = true
+	_remove_battle_units()
+	occupied_units = 0
+	buff_timers.clear()
+	enemy_buff_timers.clear()
+	enemy_freeze_time = 0.0
+	ally_freeze_time = 0.0
+	tower_attack_bonus = 1.0
+	enemy_tower_attack_bonus = 1.0
+	tower_destruction_started = false
+	ally_lane_cursor = 0
+	enemy_lane_cursor = 0
+	kill_score = 0
+	prep_pending = false
+	auto_prep = false
+	stuck_warned = false
+	wave_spawning = false
+	wave_min_timer = 0.0
+	wave_active_timer = 0.0
+	wave_boss_pending = false
+	enemy_spawn_timer = 0.0
+	enemy_spawn_index = 0
+	wave_number = 0
+	round_number = 0
+	ally_tower_cd = 0.0
+	enemy_tower_cd = 0.0
+	enemy_coin = 0.0
+	enemy_effect_cd = 0.0
+	enemy_rally_fired = 0
+	ally_alarm_50_played = false
+	ally_alarm_25_played = false
+	var display_era_index := 0
+	for counts in [sandbox_ally_counts, sandbox_enemy_counts]:
+		for hero_id in counts:
+			var data: Dictionary = GameData.HEROES.get(hero_id, {})
+			var candidate := GameData.ERAS.find(str(data.get("era", "stone")))
+			display_era_index = maxi(display_era_index, candidate)
+	era_index = display_era_index
+	base_era_index = display_era_index
+	enemy_era_index = display_era_index
+	current_era = GameData.ERAS[display_era_index]
+	enemy_era = current_era
+	ally_tower_hp = GameData.tower_hp(current_era)
+	enemy_tower_hp = ally_tower_hp
+	ally_tower_max_hp = ally_tower_hp
+	enemy_tower_max_hp = enemy_tower_hp
+	battle_active = true
+	battle_ended = false
+	battle_won = false
+	paused = false
+	if main_menu != null:
+		main_menu.visible = false
+	if board != null:
+		board.visible = false
+	if tray != null:
+		tray.visible = false
+	if sandbox_control_panel != null:
+		sandbox_control_panel.visible = true
+	if pause_overlay != null:
+		pause_overlay.visible = false
+	if tutorial_overlay != null:
+		tutorial_overlay.visible = false
+	if result_overlay != null:
+		result_overlay.visible = false
+	if pause_button != null:
+		pause_button.visible = true
+	if restart_button != null:
+		restart_button.text = "再来一次"
+	battle_hint.text = "自定义模拟对战"
+	_update_buff_ui()
+	_update_coin_ui()
+	_update_progress_ui()
+	_update_tower_ui()
+	_sync_persistent_status_vfx(0.0)
+	_refresh_era_visuals(false)
+	_reset_camera()
+	for hero_id in sandbox_ally_counts:
+		for _i in range(int(sandbox_ally_counts[hero_id])):
+			_spawn_ally(str(hero_id))
+	var enemy_total := _sandbox_count_total(sandbox_enemy_counts)
+	var enemy_index := 0
+	for hero_id in sandbox_enemy_counts:
+		for _i in range(int(sandbox_enemy_counts[hero_id])):
+			_spawn_enemy(str(hero_id), enemy_index, enemy_total, false)
+			enemy_index += 1
+	_update_sandbox_status()
+
+func _update_sandbox_status() -> void:
+	if sandbox_status_label == null:
+		return
+	sandbox_status_label.text = "我方存活 %d ｜ 敌方存活 %d" % [
+		_living_units("ally").size(),
+		_living_units("enemy").size(),
+	]
+
+func _check_sandbox_end() -> void:
+	var ally_units := _living_units("ally")
+	var enemy_units := _living_units("enemy")
+	var ally_alive := not ally_units.is_empty()
+	var enemy_alive := not enemy_units.is_empty()
+	if ally_alive and enemy_alive:
+		return
+	var text := ""
+	if ally_alive and not enemy_alive:
+		text = "我方胜利！\n存活 %d 个单位" % ally_units.size()
+	elif enemy_alive and not ally_alive:
+		text = "敌方胜利！\n存活 %d 个单位" % enemy_units.size()
+	else:
+		text = "同归于尽（平局）"
+	_finish_sandbox(text)
+
+func _finish_sandbox(text: String) -> void:
+	if battle_ended:
+		return
+	battle_ended = true
+	battle_active = false
+	battle_won = text.begins_with("我方胜利")
+	AudioManager.play_sfx("victory")
+	status_label.text = text
+	if result_overlay != null:
+		result_overlay.visible = true
+	_update_progress_ui()
+
+func _on_restart_pressed() -> void:
+	if sandbox_mode:
+		_start_sandbox_battle()
+	else:
+		_start_round()
+
 func _select_start_era(index: int) -> void:
 	_hide_era_select()
 	if main_menu != null:
@@ -1781,10 +2153,12 @@ func _show_main_menu() -> void:
 	battle_active = false
 	battle_ended = false
 	battle_won = false
+	sandbox_mode = false
 	paused = false
 	AudioManager.set_music_filtered(false)
 	_hide_settings()
 	_hide_era_select()
+	_hide_sandbox_config()
 	if result_overlay != null:
 		result_overlay.visible = false
 	if pause_overlay != null:
@@ -1793,6 +2167,14 @@ func _show_main_menu() -> void:
 		tutorial_overlay.visible = false
 	if pause_button != null:
 		pause_button.visible = false
+	if sandbox_control_panel != null:
+		sandbox_control_panel.visible = false
+	if board != null:
+		board.visible = true
+	if tray != null:
+		tray.visible = true
+	if restart_button != null:
+		restart_button.text = "重新开始"
 	_remove_battle_units()
 	_update_progress_ui()
 	if main_menu != null:
@@ -1800,6 +2182,15 @@ func _show_main_menu() -> void:
 
 func _start_round(start_era_index: int = 0) -> void:
 	AudioManager.set_music_filtered(false)
+	sandbox_mode = false
+	if sandbox_control_panel != null:
+		sandbox_control_panel.visible = false
+	if board != null:
+		board.visible = true
+	if tray != null:
+		tray.visible = true
+	if restart_button != null:
+		restart_button.text = "重新开始"
 	for card in deck_cards:
 		if is_instance_valid(card):
 			card.queue_free()
@@ -2532,11 +2923,11 @@ func _enemy_ai_take_turn() -> void:
 			_update_buff_ui()
 			_update_tower_ui()
 
-func _spawn_enemy(hero_id: String, index: int, total_count: int) -> BattleUnit:
+func _spawn_enemy(hero_id: String, index: int, total_count: int, apply_diff := true) -> BattleUnit:
 	if _living_units("enemy").size() >= ENEMY_UNIT_CAP:
 		return null
 	var data: Dictionary = GameData.HEROES[hero_id].duplicate(true)
-	var mult := float(_diff().enemy_mult)
+	var mult := float(_diff().enemy_mult) if apply_diff else 1.0
 	data["hp"] = float(data.hp) * mult
 	data["attack"] = float(data.attack) * mult
 	var texture: Texture2D
@@ -3091,6 +3482,8 @@ func _nudge_tower(ally: bool) -> void:
 	tween.tween_property(tower, "position:x", base_x, 0.08)
 
 func _trigger_tower_destruction(won: bool) -> void:
+	if sandbox_mode:
+		return
 	if tower_destruction_started:
 		return
 	tower_destruction_started = true
