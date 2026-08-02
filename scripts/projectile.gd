@@ -12,6 +12,9 @@ var elapsed := 0.0
 var speed := 260.0
 var era := "stone"
 var projectile_color := Color.WHITE
+var fx_manager: FxManager
+var trail: Line2D
+var previous_position := Vector2.ZERO
 
 func setup(
 	start_pos: Vector2,
@@ -28,6 +31,7 @@ func setup(
 	era = projectile_era
 	projectile_color = color
 	z_index = 6
+	previous_position = start_pos
 	var initial_target = target_getter.call() if target_getter.is_valid() else null
 	if initial_target is Vector2:
 		target_position = initial_target
@@ -38,6 +42,10 @@ func setup(
 
 func _process(delta: float) -> void:
 	elapsed += delta
+	if fx_manager == null and get_parent() != null:
+		fx_manager = get_parent().get_node_or_null("FxManager")
+		if fx_manager != null:
+			trail = fx_manager.acquire_projectile_trail(projectile_color)
 	if not target_lost and target_getter.is_valid():
 		var current_target = target_getter.call()
 		if current_target is Vector2:
@@ -51,16 +59,25 @@ func _process(delta: float) -> void:
 		_finish(not target_lost)
 		return
 	var direction := offset / distance
+	if fx_manager != null and trail != null:
+		fx_manager.update_projectile_trail(trail, position, previous_position)
+	previous_position = position
 	position += direction * minf(speed * delta, distance)
 	rotation = direction.angle()
 	queue_redraw()
 
 func _finish(apply_hit: bool) -> void:
-	if not is_inside_tree():
-		return
+	if fx_manager != null and trail != null:
+		fx_manager.release_projectile_trail(trail)
+		trail = null
 	if apply_hit and hit_callback.is_valid():
 		hit_callback.call()
 	queue_free()
+
+func _exit_tree() -> void:
+	if fx_manager != null and trail != null:
+		fx_manager.release_projectile_trail(trail)
+		trail = null
 
 func _draw() -> void:
 	match era:
