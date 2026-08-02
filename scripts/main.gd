@@ -47,6 +47,7 @@ const ENEMY_UNIT_CAP := 60 # 敌方同屏上限（AI出兵x5后需高于己方�
 const VICTORY_REWARD_BASE := 120
 const RANDOM_EFFECT_PRICE_BASE := 260
 const CLEAR_TRAY_COST := 200
+const RESHUFFLE_COST := 100
 const AI_EFFECT_CD := 8.0
 const RALLY_BURST := 6
 # weight 越大越常见（按强度分档：常见 10 / 中等 6 / 稀有 3 / 极稀有 1）
@@ -157,6 +158,7 @@ var coin_label: Label
 var era_label: Label
 var score_label: Label
 var deck_label: Label
+var reshuffle_button: Button
 var status_label: Label
 var update_status_label: Label
 var restart_button: Button
@@ -616,6 +618,7 @@ func _build_top_bar() -> void:
 func _update_coin_ui() -> void:
 	if coin_label != null:
 		coin_label.text = "💰  %d" % coin_count
+	_update_reshuffle_button()
 
 func _build_board() -> void:
 	board = Panel.new()
@@ -638,6 +641,8 @@ func _build_board() -> void:
 	deck_label = _label(board, "", Vector2(150, 8), Vector2(200, 34), 24, Color("#ffe9a8"))
 	_outline(deck_label, 6)
 	_label(board, "点击没有被压住的卡牌", Vector2(22, 44), Vector2(230, 23), 12, Color("#6e452f"))
+	reshuffle_button = _menu_button(board, "🔀 重排牌序 -100", Vector2(438, 8), Vector2(198, 42), 15)
+	reshuffle_button.pressed.connect(_on_reshuffle_pressed)
 	_build_wave_bar()
 	card_layer = Control.new()
 	card_layer.position = Vector2(26, 80)
@@ -2185,6 +2190,36 @@ func _card_fx_color(card_id: String) -> Color:
 func _can_pick_cards() -> bool:
 	return battle_active and not battle_ended and (not paused or auto_prep)
 
+func _on_reshuffle_pressed() -> void:
+	var live_count := 0
+	for card in deck_cards:
+		if is_instance_valid(card) and not card.claimed:
+			live_count += 1
+	if not _can_pick_cards() or coin_count < RESHUFFLE_COST or live_count < 2:
+		AudioManager.play_sfx("ui_denied")
+		return
+	coin_count = maxi(0, coin_count - RESHUFFLE_COST)
+	_reshuffle_deck()
+	AudioManager.play_sfx("place")
+	battle_hint.text = "已扣 %d 金币重排牌序" % RESHUFFLE_COST
+	_update_coin_ui()
+	_update_progress_ui()
+
+func _reshuffle_deck() -> void:
+	var live_cards: Array[CardView] = []
+	for card in deck_cards:
+		if is_instance_valid(card) and not card.claimed:
+			live_cards.append(card)
+	live_cards.shuffle()
+	card_z_top = 0
+	for index in range(live_cards.size()):
+		var card := live_cards[index]
+		card.rotation = rng.randf_range(-0.45, 0.45)
+		card.position = _random_pile_position()
+		card.z_index = index
+		card_z_top = maxi(card_z_top, index)
+	_refresh_covered()
+
 func _first_open_slot() -> int:
 	var used := tray_cards.size() + tray_incoming
 	return used if used < TRAY_SLOTS else -1
@@ -3292,6 +3327,18 @@ func _update_progress_ui() -> void:
 		score_label.text = "击杀积分 %d" % kill_score
 	if deck_label != null:
 		deck_label.text = "剩 %d 张" % deck_cards.size()
+	_update_reshuffle_button()
+
+func _update_reshuffle_button() -> void:
+	if reshuffle_button == null:
+		return
+	var live_count := 0
+	for card in deck_cards:
+		if is_instance_valid(card) and not card.claimed:
+			live_count += 1
+			if live_count >= 2:
+				break
+	reshuffle_button.disabled = not (_can_pick_cards() and coin_count >= RESHUFFLE_COST and live_count >= 2)
 
 func _update_tower_ui() -> void:
 	if ally_tower_bar == null:
