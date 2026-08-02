@@ -415,11 +415,11 @@ func _draw() -> void:
 	draw_rect(Rect2(-bar_width * 0.5 + 2, bar_y + 2, (bar_width - 4) * ratio, 4), bar_color, true)
 	draw_line(Vector2(-bar_width * 0.5, bar_y + 9), Vector2(bar_width * 0.5, bar_y + 9), Color("#f7dfac", 0.7), 1.0)
 	if skill_cost > 0:
-		var energy_y := bar_y + 13.0
+		var energy_y := bar_y + 11.0
 		var energy_ratio := clampf(energy / float(skill_cost), 0.0, 1.0)
-		draw_rect(Rect2(-bar_width * 0.5 - 1, energy_y - 1, bar_width + 2, 7), Color(0.05, 0.03, 0.02, 0.86), true)
+		draw_rect(Rect2(-bar_width * 0.5 - 1, energy_y - 1, bar_width + 2, 4), Color(0.05, 0.03, 0.02, 0.86), true)
 		var energy_color := Color("#ffe27a") if energy_ratio < 1.0 else Color("#fff4ae")
-		draw_rect(Rect2(-bar_width * 0.5, energy_y, bar_width * energy_ratio, 5), energy_color, true)
+		draw_rect(Rect2(-bar_width * 0.5, energy_y, bar_width * energy_ratio, 2), energy_color, true)
 		if energy_ratio >= 1.0:
 			draw_line(Vector2(-bar_width * 0.5, energy_y), Vector2(bar_width * 0.5, energy_y), Color("#fff8d0", 0.9), 1.0)
 	if shield_time > 0.0 or reflect_time > 0.0:

@@ -95,7 +95,7 @@ const TUTORIAL_STEPS := [
 	},
 	{
 		"title": "第 3 步：看战场",
-		"text": "合成出的英雄会自动前进作战，你不用指挥。左右拖动可查看整个战场，右上角小地图显示双方单位与塔血。\n击杀敌人获得金币；敌人按波次进攻，每 3 波会有一段整备期。",
+		"text": "合成出的英雄会自动前进作战，你不用指挥。左右拖动可查看整个战场，右上角小地图显示双方单位与塔血。\n击杀敌人获得金币；敌人按波次持续进攻。",
 		"rect": BATTLE_RECT,
 	},
 	{
@@ -2491,8 +2491,6 @@ func _spawn_ally(hero_id: String) -> BattleUnit:
 
 func _spawn_wave() -> void:
 	wave_number += 1
-	if wave_number % PREP_WAVE_INTERVAL == 0:
-		prep_pending = true
 	_update_progress_ui()
 	var d := _diff()
 	wave_active_timer = WAVE_DURATION
