@@ -130,6 +130,10 @@ var ally_tower_sprite: Sprite2D
 var enemy_tower_sprite: Sprite2D
 var ally_tower_shadow: Sprite2D
 var enemy_tower_shadow: Sprite2D
+var ally_tower_aura: Line2D
+var enemy_tower_aura: Line2D
+var ally_tower_aura_tween: Tween
+var enemy_tower_aura_tween: Tween
 var tray_cards: Array[String] = []
 var tray_incoming := 0
 var tray_views: Array[Control] = []
@@ -230,6 +234,7 @@ var enemy_freeze_time := 0.0
 var ally_freeze_time := 0.0
 var tower_attack_bonus := 1.0
 var enemy_tower_attack_bonus := 1.0
+var _bounty_pulse_phase := 0.0
 var enemy_coin := 0.0
 var enemy_effect_cd := 0.0
 var enemy_rally_fired := 0
@@ -425,6 +430,7 @@ func _process(delta: float) -> void:
 		_update_camera_follow(delta)
 		return
 	_tick_buffs(delta)
+	_sync_persistent_status_vfx(delta)
 	_update_wave_bar()
 	if wave_spawning:
 		wave_active_timer -= delta
@@ -695,6 +701,8 @@ func _build_battlefield() -> void:
 	enemy_tower_shadow = _create_tower_shadow(false)
 	ally_tower_sprite = _create_tower_sprite(true)
 	enemy_tower_sprite = _create_tower_sprite(false)
+	ally_tower_aura = _create_tower_aura(true)
+	enemy_tower_aura = _create_tower_aura(false)
 	battle_hint = _label(battlefield, "拖动战场查看双方阵地", Vector2(16, 18), Vector2(300, 22), 12, Color("#f9deb0"))
 	buff_label = _rich_label(battlefield, Vector2(16, 36), Vector2(440, 66), 12, Color("#ffd98a"))
 	buff_label.fit_content = true
@@ -737,6 +745,27 @@ func _create_tower_shadow(ally: bool) -> Sprite2D:
 	shadow.z_index = 0
 	world.add_child(shadow)
 	return shadow
+
+func _create_tower_aura(ally: bool) -> Line2D:
+	var aura := Line2D.new()
+	aura.name = "AllyTowerAura" if ally else "EnemyTowerAura"
+	aura.closed = true
+	aura.width = 5.0
+	aura.antialiased = true
+	aura.points = _tower_aura_points()
+	aura.position = Vector2(ALLY_TOWER_X if ally else ENEMY_TOWER_X, BATTLE_GROUND_Y)
+	aura.z_index = 1
+	aura.default_color = _effect_color("tower_power", "ally" if ally else "enemy")
+	aura.visible = false
+	world.add_child(aura)
+	return aura
+
+func _tower_aura_points() -> PackedVector2Array:
+	var points := PackedVector2Array()
+	for index in range(25):
+		var angle := TAU * float(index) / 24.0
+		points.append(Vector2(cos(angle) * 62.0, sin(angle) * 20.0))
+	return points
 
 ## 背景交叉淡入的时长（时代切换要缓缓过渡，不能一下子跳）
 const ERA_FADE_TIME := 1.6
@@ -1553,6 +1582,73 @@ func _tick_buffs(delta: float) -> void:
 			timers.erase(effect_id)
 	_update_buff_ui()
 
+func _sync_persistent_status_vfx(delta: float) -> void:
+	_sync_unit_buff_auras("ally")
+	_sync_unit_buff_auras("enemy")
+	_sync_tower_power_vfx()
+	_sync_bounty_vfx(delta)
+
+func _sync_unit_buff_auras(faction: String) -> void:
+	var ids: Array[String] = []
+	var colors: Array[Color] = []
+	var timers: Dictionary = buff_timers if faction == "ally" else enemy_buff_timers
+	for effect_id in ["frenzy", "morale", "bulwark", "haste", "lifesteal", "thorns"]:
+		if float(timers.get(effect_id, 0.0)) > 0.0:
+			ids.append(effect_id)
+			colors.append(_effect_color(effect_id, faction))
+	var frozen := enemy_freeze_time > 0.0 if faction == "enemy" else ally_freeze_time > 0.0
+	if frozen:
+		ids.append("freeze")
+		colors.append(_effect_color("freeze", faction))
+	for unit in _living_units(faction):
+		unit.set_buff_aura(ids, colors)
+
+func _sync_tower_power_vfx() -> void:
+	_update_tower_aura(ally_tower_aura, tower_attack_bonus > 1.0)
+	_update_tower_aura(enemy_tower_aura, enemy_tower_attack_bonus > 1.0)
+
+func _update_tower_aura(aura: Line2D, active: bool) -> void:
+	if aura == null:
+		return
+	if active:
+		var active_tween: Tween = ally_tower_aura_tween if aura == ally_tower_aura else enemy_tower_aura_tween
+		if active_tween != null:
+			active_tween.kill()
+			if aura == ally_tower_aura:
+				ally_tower_aura_tween = null
+			else:
+				enemy_tower_aura_tween = null
+		aura.visible = true
+		aura.modulate.a = 0.68 + sin(Time.get_ticks_msec() * 0.004) * 0.14
+		aura.scale = Vector2.ONE * (1.0 + sin(Time.get_ticks_msec() * 0.003) * 0.04)
+	else:
+		var fade_tween: Tween = ally_tower_aura_tween if aura == ally_tower_aura else enemy_tower_aura_tween
+		if aura.visible and fade_tween == null:
+			fade_tween = create_tween()
+			fade_tween.tween_property(aura, "modulate:a", 0.0, 0.3)
+			fade_tween.tween_callback(func() -> void:
+				aura.visible = false
+				aura.scale = Vector2.ONE
+			)
+			if aura == ally_tower_aura:
+				ally_tower_aura_tween = fade_tween
+			else:
+				enemy_tower_aura_tween = fade_tween
+
+func _sync_bounty_vfx(delta: float) -> void:
+	if coin_label == null:
+		return
+	if float(buff_timers.get("bounty", 0.0)) > 0.0:
+		_bounty_pulse_phase = fmod(_bounty_pulse_phase + delta * 2.8, TAU)
+		var pulse := sin(_bounty_pulse_phase) * 0.06
+		coin_label.pivot_offset = coin_label.size * 0.5
+		coin_label.scale = Vector2.ONE * (1.0 + pulse)
+		coin_label.modulate = Color(1.0, 0.92 + pulse, 0.68 + pulse, 1.0)
+	else:
+		_bounty_pulse_phase = 0.0
+		coin_label.scale = Vector2.ONE
+		coin_label.modulate = Color.WHITE
+
 func _update_buff_ui() -> void:
 	if buff_label == null or enemy_buff_label == null:
 		return
@@ -1739,6 +1835,7 @@ func _start_round(start_era_index: int = 0) -> void:
 	_remove_battle_units()
 	_update_progress_ui()
 	_update_tower_ui()
+	_sync_persistent_status_vfx(0.0)
 	_spawn_next_batch()
 	_refresh_era_visuals(false)
 	_reset_camera()

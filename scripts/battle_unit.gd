@@ -25,6 +25,13 @@ var score_awarded := false
 var visual_base_scale := Vector2.ONE
 var hit_punch_tween: Tween
 var last_damage_source := "hero"
+var _buff_aura_root: Node2D
+var _buff_ring: Line2D
+var _buff_dots_root: Node2D
+var _buff_aura_ids: Array[String] = []
+var _buff_aura_colors: Array[Color] = []
+var _buff_aura_tween: Tween
+var _buff_aura_phase := 0.0
 
 func setup(id: String, side: String, data: Dictionary, texture: Texture2D) -> void:
 	unit_id = id
@@ -39,6 +46,90 @@ func setup(id: String, side: String, data: Dictionary, texture: Texture2D) -> vo
 	else:
 		_setup_static(side, desired_height, texture)
 	queue_redraw()
+
+func set_buff_aura(ids: Array[String], colors: Array[Color]) -> void:
+	if ids == _buff_aura_ids and colors == _buff_aura_colors:
+		return
+	_buff_aura_ids = ids.duplicate()
+	_buff_aura_colors = colors.duplicate()
+	if _buff_aura_ids.is_empty():
+		_fade_buff_aura()
+		return
+	_ensure_buff_aura()
+	if _buff_aura_tween != null:
+		_buff_aura_tween.kill()
+	_buff_aura_tween = null
+	_buff_aura_root.visible = true
+	_buff_aura_root.modulate.a = 1.0
+	_buff_ring.default_color = _buff_aura_colors[0]
+	_rebuild_buff_dots()
+
+func clear_buff_aura(immediate := false) -> void:
+	_buff_aura_ids.clear()
+	_buff_aura_colors.clear()
+	if immediate:
+		if _buff_aura_tween != null:
+			_buff_aura_tween.kill()
+			_buff_aura_tween = null
+		if _buff_aura_root != null:
+			_buff_aura_root.visible = false
+			_buff_aura_root.modulate.a = 0.0
+	else:
+		_fade_buff_aura()
+
+func _ensure_buff_aura() -> void:
+	if _buff_aura_root != null:
+		return
+	_buff_aura_root = Node2D.new()
+	_buff_aura_root.name = "BuffAura"
+	_buff_aura_root.z_index = -2
+	add_child(_buff_aura_root)
+	_buff_ring = Line2D.new()
+	_buff_ring.name = "GroundRing"
+	_buff_ring.closed = true
+	_buff_ring.width = 4.0
+	_buff_ring.antialiased = true
+	_buff_ring.points = _aura_ring_points()
+	_buff_aura_root.add_child(_buff_ring)
+	_buff_dots_root = Node2D.new()
+	_buff_dots_root.name = "BuffDots"
+	_buff_dots_root.position = Vector2(0, -106)
+	_buff_dots_root.z_index = -1
+	_buff_aura_root.add_child(_buff_dots_root)
+
+func _aura_ring_points() -> PackedVector2Array:
+	var points := PackedVector2Array()
+	for index in range(25):
+		var angle := TAU * float(index) / 24.0
+		points.append(Vector2(cos(angle) * 36.0, sin(angle) * 14.0))
+	return points
+
+func _rebuild_buff_dots() -> void:
+	for child in _buff_dots_root.get_children():
+		child.queue_free()
+	var count := _buff_aura_colors.size()
+	for index in range(count):
+		var dot := Polygon2D.new()
+		var points := PackedVector2Array()
+		for point_index in range(9):
+			var angle := TAU * float(point_index) / 8.0
+			points.append(Vector2(cos(angle) * 4.5, sin(angle) * 4.5))
+		dot.polygon = points
+		dot.color = _buff_aura_colors[index]
+		dot.position = Vector2((float(index) - float(count - 1) * 0.5) * 11.0, 0)
+		_buff_dots_root.add_child(dot)
+
+func _fade_buff_aura() -> void:
+	if _buff_aura_root == null or not _buff_aura_root.visible:
+		return
+	if _buff_aura_tween != null:
+		_buff_aura_tween.kill()
+	_buff_aura_tween = create_tween()
+	_buff_aura_tween.tween_property(_buff_aura_root, "modulate:a", 0.0, 0.3)
+	_buff_aura_tween.tween_callback(func() -> void:
+		if _buff_aura_root != null:
+			_buff_aura_root.visible = false
+	)
 
 func _setup_animated(id: String, side: String, desired_height: float) -> bool:
 	var dir := "res://assets/anim/%s" % id
@@ -145,6 +236,11 @@ func _on_anim_finished() -> void:
 		anim.play("walk" if _moving else "idle")
 
 func _process(delta: float) -> void:
+	if _buff_aura_root != null and _buff_aura_root.visible:
+		_buff_aura_phase = fmod(_buff_aura_phase + delta * 2.4, TAU)
+		var pulse := 0.72 + sin(_buff_aura_phase) * 0.16
+		_buff_ring.modulate.a = pulse
+		_buff_dots_root.modulate.a = 0.78 + sin(_buff_aura_phase + 0.4) * 0.12
 	if flash_time > 0.0 and is_instance_valid(visual):
 		flash_time -= delta
 		visual.modulate = Color(1.0, 0.7, 0.5) if flash_time > 0.0 else Color.WHITE
@@ -172,6 +268,7 @@ func _play_hit_punch() -> void:
 
 func _die() -> void:
 	alive = false
+	clear_buff_aura(true)
 	queue_redraw()
 	if animated:
 		anim.play("die")
