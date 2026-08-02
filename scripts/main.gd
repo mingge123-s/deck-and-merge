@@ -46,20 +46,21 @@ const RANDOM_EFFECT_PRICE_BASE := 260
 const CLEAR_TRAY_COST := 200
 const AI_EFFECT_CD := 8.0
 const RALLY_BURST := 6
+# weight 越大越常见（按强度分档：常见 10 / 中等 6 / 稀有 3 / 极稀有 1）
 const RANDOM_EFFECTS := [
-	{"id": "reinforcement", "name": "召唤援军", "desc": "立刻召唤 1 个随机时代的随机英雄", "duration": 0.0},
-	{"id": "boss_call", "name": "BOSS 召唤", "desc": "立刻出战 1 个当前时代的 BOSS 英雄", "duration": 0.0},
-	{"id": "field_aid", "name": "战场急救", "desc": "我方全体回复 40% 生命", "duration": 0.0},
-	{"id": "freeze", "name": "冰冻力场", "desc": "敌方全体停止行动 3 秒", "duration": 3.0},
-	{"id": "frenzy", "name": "狂暴号角", "desc": "我方攻速 +40%，持续 20 秒", "duration": 20.0},
-	{"id": "morale", "name": "战意鼓舞", "desc": "我方攻击 +25%，持续 30 秒", "duration": 30.0},
-	{"id": "bulwark", "name": "铁壁阵型", "desc": "我方受到伤害 -30%，持续 30 秒", "duration": 30.0},
-	{"id": "haste", "name": "疾行药剂", "desc": "我方移速 +50%，持续 20 秒", "duration": 20.0},
-	{"id": "lifesteal", "name": "吸血图腾", "desc": "我方造成伤害的 20% 转为治疗，持续 30 秒", "duration": 30.0},
-	{"id": "thorns", "name": "荆棘护甲", "desc": "我方受到近战伤害时反弹 30%，持续 30 秒", "duration": 30.0},
-	{"id": "tower_repair", "name": "修复我方塔", "desc": "我方塔回复 25% 满血", "duration": 0.0},
-	{"id": "tower_power", "name": "塔炮升级", "desc": "我方塔攻击 +50%，整局有效", "duration": 0.0},
-	{"id": "bounty", "name": "悬赏令", "desc": "30 秒内每击杀额外 +15 金币（随时代缩放）", "duration": 30.0},
+	{"id": "reinforcement", "name": "召唤援军", "desc": "立刻召唤 1 个随机时代的随机英雄", "duration": 0.0, "weight": 3.0},
+	{"id": "boss_call", "name": "BOSS 召唤", "desc": "立刻出战 1 个当前时代的 BOSS 英雄", "duration": 0.0, "weight": 1.0},
+	{"id": "field_aid", "name": "战场急救", "desc": "我方全体回复 40% 生命", "duration": 0.0, "weight": 6.0},
+	{"id": "freeze", "name": "冰冻力场", "desc": "敌方全体停止行动 3 秒", "duration": 3.0, "weight": 6.0},
+	{"id": "frenzy", "name": "狂暴号角", "desc": "我方攻速 +40%，持续 20 秒", "duration": 20.0, "weight": 10.0},
+	{"id": "morale", "name": "战意鼓舞", "desc": "我方攻击 +25%，持续 30 秒", "duration": 30.0, "weight": 10.0},
+	{"id": "bulwark", "name": "铁壁阵型", "desc": "我方受到伤害 -30%，持续 30 秒", "duration": 30.0, "weight": 10.0},
+	{"id": "haste", "name": "疾行药剂", "desc": "我方移速 +50%，持续 20 秒", "duration": 20.0, "weight": 10.0},
+	{"id": "lifesteal", "name": "吸血图腾", "desc": "我方造成伤害的 20% 转为治疗，持续 30 秒", "duration": 30.0, "weight": 10.0},
+	{"id": "thorns", "name": "荆棘护甲", "desc": "我方受到近战伤害时反弹 30%，持续 30 秒", "duration": 30.0, "weight": 10.0},
+	{"id": "tower_repair", "name": "修复我方塔", "desc": "我方塔回复 25% 满血", "duration": 0.0, "weight": 6.0},
+	{"id": "tower_power", "name": "塔炮升级", "desc": "我方塔攻击 +50%，整局有效", "duration": 0.0, "weight": 3.0},
+	{"id": "bounty", "name": "悬赏令", "desc": "30 秒内每击杀额外 +15 金币（随时代缩放）", "duration": 30.0, "weight": 6.0},
 ]
 const BOUNTY_COIN_BASE := 15
 ## 合成台上长按多久弹卡牌详情
@@ -67,8 +68,10 @@ const CARD_INFO_HOLD := 0.4
 const EFFECT_ICON_PATH := "res://assets/icons/effects/%s.png"
 const EFFECT_CARD_PREFIX := "effect_"
 const EFFECT_CARD_PAIR_SIZE := 2
-const EFFECT_CARDS_PER_ERA_MIN := 2
-const EFFECT_CARDS_PER_ERA_MAX := 3
+## 每批发多少「对」效果卡：基础对数 + 随轮次增长（每 EFFECT_PAIRS_ROUND_STEP 轮 +1 对），上限封顶
+const EFFECT_PAIRS_BASE := 4
+const EFFECT_PAIRS_ROUND_STEP := 2
+const EFFECT_PAIRS_MAX := 8
 const EFFECT_CARD_COLOR := Color("#8754d8")
 const TUTORIAL_STEPS := [
 	{
@@ -228,7 +231,6 @@ var auto_prep := false
 var buff_timers: Dictionary = {}
 var enemy_buff_timers: Dictionary = {}
 var ai_effects: Array = []
-var effect_cards_by_era: Dictionary = {}
 var buff_label: RichTextLabel
 var enemy_buff_label: RichTextLabel
 var enemy_action_label: Label
@@ -266,17 +268,21 @@ func _all_effect_ids() -> Array[String]:
 		ids.append(str(effect.id))
 	return ids
 
-func _roll_effect_cards_by_era() -> void:
-	effect_cards_by_era.clear()
-	var all_effect_ids := _all_effect_ids()
-	for era in GameData.ERAS:
-		var pool := all_effect_ids.duplicate()
-		pool.shuffle()
-		var selected: Array[String] = []
-		var count := rng.randi_range(EFFECT_CARDS_PER_ERA_MIN, EFFECT_CARDS_PER_ERA_MAX)
-		for index in range(mini(count, pool.size())):
-			selected.append(str(pool[index]))
-		effect_cards_by_era[era] = selected
+func _effect_weight(effect: Dictionary) -> float:
+	return maxf(0.0, float(effect.get("weight", 1.0)))
+
+func _weighted_random_effect_id() -> String:
+	var total := 0.0
+	for effect in RANDOM_EFFECTS:
+		total += _effect_weight(effect)
+	if total <= 0.0:
+		return str(RANDOM_EFFECTS[rng.randi_range(0, RANDOM_EFFECTS.size() - 1)].id)
+	var roll := rng.randf() * total
+	for effect in RANDOM_EFFECTS:
+		roll -= _effect_weight(effect)
+		if roll <= 0.0:
+			return str(effect.id)
+	return str(RANDOM_EFFECTS[RANDOM_EFFECTS.size() - 1].id)
 
 func _effect_card_id(effect_id: String) -> String:
 	return EFFECT_CARD_PREFIX + effect_id
@@ -295,12 +301,6 @@ func _effect_by_id(effect_id: String) -> Dictionary:
 
 func _effect_card_sort_key(card_id: String) -> int:
 	var effect_id := _effect_id_from_card(card_id)
-	for era_order in range(GameData.ERAS.size()):
-		var era := GameData.ERAS[era_order]
-		var effect_ids: Array = effect_cards_by_era.get(era, [])
-		var local_index := effect_ids.find(effect_id)
-		if local_index >= 0:
-			return era_order * 100 + 50 + local_index
 	return 9999 + maxi(_all_effect_ids().find(effect_id), 0)
 
 func _card_texture_path(card_id: String) -> String:
@@ -1799,7 +1799,6 @@ func _start_round(start_era_index: int = 0) -> void:
 	era_index = clampi(start_era_index, 0, GameData.ERAS.size() - 1)
 	base_era_index = era_index
 	current_era = GameData.ERAS[era_index]
-	_roll_effect_cards_by_era()
 	coin_count = 300
 	kill_score = 0
 	prep_pending = false
@@ -1942,13 +1941,17 @@ func _current_era_boss_card() -> String:
 			return str(GameData.HEROES[hero_id].get("card", hero_id))
 	return ""
 
+func _effect_pairs_for_round() -> int:
+	var pairs := EFFECT_PAIRS_BASE + (round_number - 1) / EFFECT_PAIRS_ROUND_STEP
+	return clampi(pairs, 0, EFFECT_PAIRS_MAX)
+
 func _build_effect_cards_for_batch() -> Array[String]:
 	var result: Array[String] = []
-	if effect_cards_by_era.is_empty():
-		_roll_effect_cards_by_era()
-	for effect_id in effect_cards_by_era.get(current_era, []):
+	var pairs := _effect_pairs_for_round()
+	for _pair in range(pairs):
+		var effect_id := _weighted_random_effect_id()
 		for _copy in range(EFFECT_CARD_PAIR_SIZE):
-			result.append(_effect_card_id(str(effect_id)))
+			result.append(_effect_card_id(effect_id))
 	return result
 
 func _pile_position(index: int) -> Vector2:
