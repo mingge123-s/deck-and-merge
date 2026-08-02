@@ -202,6 +202,10 @@ var battle_hint: Label
 var boss_entry_overlay: Control
 var boss_entry_banner: Label
 var boss_entry_tween: Tween
+var toast_overlay: Control
+var toast_panel: Panel
+var toast_label: Label
+var toast_tween: Tween
 var ally_tower_bar: TowerHealthBar
 var enemy_tower_bar: TowerHealthBar
 var battle_active := false
@@ -729,6 +733,23 @@ func _build_battlefield() -> void:
 	boss_entry_banner.add_theme_color_override("font_outline_color", Color("#24150f"))
 	boss_entry_banner.add_theme_constant_override("outline_size", 9)
 	boss_entry_overlay.visible = false
+	toast_overlay = Control.new()
+	toast_overlay.position = BATTLE_RECT.position
+	toast_overlay.size = BATTLE_RECT.size
+	toast_overlay.z_index = 101
+	toast_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(toast_overlay)
+	toast_panel = Panel.new()
+	toast_panel.size = Vector2(380, 56)
+	toast_panel.position = Vector2((BATTLE_RECT.size.x - 380) * 0.5, 150)
+	toast_panel.add_theme_stylebox_override("panel", _panel_style(Color("#3a2016", 0.92), Color("#ffd273"), 14, 2))
+	toast_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	toast_overlay.add_child(toast_panel)
+	toast_label = _label(toast_panel, "", Vector2(10, 0), Vector2(360, 56), 15, Color("#ffe9b8"))
+	toast_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	toast_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	toast_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	toast_overlay.visible = false
 	minimap = BattleMinimap.new()
 	minimap.position = Vector2(462, 8)
 	minimap.size = Vector2(176, 46)
@@ -1576,6 +1597,23 @@ func _show_boss_entry_banner(hero_name: String, ally: bool) -> void:
 			boss_entry_overlay.visible = false
 	)
 
+func _show_toast(text: String) -> void:
+	if toast_overlay == null:
+		return
+	if toast_tween != null:
+		toast_tween.kill()
+	toast_label.text = text
+	toast_overlay.visible = true
+	toast_panel.modulate = Color(1, 1, 1, 0)
+	toast_tween = create_tween()
+	toast_tween.tween_property(toast_panel, "modulate:a", 1.0, 0.2)
+	toast_tween.tween_interval(1.6)
+	toast_tween.tween_property(toast_panel, "modulate:a", 0.0, 0.4)
+	toast_tween.tween_callback(func() -> void:
+		if toast_overlay != null:
+			toast_overlay.visible = false
+	)
+
 func _effect_icon_bb(effect_id: String, icon_size: int) -> String:
 	var path := EFFECT_ICON_PATH % effect_id
 	if not ResourceLoader.exists(path):
@@ -1723,6 +1761,8 @@ func _do_clear_tray() -> void:
 	_rebuild_tray_visuals()
 	_refresh_covered()
 	battle_hint.text = "已扣 %d 金币清空合成台（%d 张补回牌堆）" % [CLEAR_TRAY_COST, returned.size()]
+	_show_toast("合成台已满，自动扣 %d 金币清空（%d 张已补回牌堆）" % [CLEAR_TRAY_COST, returned.size()])
+	AudioManager.play_sfx("era")
 	_update_coin_ui()
 	_update_progress_ui()
 
@@ -2249,9 +2289,6 @@ func _check_stuck() -> void:
 	if coin_count < CLEAR_TRAY_COST:
 		AudioManager.play_sfx("ui_denied")
 		_finish_battle(false, "金币不足，无法清理合成台")
-		return
-	if not stuck_warned:
-		_enter_clear_confirm()
 		return
 	_do_clear_tray()
 
