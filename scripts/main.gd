@@ -26,7 +26,7 @@ const DIFFICULTIES := {
 const BATTLE_GROUND_Y := 222.0
 const CAMERA_FOLLOW_SPEED := 4.0
 const CAMERA_MANUAL_HOLD := 3.0
-const SHAKE_JERK_THRESHOLD := 16.0 # 相邻两帧加速度变化超过该值判定为一次摇动
+const SHAKE_JERK_THRESHOLD := 12.0 # 相邻两帧加速度变化超过该值判定为一次摇动
 const SHAKE_COOLDOWN := 1.5
 const WORLD_WIDTH := 1680.0
 const BATTLE_VIEW_W := 648.0
@@ -416,6 +416,8 @@ func _update_minimap() -> void:
 
 func _process(delta: float) -> void:
 	var accel := Input.get_accelerometer()
+	if accel == Vector3.ZERO:
+		accel = Input.get_gravity()
 	if accel_primed:
 		if (accel - prev_accel).length() > SHAKE_JERK_THRESHOLD and shake_cooldown <= 0.0:
 			_try_shake_deck()
