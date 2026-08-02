@@ -24,6 +24,8 @@ const DIFFICULTIES := {
 	"hard": {"name": "困难", "wave_min": 3.0, "first_delay": 3.0, "count_base": 8, "count_step": 3, "count_max": 18, "enemy_mult": 1.3, "boss_wave": 4, "tower_mult": 1.0, "ai_income_mult": 1.4, "ai_trickle": 0.8, "ai_effect_chance": 0.55},
 }
 const BATTLE_GROUND_Y := 222.0
+const BATTLE_LANES := 5
+const BATTLE_LANE_STEP := 11.0
 const CAMERA_FOLLOW_SPEED := 4.0
 const CAMERA_MANUAL_HOLD := 3.0
 const WORLD_WIDTH := 1680.0
@@ -39,6 +41,7 @@ const TOWER_BASE_DAMAGE := 90.0
 const TOWER_POWER_MAX := 3.0
 const TANK_AGGRO_RADIUS := 150.0
 const PROJECTILE_RANGE_THRESHOLD := 100.0
+const FRONT_TOLERANCE := 8.0
 const UNIT_CAP := 30
 const ENEMY_UNIT_CAP := 60 # 敌方同屏上限（AI出兵x5后需高于己方）
 const VICTORY_REWARD_BASE := 120
@@ -242,6 +245,8 @@ var _bounty_pulse_phase := 0.0
 var enemy_coin := 0.0
 var enemy_effect_cd := 0.0
 var enemy_rally_fired := 0
+var ally_lane_cursor := 0
+var enemy_lane_cursor := 0
 var stuck_warned := false
 var hit_fx_pool: Array[Label] = []
 var camera_shake_offset := Vector2.ZERO
@@ -1816,6 +1821,8 @@ func _start_round(start_era_index: int = 0) -> void:
 	enemy_coin = 0.0
 	enemy_effect_cd = 0.0
 	enemy_rally_fired = 0
+	ally_lane_cursor = 0
+	enemy_lane_cursor = 0
 	_update_buff_ui()
 	_update_coin_ui()
 	battle_active = true
@@ -2415,11 +2422,14 @@ func _spawn_ally(hero_id: String) -> BattleUnit:
 	var row := ally_count / units_per_row
 	var column := ally_count % units_per_row
 	var spacing := 48.0
+	var lane := ally_lane_cursor % BATTLE_LANES
+	ally_lane_cursor += 1
+	var lane_offset := (float(lane) - float(BATTLE_LANES - 1) * 0.5) * BATTLE_LANE_STEP
 	unit.position = Vector2(
 		ALLY_TOWER_X + 96 + column * spacing + row * 28.0,
-		BATTLE_GROUND_Y - (row % 3) * 12.0
+		BATTLE_GROUND_Y + lane_offset
 	)
-	unit.z_index = 4
+	unit.z_index = 4 + lane
 	unit.expired.connect(_on_unit_expired)
 	unit.death_started.connect(_on_unit_death_started)
 	world.add_child(unit)
@@ -2525,11 +2535,14 @@ func _spawn_enemy(hero_id: String, index: int, total_count: int) -> BattleUnit:
 	var unit := BattleUnit.new()
 	unit.setup(hero_id, "enemy", data, texture)
 	var spacing := minf(78.0, 300.0 / maxf(1.0, float(total_count - 1)))
+	var lane := enemy_lane_cursor % BATTLE_LANES
+	enemy_lane_cursor += 1
+	var lane_offset := (float(lane) - float(BATTLE_LANES - 1) * 0.5) * BATTLE_LANE_STEP
 	unit.position = Vector2(
 		ENEMY_TOWER_X - 70.0 - index * spacing,
-		BATTLE_GROUND_Y - (index % 2) * 6.0
+		BATTLE_GROUND_Y + lane_offset
 	)
-	unit.z_index = 4
+	unit.z_index = 4 + lane
 	unit.expired.connect(_on_unit_expired)
 	unit.death_started.connect(_on_unit_death_started)
 	world.add_child(unit)
@@ -2558,8 +2571,12 @@ func _step_battle(delta: float) -> void:
 		var target := _find_target(unit, ally_units, enemy_units)
 		if target != null:
 			var distance := absf(target.position.x - unit.position.x)
-			if distance > float(unit.stats.range):
+			var engage := _engage_distance(unit)
+			var in_range := distance <= float(unit.stats.range)
+			if distance > engage:
 				_move_unit(unit, target.position.x, delta)
+				if in_range and unit.attack_cooldown <= 0.0:
+					_attack(unit, target)
 			elif unit.attack_cooldown <= 0.0:
 				_attack(unit, target)
 		else:
@@ -2646,6 +2663,12 @@ func _move_unit(unit: BattleUnit, target_x: float, delta: float) -> void:
 			cooldown = 0.5
 	walk_dust_cooldowns[unit_key] = cooldown
 
+func _engage_distance(unit: BattleUnit) -> float:
+	var unit_range := float(unit.stats.get("range", 0.0))
+	if unit_range < PROJECTILE_RANGE_THRESHOLD:
+		return unit_range
+	return clampf(unit_range * 0.72, PROJECTILE_RANGE_THRESHOLD, unit_range)
+
 func _unit_damage(attacker: BattleUnit) -> float:
 	var damage := float(attacker.stats.attack)
 	if _buff_active_side(attacker.faction, "morale"):
@@ -2684,23 +2707,33 @@ func _find_target(unit: BattleUnit, ally_units: Array[BattleUnit], enemy_units: 
 			continue
 		if str(candidate.stats.get("role", "")) != "tank":
 			continue
-		if absf(candidate.position.x - unit.position.x) <= TANK_AGGRO_RADIUS:
+		if absf(candidate.position.x - unit.position.x) <= TANK_AGGRO_RADIUS and _is_front_candidate(unit, candidate):
 			aggro_tanks.append(candidate)
 	if not aggro_tanks.is_empty():
 		return _nearest_unit(unit, aggro_tanks)
 	return _nearest_unit(unit, candidates)
 
 func _nearest_unit(unit: BattleUnit, candidates: Array[BattleUnit]) -> BattleUnit:
-	var nearest: BattleUnit
-	var nearest_distance := INF
+	var nearest_front: BattleUnit
+	var nearest_front_distance := INF
+	var nearest_any: BattleUnit
+	var nearest_any_distance := INF
 	for candidate in candidates:
 		if not is_instance_valid(candidate) or not candidate.alive:
 			continue
 		var distance := absf(candidate.position.x - unit.position.x)
-		if distance < nearest_distance:
-			nearest = candidate
-			nearest_distance = distance
-	return nearest
+		if distance < nearest_any_distance:
+			nearest_any = candidate
+			nearest_any_distance = distance
+		if _is_front_candidate(unit, candidate) and distance < nearest_front_distance:
+			nearest_front = candidate
+			nearest_front_distance = distance
+	return nearest_front if nearest_front != null else nearest_any
+
+func _is_front_candidate(unit: BattleUnit, candidate: BattleUnit) -> bool:
+	if unit.faction == "ally":
+		return candidate.position.x >= unit.position.x - FRONT_TOLERANCE
+	return candidate.position.x <= unit.position.x + FRONT_TOLERANCE
 
 func _attack(attacker: BattleUnit, target: BattleUnit) -> void:
 	attacker.spend_attack_time()
