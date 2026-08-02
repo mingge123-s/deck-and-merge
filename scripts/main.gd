@@ -48,6 +48,7 @@ const ENEMY_UNIT_CAP := 60 # 敌方同屏上限（AI出兵x5后需高于己方�
 const VICTORY_REWARD_BASE := 120
 const RANDOM_EFFECT_PRICE_BASE := 260
 const CLEAR_TRAY_COST := 200
+const RESHUFFLE_COST := 100
 const AI_EFFECT_CD := 8.0
 const RALLY_BURST := 6
 # weight 越大越常见（按强度分档：常见 10 / 中等 6 / 稀有 3 / 极稀有 1）
@@ -95,7 +96,7 @@ const TUTORIAL_STEPS := [
 	},
 	{
 		"title": "第 3 步：看战场",
-		"text": "合成出的英雄会自动前进作战，你不用指挥。左右拖动可查看整个战场，右上角小地图显示双方单位与塔血。\n击杀敌人获得金币；敌人按波次进攻，每 3 波会有一段整备期。",
+		"text": "合成出的英雄会自动前进作战，你不用指挥。左右拖动可查看整个战场，右上角小地图显示双方单位与塔血。\n击杀敌人获得金币；敌人按波次持续进攻。",
 		"rect": BATTLE_RECT,
 	},
 	{
@@ -145,6 +146,8 @@ var enemy_tower_aura_tween: Tween
 var tray_cards: Array[String] = []
 var tray_incoming := 0
 var tray_views: Array[Control] = []
+var tray_slot_panels: Array[Panel] = []
+var tray_slots := TRAY_SLOTS
 var deck_cards: Array[CardView] = []
 var battle_units: Array[BattleUnit] = []
 var occupied_units := 0
@@ -158,6 +161,7 @@ var coin_label: Label
 var era_label: Label
 var score_label: Label
 var deck_label: Label
+var reshuffle_button: Button
 var status_label: Label
 var update_status_label: Label
 var restart_button: Button
@@ -215,6 +219,10 @@ var battle_hint: Label
 var boss_entry_overlay: Control
 var boss_entry_banner: Label
 var boss_entry_tween: Tween
+var toast_overlay: Control
+var toast_panel: Panel
+var toast_label: Label
+var toast_tween: Tween
 var ally_tower_bar: TowerHealthBar
 var enemy_tower_bar: TowerHealthBar
 var battle_active := false
@@ -266,6 +274,34 @@ var enemy_rally_fired := 0
 var ally_lane_cursor := 0
 var enemy_lane_cursor := 0
 var stuck_warned := false
+var reward_active := false
+var reward_overlay: Control
+var reward_panel: Panel
+var reward_buttons: Array[Button] = []
+var reward_options: Array[Dictionary] = []
+var run_atk_mult := 1.0
+var run_hp_mult := 1.0
+var run_aspd_mult := 1.0
+var run_move_mult := 1.0
+var run_crit_chance := 0.0
+var run_lifesteal := 0.0
+var run_tank_reduce := 0.0
+var run_ranged_atk_mult := 1.0
+var run_assassin_crit_chance := 0.0
+var run_assassin_crit_mult := 0.0
+var run_stun_mult := 1.0
+var run_hero_mult: Dictionary = {}
+var free_reshuffles := 0
+var free_clear_tokens := 0
+var round_weight_mult: Dictionary = {}
+var round_removed_cards: Array[String] = []
+var round_no_effect_cards := false
+var round_effect_pairs_bonus := 0
+var round_extra_tray_slots := 0
+var round_coin_mult := 1.0
+var round_initial_energy := 0
+var round_tower_thorns := false
+var round_tower_regen := false
 var hit_fx_pool: Array[Label] = []
 var camera_shake_offset := Vector2.ZERO
 var camera_shake_tween: Tween
@@ -348,6 +384,7 @@ func _ready() -> void:
 	_build_board()
 	_build_tray()
 	_build_battlefield()
+	_build_reward_overlay()
 	_build_overlay()
 	_build_main_menu()
 	_build_sandbox_control_panel()
@@ -441,6 +478,9 @@ func _update_minimap() -> void:
 func _process(delta: float) -> void:
 	if paused:
 		return
+	if reward_active:
+		_update_minimap()
+		return
 	_update_minimap()
 	if not battle_active or battle_ended:
 		return
@@ -457,6 +497,8 @@ func _process(delta: float) -> void:
 		return
 	fx_unit_count_cache = _living_units("ally").size() + _living_units("enemy").size()
 	_tick_buffs(delta)
+	if round_tower_regen and ally_tower_hp > 0.0:
+		ally_tower_hp = minf(ally_tower_max_hp, ally_tower_hp + ally_tower_max_hp * 0.02 * delta)
 	_sync_persistent_status_vfx(delta)
 	_update_tower_alarm_vfx(delta)
 	_update_wave_bar()
@@ -646,6 +688,7 @@ func _build_top_bar() -> void:
 func _update_coin_ui() -> void:
 	if coin_label != null:
 		coin_label.text = "💰  %d" % coin_count
+	_update_reshuffle_button()
 
 func _build_board() -> void:
 	board = Panel.new()
@@ -668,6 +711,8 @@ func _build_board() -> void:
 	deck_label = _label(board, "", Vector2(150, 8), Vector2(200, 34), 24, Color("#ffe9a8"))
 	_outline(deck_label, 6)
 	_label(board, "点击没有被压住的卡牌", Vector2(22, 44), Vector2(230, 23), 12, Color("#6e452f"))
+	reshuffle_button = _menu_button(board, "🔀 重排牌序 -100", Vector2(438, 8), Vector2(198, 42), 15)
+	reshuffle_button.pressed.connect(_on_reshuffle_pressed)
 	_build_wave_bar()
 	card_layer = Control.new()
 	card_layer.position = Vector2(26, 80)
@@ -685,12 +730,22 @@ func _build_tray() -> void:
 	add_child(tray)
 	_label(tray, "✨ 合成台", Vector2(18, 9), Vector2(150, 28), 19)
 	_label(tray, "小兵 3 张合成 · 效果 2 张发动", Vector2(168, 13), Vector2(330, 22), 12, Color("#765035"))
-	for index in range(7):
+	for index in range(TRAY_SLOTS + 1):
 		var slot := Panel.new()
-		slot.position = TRAY_SLOT_ORIGIN + Vector2(index * TRAY_SLOT_STEP, 0)
 		slot.size = TRAY_SLOT_SIZE
 		slot.add_theme_stylebox_override("panel", _panel_style(Color("#aa7044", 0.25), Color("#a66e43"), 12, 2))
 		tray.add_child(slot)
+		tray_slot_panels.append(slot)
+	_layout_tray_slots()
+
+func _layout_tray_slots() -> void:
+	if tray == null or tray_slot_panels.is_empty():
+		return
+	var step := (tray.size.x - TRAY_SLOT_ORIGIN.x * 2.0 - TRAY_SLOT_SIZE.x) / float(maxi(tray_slots - 1, 1))
+	for index in range(tray_slot_panels.size()):
+		var slot := tray_slot_panels[index]
+		slot.visible = index < tray_slots
+		slot.position = TRAY_SLOT_ORIGIN + Vector2(step * index, 0)
 
 func _build_battlefield() -> void:
 	battlefield = Panel.new()
@@ -754,6 +809,23 @@ func _build_battlefield() -> void:
 	boss_entry_banner.add_theme_color_override("font_outline_color", Color("#24150f"))
 	boss_entry_banner.add_theme_constant_override("outline_size", 9)
 	boss_entry_overlay.visible = false
+	toast_overlay = Control.new()
+	toast_overlay.position = BATTLE_RECT.position
+	toast_overlay.size = BATTLE_RECT.size
+	toast_overlay.z_index = 101
+	toast_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(toast_overlay)
+	toast_panel = Panel.new()
+	toast_panel.size = Vector2(380, 56)
+	toast_panel.position = Vector2((BATTLE_RECT.size.x - 380) * 0.5, 150)
+	toast_panel.add_theme_stylebox_override("panel", _panel_style(Color("#3a2016", 0.92), Color("#ffd273"), 14, 2))
+	toast_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	toast_overlay.add_child(toast_panel)
+	toast_label = _label(toast_panel, "", Vector2(10, 0), Vector2(360, 56), 15, Color("#ffe9b8"))
+	toast_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	toast_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	toast_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	toast_overlay.visible = false
 	minimap = BattleMinimap.new()
 	minimap.position = Vector2(462, 8)
 	minimap.size = Vector2(176, 46)
@@ -763,6 +835,36 @@ func _build_battlefield() -> void:
 	_create_tower_ui(true)
 	_create_tower_ui(false)
 	_apply_camera()
+
+func _build_reward_overlay() -> void:
+	reward_overlay = Control.new()
+	reward_overlay.size = VIEW_SIZE
+	reward_overlay.z_index = 200
+	reward_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	add_child(reward_overlay)
+	var shade := ColorRect.new()
+	shade.size = VIEW_SIZE
+	shade.color = Color(0.05, 0.02, 0.01, 0.78)
+	reward_overlay.add_child(shade)
+	reward_panel = Panel.new()
+	reward_panel.size = Vector2(600, 620)
+	reward_panel.position = Vector2((VIEW_SIZE.x - reward_panel.size.x) * 0.5, 300)
+	reward_panel.add_theme_stylebox_override("panel", _panel_style(Color("#c58a53"), Color("#ffd273"), 24, 3))
+	reward_overlay.add_child(reward_panel)
+	var title := _label(reward_panel, "选择一项增益", Vector2(0, 34), Vector2(600, 52), 30, Color("#fff0c7"))
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	for index in range(3):
+		var button := _menu_button(
+			reward_panel,
+			"",
+			Vector2(40, 120 + index * 150),
+			Vector2(520, 120),
+			16
+		)
+		button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		button.pressed.connect(_on_reward_button_pressed.bind(index))
+		reward_buttons.append(button)
+	reward_overlay.visible = false
 
 func _fx_unit_count() -> int:
 	return fx_unit_count_cache
@@ -1608,6 +1710,260 @@ func _show_boss_entry_banner(hero_name: String, ally: bool) -> void:
 			boss_entry_overlay.visible = false
 	)
 
+func _show_toast(text: String) -> void:
+	if toast_overlay == null:
+		return
+	if toast_tween != null:
+		toast_tween.kill()
+	toast_label.text = text
+	toast_overlay.visible = true
+	toast_panel.modulate = Color(1, 1, 1, 0)
+	toast_tween = create_tween()
+	toast_tween.tween_property(toast_panel, "modulate:a", 1.0, 0.2)
+	toast_tween.tween_interval(1.6)
+	toast_tween.tween_property(toast_panel, "modulate:a", 0.0, 0.4)
+	toast_tween.tween_callback(func() -> void:
+		if toast_overlay != null:
+			toast_overlay.visible = false
+	)
+
+func _reward_pool() -> Array[String]:
+	return [
+		"tower_wall", "tower_repair", "tower_cannon", "tower_thorns", "tower_regen",
+		"deck_boost", "deck_remove", "deck_elite", "effect_harvest", "deck_purge",
+		"free_reshuffle", "bloodline", "tray_expand", "free_clear", "coin_bag",
+		"loot_boost", "atk_up", "hp_up", "aspd_up", "move_up", "crit", "lifesteal",
+		"tank_guard", "ranged_up", "assassin_crit", "energy_start", "stun_boost",
+		"call_reinforce", "tower_overload",
+	]
+
+func _round_unit_cards() -> Array[String]:
+	var result: Array[String] = []
+	for card_id in GameData.cards_for_era(current_era):
+		var hero := GameData.hero_for_card(card_id)
+		if str(hero.get("role", "")) != "boss":
+			result.append(str(card_id))
+	return result
+
+func _hero_name_for_card(card_id: String) -> String:
+	var hero := GameData.hero_for_card(card_id)
+	return str(hero.get("name", card_id))
+
+func _roll_reward_option(reward_id: String) -> Dictionary:
+	var option := {"id": reward_id, "name": reward_id, "desc": "", "card": "", "hero": ""}
+	var unit_cards := _round_unit_cards()
+	var card := ""
+	if not unit_cards.is_empty():
+		card = unit_cards[rng.randi_range(0, unit_cards.size() - 1)]
+	var boss_card := _current_era_boss_card()
+	var hero_ids := GameData.heroes_for_era(current_era)
+	var hero_id := ""
+	if not hero_ids.is_empty():
+		hero_id = hero_ids[rng.randi_range(0, hero_ids.size() - 1)]
+	option.card = card
+	option.hero = hero_id
+	match reward_id:
+		"tower_wall":
+			option.name = "塔壁加固"
+			option.desc = "我方塔最大生命值 +20%"
+		"tower_repair":
+			option.name = "紧急修复"
+			option.desc = "我方塔立刻回满生命"
+		"tower_cannon":
+			option.name = "塔炮升级"
+			option.desc = "我方塔攻击力提升 30%"
+		"tower_thorns":
+			option.name = "荆棘之塔"
+			option.desc = "本轮敌人近战攻击塔时反弹 40%伤害"
+		"tower_regen":
+			option.name = "自愈之塔"
+			option.desc = "本轮我方塔每秒回复 2%最大生命"
+		"deck_boost":
+			option.name = "%s 权重增加" % card
+			option.desc = "本轮该小兵卡出现概率翻倍"
+		"deck_remove":
+			option.name = "清退牌型"
+			option.desc = "本轮移除 %s" % card
+		"deck_elite":
+			option.name = "精英来袭"
+			option.desc = "本轮 %s 概率提升至 3 倍" % _hero_name_for_card(boss_card)
+			option.card = boss_card
+		"effect_harvest":
+			option.name = "效果丰收"
+			option.desc = "本轮额外获得 2 对效果卡"
+		"deck_purge":
+			option.name = "净化牌堆"
+			option.desc = "本轮不再出现效果卡"
+		"free_reshuffle":
+			option.name = "免费重排"
+			option.desc = "获得 3 次免费重排牌序"
+		"bloodline":
+			option.name = "血脉强化"
+			option.desc = "%s 单位属性 +15%%" % str(GameData.HEROES[hero_id].get("name", hero_id))
+		"tray_expand":
+			option.name = "台面扩容"
+			option.desc = "本轮合成台增加 1 格"
+		"free_clear":
+			option.name = "免费清台券"
+			option.desc = "获得 1 张免费清台券"
+		"coin_bag":
+			option.name = "金币袋"
+			option.desc = "立即获得 200 金币"
+		"loot_boost":
+			option.name = "战利品加成"
+			option.desc = "本轮击杀金币收益 +30%"
+		"atk_up":
+			option.name = "全军强攻"
+			option.desc = "我方单位攻击力 +10%"
+		"hp_up":
+			option.name = "全军健体"
+			option.desc = "我方单位生命值 +12%"
+		"aspd_up":
+			option.name = "全军迅击"
+			option.desc = "我方单位攻速 +10%"
+		"move_up":
+			option.name = "全军疾行"
+			option.desc = "我方单位移速 +12%"
+		"crit":
+			option.name = "致命一击"
+			option.desc = "我方单位暴击率 +10%"
+		"lifesteal":
+			option.name = "生命汲取"
+			option.desc = "我方单位造成伤害的 8% 转为治疗"
+		"tank_guard":
+			option.name = "坚盾守护"
+			option.desc = "我方坦克受到伤害 -15%"
+		"ranged_up":
+			option.name = "远程精通"
+			option.desc = "我方远程单位攻击力 +20%"
+		"assassin_crit":
+			option.name = "刺客专精"
+			option.desc = "我方刺客暴击率 +25%，暴击伤害 +0.5 倍"
+		"energy_start":
+			option.name = "充能启动"
+			option.desc = "本轮我方技能初始能量 +1"
+		"stun_boost":
+			option.name = "震慑强化"
+			option.desc = "我方眩晕技能时长提升 50%"
+		"call_reinforce":
+			option.name = "白嫖援军"
+			option.desc = "立刻召唤 3 个随机援军"
+		"tower_overload":
+			option.name = "塔炮过载"
+			option.desc = "我方塔攻击力提升 50%"
+	return option
+
+func _show_round_reward() -> void:
+	if reward_overlay == null or reward_active:
+		return
+	var pool := _reward_pool()
+	pool.shuffle()
+	reward_options.clear()
+	for index in range(3):
+		reward_options.append(_roll_reward_option(pool[index]))
+		reward_buttons[index].text = "%s\n%s" % [
+			str(reward_options[index].name),
+			str(reward_options[index].desc),
+		]
+		reward_buttons[index].disabled = false
+	reward_active = true
+	reward_overlay.visible = true
+
+func _on_reward_button_pressed(index: int) -> void:
+	if not reward_active or index < 0 or index >= reward_options.size():
+		return
+	_apply_round_reward(reward_options[index])
+
+func _reset_round_mods() -> void:
+	round_weight_mult.clear()
+	round_removed_cards.clear()
+	round_no_effect_cards = false
+	round_effect_pairs_bonus = 0
+	round_extra_tray_slots = 0
+	round_coin_mult = 1.0
+	round_initial_energy = 0
+	round_tower_thorns = false
+	round_tower_regen = false
+	tray_slots = TRAY_SLOTS + round_extra_tray_slots
+	_layout_tray_slots()
+
+func _apply_round_reward(option: Dictionary) -> void:
+	_reset_round_mods()
+	var reward_id := str(option.get("id", ""))
+	match reward_id:
+		"tower_wall":
+			var old_max := ally_tower_max_hp
+			ally_tower_max_hp *= 1.2
+			ally_tower_hp = minf(ally_tower_max_hp, ally_tower_hp + ally_tower_max_hp - old_max)
+		"tower_repair":
+			ally_tower_hp = ally_tower_max_hp
+		"tower_cannon":
+			tower_attack_bonus = minf(tower_attack_bonus * 1.3, TOWER_POWER_MAX)
+		"tower_thorns":
+			round_tower_thorns = true
+		"tower_regen":
+			round_tower_regen = true
+		"deck_boost":
+			round_weight_mult[str(option.card)] = 2.0
+		"deck_remove":
+			round_removed_cards.append(str(option.card))
+		"deck_elite":
+			round_weight_mult[str(option.card)] = 3.0
+		"effect_harvest":
+			round_effect_pairs_bonus = 2
+		"deck_purge":
+			round_no_effect_cards = true
+		"free_reshuffle":
+			free_reshuffles += 3
+		"bloodline":
+			var selected_hero := str(option.hero)
+			run_hero_mult[selected_hero] = float(run_hero_mult.get(selected_hero, 1.0)) * 1.15
+		"tray_expand":
+			round_extra_tray_slots = 1
+			tray_slots = TRAY_SLOTS + round_extra_tray_slots
+			_layout_tray_slots()
+		"free_clear":
+			free_clear_tokens += 1
+		"coin_bag":
+			_change_coins(200)
+		"loot_boost":
+			round_coin_mult = 1.3
+		"atk_up":
+			run_atk_mult *= 1.1
+		"hp_up":
+			run_hp_mult *= 1.12
+		"aspd_up":
+			run_aspd_mult *= 1.1
+		"move_up":
+			run_move_mult *= 1.12
+		"crit":
+			run_crit_chance = minf(run_crit_chance + 0.10, 0.6)
+		"lifesteal":
+			run_lifesteal += 0.08
+		"tank_guard":
+			run_tank_reduce = minf(run_tank_reduce + 0.15, 0.6)
+		"ranged_up":
+			run_ranged_atk_mult *= 1.2
+		"assassin_crit":
+			run_assassin_crit_chance = minf(run_assassin_crit_chance + 0.25, 0.8)
+			run_assassin_crit_mult += 0.5
+		"energy_start":
+			round_initial_energy += 1
+		"stun_boost":
+			run_stun_mult *= 1.5
+		"call_reinforce":
+			for _index in range(3):
+				_summon_reinforcement(true)
+		"tower_overload":
+			tower_attack_bonus = minf(tower_attack_bonus * 1.5, TOWER_POWER_MAX)
+	reward_active = false
+	reward_overlay.visible = false
+	reward_options.clear()
+	AudioManager.play_sfx("era")
+	_update_tower_ui()
+	_spawn_next_batch()
+	_update_progress_ui()
+
 func _effect_icon_bb(effect_id: String, icon_size: int) -> String:
 	var path := EFFECT_ICON_PATH % effect_id
 	if not ResourceLoader.exists(path):
@@ -1746,7 +2102,11 @@ func _update_buff_ui() -> void:
 func _do_clear_tray() -> void:
 	if not battle_active or battle_ended or tray_cards.size() < 3:
 		return
-	coin_count = maxi(0, coin_count - CLEAR_TRAY_COST)
+	var free_clear := free_clear_tokens > 0
+	if free_clear:
+		free_clear_tokens -= 1
+	else:
+		coin_count = maxi(0, coin_count - CLEAR_TRAY_COST)
 	var returned: Array[String] = tray_cards.duplicate()
 	tray_cards.clear()
 	# 整台清空：被清的卡无感补回牌堆底部，避免销毁后剩余同名卡永远凑不齐
@@ -1754,7 +2114,13 @@ func _do_clear_tray() -> void:
 		_spawn_card(card_id, deck_cards.size(), true)
 	_rebuild_tray_visuals()
 	_refresh_covered()
-	battle_hint.text = "已扣 %d 金币清空合成台（%d 张补回牌堆）" % [CLEAR_TRAY_COST, returned.size()]
+	if free_clear:
+		battle_hint.text = "免费清空合成台（%d 张补回牌堆）" % returned.size()
+		_show_toast("免费清空合成台（%d 张已补回牌堆）" % returned.size())
+	else:
+		battle_hint.text = "已扣 %d 金币清空合成台（%d 张补回牌堆）" % [CLEAR_TRAY_COST, returned.size()]
+		_show_toast("合成台已满，自动扣 %d 金币清空（%d 张已补回牌堆）" % [CLEAR_TRAY_COST, returned.size()])
+	AudioManager.play_sfx("era")
 	_update_coin_ui()
 	_update_progress_ui()
 
@@ -2434,6 +2800,7 @@ func _show_main_menu() -> void:
 	battle_won = false
 	sandbox_mode = false
 	paused = false
+	reward_active = false
 	AudioManager.set_music_filtered(false)
 	_hide_settings()
 	_hide_era_select()
@@ -2445,6 +2812,8 @@ func _show_main_menu() -> void:
 		pause_overlay.visible = false
 	if tutorial_overlay != null:
 		tutorial_overlay.visible = false
+	if reward_overlay != null:
+		reward_overlay.visible = false
 	if pause_button != null:
 		pause_button.visible = false
 	if sandbox_control_panel != null:
@@ -2481,6 +2850,8 @@ func _start_round(start_era_index: int = 0) -> void:
 	tray_views.clear()
 	tray_cards.clear()
 	tray_incoming = 0
+	tray_slots = TRAY_SLOTS
+	_layout_tray_slots()
 	occupied_units = 0
 	era_index = clampi(start_era_index, 0, GameData.ERAS.size() - 1)
 	base_era_index = era_index
@@ -2498,6 +2869,22 @@ func _start_round(start_era_index: int = 0) -> void:
 	ally_freeze_time = 0.0
 	tower_attack_bonus = 1.0
 	enemy_tower_attack_bonus = 1.0
+	run_atk_mult = 1.0
+	run_hp_mult = 1.0
+	run_aspd_mult = 1.0
+	run_move_mult = 1.0
+	run_crit_chance = 0.0
+	run_lifesteal = 0.0
+	run_tank_reduce = 0.0
+	run_ranged_atk_mult = 1.0
+	run_assassin_crit_chance = 0.0
+	run_assassin_crit_mult = 0.0
+	run_stun_mult = 1.0
+	run_hero_mult.clear()
+	free_reshuffles = 0
+	free_clear_tokens = 0
+	reward_active = false
+	_reset_round_mods()
 	tower_destruction_started = false
 	enemy_coin = 0.0
 	enemy_effect_cd = 0.0
@@ -2587,6 +2974,12 @@ func _spawn_next_batch() -> void:
 
 func _build_batch_cards(groups_needed: int) -> Array[String]:
 	var counts := GameData.blended_deck_counts(era_index)
+	counts = counts.duplicate()
+	for card_id in round_weight_mult:
+		if counts.has(card_id):
+			counts[card_id] = maxi(1, int(round(float(counts[card_id]) * float(round_weight_mult[card_id]))))
+	for card_id in round_removed_cards:
+		counts.erase(card_id)
 	var result: Array[String] = []
 	if counts.is_empty() or groups_needed <= 0:
 		return result
@@ -2635,7 +3028,9 @@ func _effect_pairs_for_round() -> int:
 
 func _build_effect_cards_for_batch() -> Array[String]:
 	var result: Array[String] = []
-	var pairs := _effect_pairs_for_round()
+	if round_no_effect_cards:
+		return result
+	var pairs := _effect_pairs_for_round() + round_effect_pairs_bonus
 	for _pair in range(pairs):
 		var effect_id := _weighted_random_effect_id()
 		for _copy in range(EFFECT_CARD_PAIR_SIZE):
@@ -2829,7 +3224,7 @@ func _on_card_clicked(card: CardView) -> void:
 	tray_incoming += 1
 	deck_cards.erase(card)
 	if deck_cards.is_empty():
-		_spawn_next_batch()
+		_show_round_reward()
 	_refresh_covered()
 	var selected_id := card.card_id
 	card.reparent(self)
@@ -2854,14 +3249,49 @@ func _card_fx_color(card_id: String) -> Color:
 	return data.get("color", Color("#ffd273"))
 
 func _can_pick_cards() -> bool:
-	return battle_active and not battle_ended and (not paused or auto_prep)
+	return battle_active and not battle_ended and (not paused or auto_prep) and not reward_active
+
+func _on_reshuffle_pressed() -> void:
+	var live_count := 0
+	for card in deck_cards:
+		if is_instance_valid(card) and not card.claimed:
+			live_count += 1
+	if not _can_pick_cards() or (free_reshuffles <= 0 and coin_count < RESHUFFLE_COST) or live_count < 2:
+		AudioManager.play_sfx("ui_denied")
+		return
+	if free_reshuffles > 0:
+		free_reshuffles -= 1
+		battle_hint.text = "免费重排牌序（剩 %d 次）" % free_reshuffles
+	else:
+		coin_count = maxi(0, coin_count - RESHUFFLE_COST)
+		battle_hint.text = "已扣 %d 金币重排牌序" % RESHUFFLE_COST
+	_reshuffle_deck()
+	AudioManager.play_sfx("place")
+	_update_coin_ui()
+	_update_progress_ui()
+
+func _reshuffle_deck() -> void:
+	var live_cards: Array[CardView] = []
+	for card in deck_cards:
+		if is_instance_valid(card) and not card.claimed:
+			live_cards.append(card)
+	live_cards.shuffle()
+	card_z_top = 0
+	for index in range(live_cards.size()):
+		var card := live_cards[index]
+		card.rotation = rng.randf_range(-0.45, 0.45)
+		card.position = _random_pile_position()
+		card.z_index = index
+		card_z_top = maxi(card_z_top, index)
+	_refresh_covered()
 
 func _first_open_slot() -> int:
 	var used := tray_cards.size() + tray_incoming
-	return used if used < TRAY_SLOTS else -1
+	return used if used < tray_slots else -1
 
 func _slot_position(index: int) -> Vector2:
-	return tray.global_position + TRAY_SLOT_ORIGIN + Vector2(index * TRAY_SLOT_STEP, 0) + TRAY_SLOT_SIZE * 0.5
+	var step := (tray.size.x - TRAY_SLOT_ORIGIN.x * 2.0 - TRAY_SLOT_SIZE.x) / float(maxi(tray_slots - 1, 1))
+	return tray.global_position + TRAY_SLOT_ORIGIN + Vector2(index * step, 0) + TRAY_SLOT_SIZE * 0.5
 
 func _add_to_tray(card_id: String) -> void:
 	tray_incoming = maxi(0, tray_incoming - 1)
@@ -2878,16 +3308,13 @@ func _check_stuck() -> void:
 		return
 	if tray_incoming > 0:
 		return
-	if tray_cards.size() < TRAY_SLOTS or _has_merge():
-		if tray_cards.size() == TRAY_SLOTS - 1 and not _has_merge():
+	if tray_cards.size() < tray_slots or _has_merge():
+		if tray_cards.size() == tray_slots - 1 and not _has_merge():
 			battle_hint.text = "⚠ 合成台只剩 1 格，凑不齐将扣 %d 金币清理" % CLEAR_TRAY_COST
 		return
-	if coin_count < CLEAR_TRAY_COST:
+	if free_clear_tokens <= 0 and coin_count < CLEAR_TRAY_COST:
 		AudioManager.play_sfx("ui_denied")
 		_finish_battle(false, "金币不足，无法清理合成台")
-		return
-	if not stuck_warned:
-		_enter_clear_confirm()
 		return
 	_do_clear_tray()
 
@@ -2926,9 +3353,10 @@ func _rebuild_tray_visuals() -> void:
 		if is_instance_valid(view):
 			view.queue_free()
 	tray_views.clear()
+	var step := (tray.size.x - TRAY_SLOT_ORIGIN.x * 2.0 - TRAY_SLOT_SIZE.x) / float(maxi(tray_slots - 1, 1))
 	for index in range(tray_cards.size()):
 		var icon := TextureRect.new()
-		icon.position = TRAY_SLOT_ORIGIN + Vector2(index * TRAY_SLOT_STEP, 0)
+		icon.position = TRAY_SLOT_ORIGIN + Vector2(index * step, 0)
 		icon.size = TRAY_SLOT_SIZE
 		var path := _card_texture_path(tray_cards[index])
 		if path != "" and ResourceLoader.exists(path):
@@ -3089,15 +3517,26 @@ func _has_triple() -> bool:
 	return false
 
 func _spawn_ally(hero_id: String) -> BattleUnit:
-	var data: Dictionary = GameData.HEROES.get(hero_id, {})
+	var data: Dictionary = GameData.HEROES.get(hero_id, {}).duplicate(true)
 	if data.is_empty() or _living_units("ally").size() >= UNIT_CAP:
 		return null
+	var role := str(data.get("role", ""))
+	var hero_mult := float(run_hero_mult.get(hero_id, 1.0))
+	data["hp"] = float(data.get("hp", 1.0)) * run_hp_mult * hero_mult
+	data["attack"] = float(data.get("attack", 1.0)) * run_atk_mult * hero_mult
+	if role == "ranged":
+		data["attack"] = float(data.attack) * run_ranged_atk_mult
+	data["attack_speed"] = float(data.get("attack_speed", 1.0)) * run_aspd_mult
+	data["move_speed"] = float(data.get("move_speed", 0.0)) * run_move_mult
 	var texture: Texture2D
 	var path := GameData.hero_texture_path(hero_id)
 	if path != "":
 		texture = load(path)
 	var unit := BattleUnit.new()
 	unit.setup(hero_id, "ally", data, texture)
+	if unit.skill_cost > 0 and round_initial_energy > 0:
+		unit.energy = clampf(float(round_initial_energy), 0.0, float(unit.skill_cost))
+		unit.queue_redraw()
 	var ally_count := _living_units("ally").size()
 	var units_per_row := 6
 	var row := ally_count / units_per_row
@@ -3127,8 +3566,6 @@ func _spawn_ally(hero_id: String) -> BattleUnit:
 
 func _spawn_wave() -> void:
 	wave_number += 1
-	if wave_number % PREP_WAVE_INTERVAL == 0:
-		prep_pending = true
 	_update_progress_ui()
 	var d := _diff()
 	wave_active_timer = WAVE_DURATION
@@ -3366,6 +3803,14 @@ func _unit_damage(attacker: BattleUnit) -> float:
 		damage *= 1.25
 	if attacker.berserk_time > 0.0:
 		damage *= attacker.berserk_atk
+	if attacker.faction == "ally":
+		var crit_chance := run_crit_chance
+		var crit_mult := 1.5
+		if str(attacker.stats.get("role", "")) == "assassin":
+			crit_chance += run_assassin_crit_chance
+			crit_mult += run_assassin_crit_mult
+		if crit_chance > 0.0 and rng.randf() < crit_chance:
+			damage *= crit_mult
 	return damage
 
 func _deal_damage(target: BattleUnit, amount: float, source: String, attacker: BattleUnit = null) -> void:
@@ -3374,6 +3819,8 @@ func _deal_damage(target: BattleUnit, amount: float, source: String, attacker: B
 	var damage := amount
 	if _buff_active_side(target.faction, "bulwark"):
 		damage *= 0.7
+	if target.faction == "ally" and run_tank_reduce > 0.0 and str(target.stats.get("role", "")) == "tank":
+		damage *= 1.0 - run_tank_reduce
 	if target.shield_time > 0.0:
 		damage *= 1.0 - target.shield_reduce
 	if target.reflect_time > 0.0:
@@ -3390,6 +3837,8 @@ func _deal_damage(target: BattleUnit, amount: float, source: String, attacker: B
 				attacker.position + Vector2(0, -56.0),
 				current_era if attacker.faction == "ally" else enemy_era
 			)
+	if attacker.faction == "ally" and run_lifesteal > 0.0:
+		attacker.heal(damage * run_lifesteal)
 	var melee := float(attacker.stats.get("range", 0.0)) < PROJECTILE_RANGE_THRESHOLD
 	if melee and attacker.faction != target.faction and _buff_active_side(target.faction, "thorns"):
 		attacker.receive_damage(damage * 0.3, "hero")
@@ -3475,6 +3924,7 @@ func _cast_skill(unit: BattleUnit, target: BattleUnit) -> void:
 	var skill_type := _skill_type(unit)
 	var skill_name := str(_skill_data(unit).get("name", skill_type))
 	var color := _skill_color(unit)
+	var stun_mult := run_stun_mult if unit.faction == "ally" else 1.0
 	_spawn_hit_fx(unit.position, color, skill_name, 0.8, -12.0)
 	var era := str(unit.stats.get("era", "stone"))
 	match skill_type:
@@ -3488,7 +3938,7 @@ func _cast_skill(unit: BattleUnit, target: BattleUnit) -> void:
 				fx_manager.emit("effect", unit.position + Vector2(0, -48), Vector2.UP, era, 1, 18, Color("#ffe8a0"))
 		"smash_stun":
 			_deal_damage(target, _unit_damage(unit) * 2.0, "hero", unit)
-			target.add_stun(1.5)
+			target.add_stun(1.5 * stun_mult)
 			_spawn_hit_fx(target.position, Color("#fff0bd"), "眩晕", 0.65)
 			if fx_manager != null:
 				fx_manager.emit("blast", target.position, Vector2.UP, era, 0, 22, color)
@@ -3505,7 +3955,7 @@ func _cast_skill(unit: BattleUnit, target: BattleUnit) -> void:
 			var enemies := _living_units("enemy" if unit.faction == "ally" else "ally")
 			for enemy in enemies:
 				if enemy.position.distance_to(unit.position) <= 200.0:
-					enemy.add_stun(2.5)
+					enemy.add_stun(2.5 * stun_mult)
 					_spawn_hit_fx(enemy.position, Color("#fff0bd"), "眩晕", 0.65)
 			if fx_manager != null:
 				fx_manager.emit_shockwave(unit.position, color, 200.0)
@@ -3683,6 +4133,8 @@ func _attack_tower(attacker: BattleUnit) -> void:
 				_shake_battlefield()
 			else:
 				ally_tower_hp = maxf(0.0, ally_tower_hp - damage)
+				if round_tower_thorns and float(attacker.stats.get("range", 0.0)) < PROJECTILE_RANGE_THRESHOLD and attacker.alive:
+					attacker.receive_damage(damage * 0.4, "tower")
 				_spawn_hit_fx(tower_point, Color("#ff8e70"), "✦")
 				if fx_manager != null:
 					fx_manager.emit_tower_hit(tower_point, attacker.stats.era)
@@ -3710,6 +4162,8 @@ func _attack_tower(attacker: BattleUnit) -> void:
 		_shake_battlefield()
 	else:
 		ally_tower_hp = maxf(0.0, ally_tower_hp - damage)
+		if round_tower_thorns and float(attacker.stats.get("range", 0.0)) < PROJECTILE_RANGE_THRESHOLD and attacker.alive:
+			attacker.receive_damage(damage * 0.4, "tower")
 		_spawn_hit_fx(Vector2(ALLY_TOWER_X, BATTLE_GROUND_Y - 40.0), Color("#ff8e70"), "✦")
 		if fx_manager != null:
 			fx_manager.emit_tower_hit(Vector2(ALLY_TOWER_X, BATTLE_GROUND_Y - 40.0), attacker.stats.era)
@@ -3730,6 +4184,7 @@ func _on_unit_expired(unit: BattleUnit) -> void:
 		unit.score_awarded = true
 		var kill_score_value := int(unit.stats.get("kill_score", 0))
 		var coins := maxi(1, int(round(float(_era_amount(kill_score_value)) * KILL_COIN_MULT)))
+		coins = int(round(float(coins) * round_coin_mult))
 		if _buff_active("bounty"):
 			coins += maxi(1, int(round(float(_era_amount(BOUNTY_COIN_BASE)) * KILL_COIN_MULT)))
 		_change_coins(coins)
@@ -3965,6 +4420,18 @@ func _update_progress_ui() -> void:
 		score_label.text = "击杀积分 %d" % kill_score
 	if deck_label != null:
 		deck_label.text = "剩 %d 张" % deck_cards.size()
+	_update_reshuffle_button()
+
+func _update_reshuffle_button() -> void:
+	if reshuffle_button == null:
+		return
+	var live_count := 0
+	for card in deck_cards:
+		if is_instance_valid(card) and not card.claimed:
+			live_count += 1
+			if live_count >= 2:
+				break
+	reshuffle_button.disabled = not (_can_pick_cards() and (free_reshuffles > 0 or coin_count >= RESHUFFLE_COST) and live_count >= 2)
 
 func _update_tower_ui() -> void:
 	if ally_tower_bar == null:
