@@ -79,6 +79,107 @@ def remove_connected_background(image: Image.Image, tolerance: float = 33.0) -> 
     return rgba
 
 
+def remove_enclosed_flat_white(
+    image: Image.Image,
+    min_pixels: int = 100,
+    white_floor: int = 245,
+    max_spread: int = 6,
+    max_stddev: float = 4.0,
+) -> Image.Image:
+    """Remove flat neutral-white holes enclosed by line art.
+
+    The regular border flood-fill cannot reach white areas inside closed
+    outlines.  Restrict this pass to very flat, neutral white components so
+    highlights and colored white artwork remain intact.
+    """
+    rgba = image.convert("RGBA")
+    pixels = rgba.load()
+    width, height = rgba.size
+    rgb = [
+        [
+            (pixels[x, y][0], pixels[x, y][1], pixels[x, y][2])
+            for x in range(width)
+        ]
+        for y in range(height)
+    ]
+
+    def is_flat_white(x: int, y: int) -> bool:
+        red, green, blue = rgb[y][x]
+        return min(red, green, blue) >= white_floor and max(red, green, blue) - min(red, green, blue) <= max_spread
+
+    mask = [[is_flat_white(x, y) and pixels[x, y][3] > 0 for x in range(width)] for y in range(height)]
+    seen: set[tuple[int, int]] = set()
+    for start_y in range(height):
+        for start_x in range(width):
+            if not mask[start_y][start_x] or (start_x, start_y) in seen:
+                continue
+            queue: deque[tuple[int, int]] = deque([(start_x, start_y)])
+            seen.add((start_x, start_y))
+            component: list[tuple[int, int]] = []
+            touches_edge = False
+            while queue:
+                x, y = queue.popleft()
+                component.append((x, y))
+                if x in (0, width - 1) or y in (0, height - 1):
+                    touches_edge = True
+                for next_x, next_y in (
+                    (x - 1, y),
+                    (x + 1, y),
+                    (x, y - 1),
+                    (x, y + 1),
+                ):
+                    if (
+                        0 <= next_x < width
+                        and 0 <= next_y < height
+                        and mask[next_y][next_x]
+                        and (next_x, next_y) not in seen
+                    ):
+                        seen.add((next_x, next_y))
+                        queue.append((next_x, next_y))
+            if touches_edge or len(component) < min_pixels:
+                continue
+            values = [rgb[y][x] for x, y in component]
+            mean = sum(sum(value) for value in values) / (3.0 * len(values))
+            variance = sum(
+                (channel - mean) ** 2
+                for value in values
+                for channel in value
+            ) / (3.0 * len(values))
+            if mean < white_floor or variance ** 0.5 > max_stddev:
+                continue
+            for x, y in component:
+                red, green, blue, _alpha = pixels[x, y]
+                pixels[x, y] = (red, green, blue, 0)
+    # A one-pixel neutral-white fringe can remain where the source background
+    # was antialiased against the cutout.  Only remove pixels directly beside
+    # transparency; colored or shaded artwork does not satisfy the predicate.
+    halo: list[tuple[int, int]] = []
+    for y in range(height):
+        for x in range(width):
+            if not mask[y][x] or pixels[x, y][3] == 0:
+                continue
+            if any(
+                0 <= next_x < width
+                and 0 <= next_y < height
+                and pixels[next_x, next_y][3] == 0
+                for next_x, next_y in (
+                    (x - 1, y),
+                    (x + 1, y),
+                    (x, y - 1),
+                    (x, y + 1),
+                    (x - 1, y - 1),
+                    (x + 1, y - 1),
+                    (x - 1, y + 1),
+                    (x + 1, y + 1),
+                )
+            ):
+                halo.append((x, y))
+    for x, y in halo:
+        red, green, blue, _alpha = pixels[x, y]
+        pixels[x, y] = (red, green, blue, 0)
+    return rgba
+
+
 def slice_sheet(source: Path, output_root: Path, tolerance: float) -> list[Path]:
     image = Image.open(source).convert("RGB")
     category, columns, rows, names = SHEETS[source.name]
@@ -121,7 +222,37 @@ def main() -> None:
     parser.add_argument("--art", type=Path, default=Path(__file__).parents[2] / "game_design" / "art")
     parser.add_argument("--output", type=Path, default=Path(__file__).parents[1] / "assets")
     parser.add_argument("--tolerance", type=float, default=33.0)
+    parser.add_argument(
+        "--anim",
+        nargs="*",
+        metavar="PATH",
+        help="Clean existing animation PNGs in assets/anim (paths or role names).",
+    )
+    parser.add_argument("--min-enclosed-pixels", type=int, default=1000)
     args = parser.parse_args()
+
+    if args.anim is not None:
+        anim_root = args.output / "anim"
+        requested = args.anim or [str(path) for path in sorted(anim_root.rglob("*.png"))]
+        skipped_roles = {"fut_tank", "mod_tank"}
+        for item in requested:
+            path = Path(item)
+            if not path.is_absolute():
+                path = anim_root / path
+            if path.is_dir():
+                paths = sorted(path.glob("*.png"))
+            else:
+                paths = [path]
+            for png_path in paths:
+                if not png_path.exists() or png_path.parent.name in skipped_roles:
+                    continue
+                cleaned = remove_enclosed_flat_white(
+                    Image.open(png_path),
+                    min_pixels=args.min_enclosed_pixels,
+                )
+                cleaned.save(png_path, "PNG", optimize=True)
+                print(png_path)
+        return
 
     for filename in SHEETS:
         paths = slice_sheet(args.art / filename, args.output, args.tolerance)
