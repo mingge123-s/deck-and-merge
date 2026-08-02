@@ -2482,7 +2482,7 @@ func _enemy_rally_surge() -> void:
 	var saved_boss := wave_boss_pending
 	wave_boss_pending = false
 	for _i in range(burst):
-	_spawn_one_enemy(true)
+		_spawn_one_enemy(true)
 	wave_boss_pending = saved_boss
 	_announce_enemy_action("敌方拼死反扑！", "")
 	AudioManager.play_sfx("era")
