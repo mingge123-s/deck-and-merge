@@ -1,9 +1,10 @@
 extends Node2D
 
 const VIEW_SIZE := Vector2(720, 1280)
-const BATTLE_RECT := Rect2(36, 116, 648, 300)
-const TRAY_RECT := Rect2(36, 432, 648, 156)
+const BATTLE_RECT := Rect2(36, 36, 648, 300)
+const TRAY_RECT := Rect2(36, 352, 648, 156)
 const BOARD_RECT := Rect2(36, 604, 648, 636)
+const INFO_BAR_RECT := Rect2(36, 524, 648, 64)
 const CARD_SIZE := Vector2(138, 166)
 const TRAY_SLOT_SIZE := Vector2(80, 80)
 const TRAY_SLOT_STEP := 89.0
@@ -159,7 +160,6 @@ var era_index := 0
 var kill_score := 0
 var coin_label: Label
 var era_label: Label
-var score_label: Label
 var deck_label: Label
 var reshuffle_button: Button
 var reshuffle_confirm_overlay: Control
@@ -641,12 +641,12 @@ func _build_background() -> void:
 
 func _build_top_bar() -> void:
 	var bar := Panel.new()
-	bar.position = Vector2(30, 30)
-	bar.size = Vector2(660, 70)
+	bar.position = INFO_BAR_RECT.position
+	bar.size = INFO_BAR_RECT.size
 	bar.add_theme_stylebox_override("panel", _panel_style(Color("#a75d38"), Color("#633822"), 19, 3))
 	add_child(bar)
 	return_button = Button.new()
-	return_button.position = Vector2(12, 12)
+	return_button.position = Vector2(12, 9)
 	return_button.size = Vector2(46, 46)
 	return_button.text = "≡"
 	return_button.tooltip_text = "主界面"
@@ -657,7 +657,7 @@ func _build_top_bar() -> void:
 	return_button.pressed.connect(_play_button_sfx)
 	bar.add_child(return_button)
 	pause_button = Button.new()
-	pause_button.position = Vector2(540, 12)
+	pause_button.position = Vector2(536, 9)
 	pause_button.size = Vector2(46, 46)
 	pause_button.text = "⏸"
 	pause_button.tooltip_text = "暂停"
@@ -669,7 +669,7 @@ func _build_top_bar() -> void:
 	pause_button.visible = false
 	bar.add_child(pause_button)
 	help_button = Button.new()
-	help_button.position = Vector2(596, 12)
+	help_button.position = Vector2(592, 9)
 	help_button.size = Vector2(46, 46)
 	help_button.text = "?"
 	help_button.tooltip_text = "玩法介绍"
@@ -679,10 +679,14 @@ func _build_top_bar() -> void:
 	help_button.pressed.connect(_show_tutorial)
 	help_button.pressed.connect(_play_button_sfx)
 	bar.add_child(help_button)
-	_label(bar, "🪨 牌桌远征", Vector2(68, 5), Vector2(205, 30), 21)
-	era_label = _label(bar, "", Vector2(70, 38), Vector2(220, 20), 12, Color("#f6d69f"))
-	coin_label = _label(bar, "", Vector2(350, 8), Vector2(165, 28), 16, Color("#fff0c7"))
-	score_label = _label(bar, "", Vector2(350, 37), Vector2(175, 22), 12, Color("#ffe3a5"))
+	coin_label = _label(bar, "", Vector2(70, 18), Vector2(140, 28), 16, Color("#fff0c7"))
+	reshuffle_button = _menu_button(bar, "", Vector2(210, 7), Vector2(50, 50), 24)
+	reshuffle_button.icon = load("res://assets/ui/reshuffle_icon.png")
+	reshuffle_button.expand_icon = true
+	reshuffle_button.add_theme_constant_override("icon_max_width", 34)
+	reshuffle_button.tooltip_text = "重排牌序（-%d 金币）" % RESHUFFLE_COST
+	reshuffle_button.pressed.connect(_on_reshuffle_pressed)
+	era_label = _label(bar, "", Vector2(275, 22), Vector2(240, 20), 12, Color("#f6d69f"))
 	_update_progress_ui()
 	_update_coin_ui()
 
@@ -711,13 +715,6 @@ func _build_board() -> void:
 	deck_label = _label(board, "", Vector2(150, 8), Vector2(200, 34), 24, Color("#ffe9a8"))
 	_outline(deck_label, 6)
 	_label(board, "点击没有被压住的卡牌", Vector2(22, 44), Vector2(230, 23), 12, Color("#6e452f"))
-	reshuffle_button = _menu_button(board, "", Vector2(20, 6), Vector2(50, 50), 24)
-	reshuffle_button.icon = load("res://assets/ui/reshuffle_icon.png")
-	reshuffle_button.expand_icon = true
-	reshuffle_button.add_theme_constant_override("icon_max_width", 34)
-	reshuffle_button.tooltip_text = "重排牌序（-%d 金币）" % RESHUFFLE_COST
-	reshuffle_button.z_index = 4080
-	reshuffle_button.pressed.connect(_on_reshuffle_pressed)
 	_build_wave_bar()
 	card_layer = Control.new()
 	card_layer.position = Vector2(26, 80)
@@ -4469,10 +4466,6 @@ func _update_progress_ui() -> void:
 		else:
 			state = "距下次整备 %d 波" % (PREP_WAVE_INTERVAL - wave_number % PREP_WAVE_INTERVAL)
 	era_label.text = "%s · 第 %d 轮 · %s" % [GameData.ERA_NAMES.get(current_era, current_era), round_number, state]
-	if battle_active and not battle_ended:
-		score_label.text = "积分 %d · 第 %d 波 · 敌 %d" % [kill_score, wave_number, _living_units("enemy").size()]
-	else:
-		score_label.text = "击杀积分 %d" % kill_score
 	if deck_label != null:
 		deck_label.text = "剩 %d 张" % deck_cards.size()
 	_update_reshuffle_button()
