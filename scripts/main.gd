@@ -1,9 +1,10 @@
 extends Node2D
 
 const VIEW_SIZE := Vector2(720, 1280)
-const BATTLE_RECT := Rect2(36, 116, 648, 300)
-const TRAY_RECT := Rect2(36, 432, 648, 156)
+const BATTLE_RECT := Rect2(36, 36, 648, 300)
+const TRAY_RECT := Rect2(36, 352, 648, 156)
 const BOARD_RECT := Rect2(36, 604, 648, 636)
+const INFO_BAR_RECT := Rect2(36, 524, 648, 64)
 const CARD_SIZE := Vector2(138, 166)
 const TRAY_SLOT_SIZE := Vector2(80, 80)
 const TRAY_SLOT_STEP := 89.0
@@ -159,9 +160,9 @@ var era_index := 0
 var kill_score := 0
 var coin_label: Label
 var era_label: Label
-var score_label: Label
 var deck_label: Label
 var reshuffle_button: Button
+var reshuffle_confirm_overlay: Control
 var status_label: Label
 var update_status_label: Label
 var restart_button: Button
@@ -640,12 +641,12 @@ func _build_background() -> void:
 
 func _build_top_bar() -> void:
 	var bar := Panel.new()
-	bar.position = Vector2(30, 30)
-	bar.size = Vector2(660, 70)
+	bar.position = INFO_BAR_RECT.position
+	bar.size = INFO_BAR_RECT.size
 	bar.add_theme_stylebox_override("panel", _panel_style(Color("#a75d38"), Color("#633822"), 19, 3))
 	add_child(bar)
 	return_button = Button.new()
-	return_button.position = Vector2(12, 12)
+	return_button.position = Vector2(12, 9)
 	return_button.size = Vector2(46, 46)
 	return_button.text = "≡"
 	return_button.tooltip_text = "主界面"
@@ -656,7 +657,7 @@ func _build_top_bar() -> void:
 	return_button.pressed.connect(_play_button_sfx)
 	bar.add_child(return_button)
 	pause_button = Button.new()
-	pause_button.position = Vector2(540, 12)
+	pause_button.position = Vector2(536, 9)
 	pause_button.size = Vector2(46, 46)
 	pause_button.text = "⏸"
 	pause_button.tooltip_text = "暂停"
@@ -668,7 +669,7 @@ func _build_top_bar() -> void:
 	pause_button.visible = false
 	bar.add_child(pause_button)
 	help_button = Button.new()
-	help_button.position = Vector2(596, 12)
+	help_button.position = Vector2(592, 9)
 	help_button.size = Vector2(46, 46)
 	help_button.text = "?"
 	help_button.tooltip_text = "玩法介绍"
@@ -678,10 +679,22 @@ func _build_top_bar() -> void:
 	help_button.pressed.connect(_show_tutorial)
 	help_button.pressed.connect(_play_button_sfx)
 	bar.add_child(help_button)
-	_label(bar, "🪨 牌桌远征", Vector2(68, 5), Vector2(205, 30), 21)
-	era_label = _label(bar, "", Vector2(70, 38), Vector2(220, 20), 12, Color("#f6d69f"))
-	coin_label = _label(bar, "", Vector2(350, 8), Vector2(165, 28), 16, Color("#fff0c7"))
-	score_label = _label(bar, "", Vector2(350, 37), Vector2(175, 22), 12, Color("#ffe3a5"))
+	coin_label = _label(bar, "", Vector2(70, 18), Vector2(140, 28), 16, Color("#fff0c7"))
+	era_label = _label(bar, "", Vector2(215, 22), Vector2(250, 20), 12, Color("#f6d69f"))
+	reshuffle_button = Button.new()
+	reshuffle_button.position = Vector2(480, 9)
+	reshuffle_button.size = Vector2(46, 46)
+	reshuffle_button.tooltip_text = "重排牌序（-%d 金币）" % RESHUFFLE_COST
+	reshuffle_button.add_theme_stylebox_override("normal", _panel_style(Color("#e4863e"), Color("#713722"), 12, 2))
+	reshuffle_button.add_theme_stylebox_override("hover", _panel_style(Color("#f2a252"), Color("#713722"), 12, 2))
+	reshuffle_button.add_theme_stylebox_override("pressed", _panel_style(Color("#c9702f"), Color("#713722"), 12, 2))
+	reshuffle_button.add_theme_stylebox_override("disabled", _panel_style(Color("#9c6b45"), Color("#5e3320"), 12, 2))
+	reshuffle_button.icon = load("res://assets/ui/reshuffle_icon.png")
+	reshuffle_button.expand_icon = true
+	reshuffle_button.add_theme_constant_override("icon_max_width", 30)
+	reshuffle_button.pressed.connect(_on_reshuffle_pressed)
+	reshuffle_button.pressed.connect(_play_button_sfx)
+	bar.add_child(reshuffle_button)
 	_update_progress_ui()
 	_update_coin_ui()
 
@@ -707,12 +720,9 @@ func _build_board() -> void:
 	board.add_child(bg)
 	board_bg_fade = _make_fade_twin(bg)
 	board.add_child(board_bg_fade)
-	_label(board, "🃏 牌堆", Vector2(20, 10), Vector2(150, 30), 20)
 	deck_label = _label(board, "", Vector2(150, 8), Vector2(200, 34), 24, Color("#ffe9a8"))
 	_outline(deck_label, 6)
 	_label(board, "点击没有被压住的卡牌", Vector2(22, 44), Vector2(230, 23), 12, Color("#6e452f"))
-	reshuffle_button = _menu_button(board, "🔀 重排牌序 -100", Vector2(438, 8), Vector2(198, 42), 15)
-	reshuffle_button.pressed.connect(_on_reshuffle_pressed)
 	_build_wave_bar()
 	card_layer = Control.new()
 	card_layer.position = Vector2(26, 80)
@@ -1088,6 +1098,7 @@ func _build_overlay() -> void:
 	_build_tutorial_overlay()
 	_build_card_info_overlay()
 	_build_codex_detail_overlay()
+	_build_reshuffle_confirm_overlay()
 
 func _build_pause_overlay() -> void:
 	pause_overlay = Control.new()
@@ -3251,12 +3262,61 @@ func _card_fx_color(card_id: String) -> Color:
 func _can_pick_cards() -> bool:
 	return battle_active and not battle_ended and (not paused or auto_prep) and not reward_active
 
+func _build_reshuffle_confirm_overlay() -> void:
+	reshuffle_confirm_overlay = Control.new()
+	reshuffle_confirm_overlay.size = VIEW_SIZE
+	reshuffle_confirm_overlay.z_index = 4095
+	reshuffle_confirm_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	reshuffle_confirm_overlay.visible = false
+	add_child(reshuffle_confirm_overlay)
+	var shade := ColorRect.new()
+	shade.size = VIEW_SIZE
+	shade.color = Color(0.05, 0.03, 0.02, 0.55)
+	shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	reshuffle_confirm_overlay.add_child(shade)
+	var panel := Panel.new()
+	panel.position = Vector2(70, 500)
+	panel.size = Vector2(580, 280)
+	panel.add_theme_stylebox_override("panel", _panel_style(Color("#c58a53"), Color("#70412c"), 24, 3))
+	reshuffle_confirm_overlay.add_child(panel)
+	var title := _label(panel, "重排牌序", Vector2(0, 26), Vector2(580, 40), 26)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var desc := _label(panel, "把牌堆里未取走的卡牌重新洗牌摆放，解开互相压住的牌。\n每次 %d 金币（有免费次数时优先扣免费）。确定使用？" % RESHUFFLE_COST, Vector2(40, 86), Vector2(500, 80), 17, Color("#fff0c7"))
+	desc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	var cancel_button := _menu_button(panel, "取消", Vector2(60, 190), Vector2(200, 56), 19)
+	cancel_button.pressed.connect(_hide_reshuffle_confirm)
+	var confirm_button := _menu_button(panel, "确定重排", Vector2(320, 190), Vector2(200, 56), 19)
+	confirm_button.pressed.connect(_on_reshuffle_confirmed)
+
+func _hide_reshuffle_confirm() -> void:
+	if reshuffle_confirm_overlay != null:
+		reshuffle_confirm_overlay.visible = false
+
+func _on_reshuffle_confirmed() -> void:
+	_hide_reshuffle_confirm()
+	SaveManager.set_reshuffle_hint_seen(true)
+	_do_reshuffle()
+
 func _on_reshuffle_pressed() -> void:
+	if not _can_reshuffle():
+		AudioManager.play_sfx("ui_denied")
+		return
+	if not SaveManager.get_reshuffle_hint_seen() and reshuffle_confirm_overlay != null:
+		move_child(reshuffle_confirm_overlay, get_child_count() - 1)
+		reshuffle_confirm_overlay.visible = true
+		return
+	_do_reshuffle()
+
+func _can_reshuffle() -> bool:
 	var live_count := 0
 	for card in deck_cards:
 		if is_instance_valid(card) and not card.claimed:
 			live_count += 1
-	if not _can_pick_cards() or (free_reshuffles <= 0 and coin_count < RESHUFFLE_COST) or live_count < 2:
+	return _can_pick_cards() and (free_reshuffles > 0 or coin_count >= RESHUFFLE_COST) and live_count >= 2
+
+func _do_reshuffle() -> void:
+	if not _can_reshuffle():
 		AudioManager.play_sfx("ui_denied")
 		return
 	if free_reshuffles > 0:
@@ -4414,10 +4474,6 @@ func _update_progress_ui() -> void:
 		else:
 			state = "距下次整备 %d 波" % (PREP_WAVE_INTERVAL - wave_number % PREP_WAVE_INTERVAL)
 	era_label.text = "%s · 第 %d 轮 · %s" % [GameData.ERA_NAMES.get(current_era, current_era), round_number, state]
-	if battle_active and not battle_ended:
-		score_label.text = "积分 %d · 第 %d 波 · 敌 %d" % [kill_score, wave_number, _living_units("enemy").size()]
-	else:
-		score_label.text = "击杀积分 %d" % kill_score
 	if deck_label != null:
 		deck_label.text = "剩 %d 张" % deck_cards.size()
 	_update_reshuffle_button()
@@ -4425,13 +4481,7 @@ func _update_progress_ui() -> void:
 func _update_reshuffle_button() -> void:
 	if reshuffle_button == null:
 		return
-	var live_count := 0
-	for card in deck_cards:
-		if is_instance_valid(card) and not card.claimed:
-			live_count += 1
-			if live_count >= 2:
-				break
-	reshuffle_button.disabled = not (_can_pick_cards() and (free_reshuffles > 0 or coin_count >= RESHUFFLE_COST) and live_count >= 2)
+	reshuffle_button.disabled = not _can_reshuffle()
 
 func _update_tower_ui() -> void:
 	if ally_tower_bar == null:
