@@ -680,13 +680,21 @@ func _build_top_bar() -> void:
 	help_button.pressed.connect(_play_button_sfx)
 	bar.add_child(help_button)
 	coin_label = _label(bar, "", Vector2(70, 18), Vector2(140, 28), 16, Color("#fff0c7"))
-	reshuffle_button = _menu_button(bar, "", Vector2(210, 7), Vector2(50, 50), 24)
+	era_label = _label(bar, "", Vector2(215, 22), Vector2(250, 20), 12, Color("#f6d69f"))
+	reshuffle_button = Button.new()
+	reshuffle_button.position = Vector2(480, 9)
+	reshuffle_button.size = Vector2(46, 46)
+	reshuffle_button.tooltip_text = "重排牌序（-%d 金币）" % RESHUFFLE_COST
+	reshuffle_button.add_theme_stylebox_override("normal", _panel_style(Color("#e4863e"), Color("#713722"), 12, 2))
+	reshuffle_button.add_theme_stylebox_override("hover", _panel_style(Color("#f2a252"), Color("#713722"), 12, 2))
+	reshuffle_button.add_theme_stylebox_override("pressed", _panel_style(Color("#c9702f"), Color("#713722"), 12, 2))
+	reshuffle_button.add_theme_stylebox_override("disabled", _panel_style(Color("#9c6b45"), Color("#5e3320"), 12, 2))
 	reshuffle_button.icon = load("res://assets/ui/reshuffle_icon.png")
 	reshuffle_button.expand_icon = true
-	reshuffle_button.add_theme_constant_override("icon_max_width", 34)
-	reshuffle_button.tooltip_text = "重排牌序（-%d 金币）" % RESHUFFLE_COST
+	reshuffle_button.add_theme_constant_override("icon_max_width", 30)
 	reshuffle_button.pressed.connect(_on_reshuffle_pressed)
-	era_label = _label(bar, "", Vector2(275, 22), Vector2(240, 20), 12, Color("#f6d69f"))
+	reshuffle_button.pressed.connect(_play_button_sfx)
+	bar.add_child(reshuffle_button)
 	_update_progress_ui()
 	_update_coin_ui()
 
