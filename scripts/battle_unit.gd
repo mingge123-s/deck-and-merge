@@ -28,6 +28,7 @@ var _moving := false
 var score_awarded := false
 var visual_base_scale := Vector2.ONE
 var hit_punch_tween: Tween
+var spin_tween: Tween
 var last_damage_source := "hero"
 var energy := 0.0
 var skill_cost := 0
@@ -363,12 +364,38 @@ func receive_damage(amount: float, source := "hero") -> void:
 func _play_hit_punch() -> void:
 	if not is_instance_valid(visual):
 		return
+	if spin_tween != null and spin_tween.is_valid():
+		return
 	if hit_punch_tween != null:
 		hit_punch_tween.kill()
 	visual.scale = visual_base_scale
 	hit_punch_tween = create_tween()
 	hit_punch_tween.tween_property(visual, "scale", visual_base_scale * 1.06, 0.045)
 	hit_punch_tween.tween_property(visual, "scale", visual_base_scale, 0.055)
+
+func play_spin(duration := 0.5, turns := 2) -> void:
+	if not is_instance_valid(visual):
+		return
+	if spin_tween != null:
+		spin_tween.kill()
+	if hit_punch_tween != null:
+		hit_punch_tween.kill()
+	visual.scale = visual_base_scale
+	visual.position.y = 0.0
+	spin_tween = create_tween()
+	var quarters := maxi(1, turns) * 4
+	var step := duration / float(quarters)
+	var seq := [0.0, -visual_base_scale.x, 0.0, visual_base_scale.x]
+	for index in range(quarters):
+		spin_tween.tween_property(visual, "scale:x", seq[index % 4], step)
+	spin_tween.tween_callback(func() -> void:
+		visual.scale = visual_base_scale
+		visual.position.y = 0.0
+		spin_tween = null
+	)
+	var hop := create_tween()
+	hop.tween_property(visual, "position:y", -10.0, duration * 0.5)
+	hop.tween_property(visual, "position:y", 0.0, duration * 0.5)
 
 func _die() -> void:
 	alive = false
