@@ -711,12 +711,12 @@ func _build_board() -> void:
 	deck_label = _label(board, "", Vector2(150, 8), Vector2(200, 34), 24, Color("#ffe9a8"))
 	_outline(deck_label, 6)
 	_label(board, "点击没有被压住的卡牌", Vector2(22, 44), Vector2(230, 23), 12, Color("#6e452f"))
-	reshuffle_button = _menu_button(board, "🔀 重排牌序 -100", Vector2(438, 8), Vector2(198, 42), 15)
+	reshuffle_button = _menu_button(board, "🔀 重排牌序 -100", Vector2(438, 58), Vector2(198, 42), 15)
 	reshuffle_button.pressed.connect(_on_reshuffle_pressed)
 	_build_wave_bar()
 	card_layer = Control.new()
-	card_layer.position = Vector2(26, 80)
-	card_layer.size = Vector2(596, 526)
+	card_layer.position = Vector2(26, 112)
+	card_layer.size = Vector2(596, 494)
 	card_layer.clip_contents = false
 	card_layer.mouse_filter = Control.MOUSE_FILTER_STOP
 	card_layer.gui_input.connect(_on_card_layer_input)
