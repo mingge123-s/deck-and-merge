@@ -9,6 +9,7 @@ const DEFAULTS := {
 	"best_score": 0,
 	"unlocked_era_index": 0,
 	"tutorial_seen": false,
+	"reshuffle_hint_seen": false,
 }
 
 var _data: Dictionary = DEFAULTS.duplicate(true)
@@ -32,6 +33,7 @@ func load() -> void:
 	_data["best_score"] = maxi(0, int(_data["best_score"]))
 	_data["unlocked_era_index"] = maxi(0, int(_data["unlocked_era_index"]))
 	_data["tutorial_seen"] = bool(_data["tutorial_seen"])
+	_data["reshuffle_hint_seen"] = bool(_data["reshuffle_hint_seen"])
 
 func save() -> void:
 	var config := ConfigFile.new()
@@ -81,4 +83,11 @@ func get_tutorial_seen() -> bool:
 
 func set_tutorial_seen(value: bool) -> void:
 	_data["tutorial_seen"] = value
+	save()
+
+func get_reshuffle_hint_seen() -> bool:
+	return bool(_data["reshuffle_hint_seen"])
+
+func set_reshuffle_hint_seen(value: bool) -> void:
+	_data["reshuffle_hint_seen"] = value
 	save()

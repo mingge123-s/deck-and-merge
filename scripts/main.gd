@@ -162,6 +162,7 @@ var era_label: Label
 var score_label: Label
 var deck_label: Label
 var reshuffle_button: Button
+var reshuffle_confirm_overlay: Control
 var status_label: Label
 var update_status_label: Label
 var restart_button: Button
@@ -707,16 +708,20 @@ func _build_board() -> void:
 	board.add_child(bg)
 	board_bg_fade = _make_fade_twin(bg)
 	board.add_child(board_bg_fade)
-	_label(board, "🃏 牌堆", Vector2(20, 10), Vector2(150, 30), 20)
 	deck_label = _label(board, "", Vector2(150, 8), Vector2(200, 34), 24, Color("#ffe9a8"))
 	_outline(deck_label, 6)
 	_label(board, "点击没有被压住的卡牌", Vector2(22, 44), Vector2(230, 23), 12, Color("#6e452f"))
-	reshuffle_button = _menu_button(board, "🔀 重排牌序 -100", Vector2(438, 58), Vector2(198, 42), 15)
+	reshuffle_button = _menu_button(board, "", Vector2(20, 6), Vector2(50, 50), 24)
+	reshuffle_button.icon = load("res://assets/ui/reshuffle_icon.png")
+	reshuffle_button.expand_icon = true
+	reshuffle_button.add_theme_constant_override("icon_max_width", 34)
+	reshuffle_button.tooltip_text = "重排牌序（-%d 金币）" % RESHUFFLE_COST
+	reshuffle_button.z_index = 4080
 	reshuffle_button.pressed.connect(_on_reshuffle_pressed)
 	_build_wave_bar()
 	card_layer = Control.new()
-	card_layer.position = Vector2(26, 112)
-	card_layer.size = Vector2(596, 494)
+	card_layer.position = Vector2(26, 80)
+	card_layer.size = Vector2(596, 526)
 	card_layer.clip_contents = false
 	card_layer.mouse_filter = Control.MOUSE_FILTER_STOP
 	card_layer.gui_input.connect(_on_card_layer_input)
@@ -1088,6 +1093,7 @@ func _build_overlay() -> void:
 	_build_tutorial_overlay()
 	_build_card_info_overlay()
 	_build_codex_detail_overlay()
+	_build_reshuffle_confirm_overlay()
 
 func _build_pause_overlay() -> void:
 	pause_overlay = Control.new()
@@ -3251,12 +3257,61 @@ func _card_fx_color(card_id: String) -> Color:
 func _can_pick_cards() -> bool:
 	return battle_active and not battle_ended and (not paused or auto_prep) and not reward_active
 
+func _build_reshuffle_confirm_overlay() -> void:
+	reshuffle_confirm_overlay = Control.new()
+	reshuffle_confirm_overlay.size = VIEW_SIZE
+	reshuffle_confirm_overlay.z_index = 4095
+	reshuffle_confirm_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	reshuffle_confirm_overlay.visible = false
+	add_child(reshuffle_confirm_overlay)
+	var shade := ColorRect.new()
+	shade.size = VIEW_SIZE
+	shade.color = Color(0.05, 0.03, 0.02, 0.55)
+	shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	reshuffle_confirm_overlay.add_child(shade)
+	var panel := Panel.new()
+	panel.position = Vector2(70, 500)
+	panel.size = Vector2(580, 280)
+	panel.add_theme_stylebox_override("panel", _panel_style(Color("#c58a53"), Color("#70412c"), 24, 3))
+	reshuffle_confirm_overlay.add_child(panel)
+	var title := _label(panel, "重排牌序", Vector2(0, 26), Vector2(580, 40), 26)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var desc := _label(panel, "把牌堆里未取走的卡牌重新洗牌摆放，解开互相压住的牌。\n每次 %d 金币（有免费次数时优先扣免费）。确定使用？" % RESHUFFLE_COST, Vector2(40, 86), Vector2(500, 80), 17, Color("#fff0c7"))
+	desc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	var cancel_button := _menu_button(panel, "取消", Vector2(60, 190), Vector2(200, 56), 19)
+	cancel_button.pressed.connect(_hide_reshuffle_confirm)
+	var confirm_button := _menu_button(panel, "确定重排", Vector2(320, 190), Vector2(200, 56), 19)
+	confirm_button.pressed.connect(_on_reshuffle_confirmed)
+
+func _hide_reshuffle_confirm() -> void:
+	if reshuffle_confirm_overlay != null:
+		reshuffle_confirm_overlay.visible = false
+
+func _on_reshuffle_confirmed() -> void:
+	_hide_reshuffle_confirm()
+	SaveManager.set_reshuffle_hint_seen(true)
+	_do_reshuffle()
+
 func _on_reshuffle_pressed() -> void:
+	if not _can_reshuffle():
+		AudioManager.play_sfx("ui_denied")
+		return
+	if not SaveManager.get_reshuffle_hint_seen() and reshuffle_confirm_overlay != null:
+		move_child(reshuffle_confirm_overlay, get_child_count() - 1)
+		reshuffle_confirm_overlay.visible = true
+		return
+	_do_reshuffle()
+
+func _can_reshuffle() -> bool:
 	var live_count := 0
 	for card in deck_cards:
 		if is_instance_valid(card) and not card.claimed:
 			live_count += 1
-	if not _can_pick_cards() or (free_reshuffles <= 0 and coin_count < RESHUFFLE_COST) or live_count < 2:
+	return _can_pick_cards() and (free_reshuffles > 0 or coin_count >= RESHUFFLE_COST) and live_count >= 2
+
+func _do_reshuffle() -> void:
+	if not _can_reshuffle():
 		AudioManager.play_sfx("ui_denied")
 		return
 	if free_reshuffles > 0:
@@ -4425,13 +4480,7 @@ func _update_progress_ui() -> void:
 func _update_reshuffle_button() -> void:
 	if reshuffle_button == null:
 		return
-	var live_count := 0
-	for card in deck_cards:
-		if is_instance_valid(card) and not card.claimed:
-			live_count += 1
-			if live_count >= 2:
-				break
-	reshuffle_button.disabled = not (_can_pick_cards() and (free_reshuffles > 0 or coin_count >= RESHUFFLE_COST) and live_count >= 2)
+	reshuffle_button.disabled = not _can_reshuffle()
 
 func _update_tower_ui() -> void:
 	if ally_tower_bar == null:
