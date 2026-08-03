@@ -2690,6 +2690,19 @@ func _start_sandbox_battle() -> void:
 	enemy_coin = 0.0
 	enemy_effect_cd = 0.0
 	enemy_rally_fired = 0
+	run_atk_mult = 1.0
+	run_hp_mult = 1.0
+	run_aspd_mult = 1.0
+	run_move_mult = 1.0
+	run_crit_chance = 0.0
+	run_lifesteal = 0.0
+	run_tank_reduce = 0.0
+	run_ranged_atk_mult = 1.0
+	run_assassin_crit_chance = 0.0
+	run_assassin_crit_mult = 0.0
+	run_stun_mult = 1.0
+	run_hero_mult.clear()
+	_reset_round_mods()
 	ally_alarm_50_played = false
 	ally_alarm_25_played = false
 	var display_era_index := 0
@@ -3980,6 +3993,15 @@ func _try_cast_skill(unit: BattleUnit, target: BattleUnit) -> bool:
 	_cast_skill(unit, target)
 	return true
 
+func _whirlwind_tick(unit: BattleUnit, color: Color) -> void:
+	if not is_instance_valid(unit) or not unit.alive:
+		return
+	var enemies := _living_units("enemy" if unit.faction == "ally" else "ally")
+	for enemy in enemies:
+		if enemy.position.distance_to(unit.position) <= 120.0:
+			_deal_damage(enemy, _unit_damage(unit) * 0.8, "hero", unit)
+			_spawn_hit_fx(enemy.position, color, "斩击", 0.4)
+
 func _cast_skill(unit: BattleUnit, target: BattleUnit) -> void:
 	var skill_type := _skill_type(unit)
 	var skill_name := str(_skill_data(unit).get("name", skill_type))
@@ -4027,13 +4049,33 @@ func _cast_skill(unit: BattleUnit, target: BattleUnit) -> void:
 				for index in range(4):
 					fx_manager.emit_impact_line(unit.position, Vector2.RIGHT.rotated(float(index) * TAU / 4.0), Color("#eaf4ff"), 0.2)
 		"whirlwind":
-			var enemies := _living_units("enemy" if unit.faction == "ally" else "ally")
-			for enemy in enemies:
-				if enemy.position.distance_to(unit.position) <= 120.0:
-					_deal_damage(enemy, _unit_damage(unit) * 1.6, "hero", unit)
-					_spawn_hit_fx(enemy.position, color, "斩击", 0.45)
+			unit.play_spin(0.55, 3)
+			unit.play_whirlwind_trail(color, 0.55, 3)
+			_whirlwind_tick(unit, color)
+			var whirlwind_tween := create_tween()
+			whirlwind_tween.tween_interval(0.2)
+			whirlwind_tween.tween_callback(_whirlwind_tick.bind(unit, color))
+			whirlwind_tween.tween_interval(0.2)
+			whirlwind_tween.tween_callback(_whirlwind_tick.bind(unit, color))
 			if fx_manager != null:
-				fx_manager.emit_slash_arc(unit.position + Vector2(0, -54), color, 120.0, 1.0 if unit.faction == "ally" else -1.0)
+				var center := unit.position + Vector2(0, -40)
+				fx_manager.emit_shockwave(center, color, 130.0)
+				for index in range(8):
+					var dir := Vector2.RIGHT.rotated(float(index) * TAU / 8.0)
+					fx_manager.emit_impact_line(center + dir * 60.0, dir, color, 0.2)
+			_shake_battlefield()
+			var finish := create_tween()
+			finish.tween_interval(0.5)
+			finish.tween_callback(func() -> void:
+				if is_instance_valid(unit) and unit.alive and fx_manager != null:
+					fx_manager.emit_slash_arc(
+						unit.position + Vector2(0, -54),
+						color,
+						120.0,
+						1.0 if unit.faction == "ally" else -1.0
+					)
+					fx_manager.emit("blast", unit.position, Vector2.UP, era, 0, 14, color)
+			)
 		"blink_crit":
 			var from := unit.position
 			var facing := 1.0 if unit.faction == "ally" else -1.0
