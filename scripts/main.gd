@@ -1788,29 +1788,29 @@ func _roll_reward_option(reward_id: String) -> Dictionary:
 	option.hero = hero_id
 	match reward_id:
 		"tower_wall":
-			option.name = "塔壁加固"
-			option.desc = "我方塔最大生命值 +20%"
+			option.name = "壁垒加固"
+			option.desc = "我方防御塔最大生命值提升 20%"
 		"tower_repair":
 			option.name = "紧急修复"
-			option.desc = "我方塔立刻回满生命"
+			option.desc = "立即将我方防御塔生命值恢复至满"
 		"tower_cannon":
-			option.name = "塔炮升级"
-			option.desc = "我方塔攻击力提升 30%"
+			option.name = "塔炮强化"
+			option.desc = "我方防御塔攻击力提升 30%"
 		"tower_thorns":
-			option.name = "荆棘之塔"
-			option.desc = "本轮敌人近战攻击塔时反弹 40%伤害"
+			option.name = "荆棘壁垒"
+			option.desc = "本轮敌方近战攻击防御塔时，反弹 40% 伤害"
 		"tower_regen":
-			option.name = "自愈之塔"
-			option.desc = "本轮我方塔每秒回复 2%最大生命"
+			option.name = "自愈壁垒"
+			option.desc = "本轮我方防御塔每秒恢复 2% 最大生命值"
 		"deck_boost":
-			option.name = "%s 权重增加" % card
-			option.desc = "本轮该小兵卡出现概率翻倍"
+			option.name = "征募强化：%s" % _hero_name_for_card(card)
+			option.desc = "本轮该单位卡的出现概率提升一倍"
 		"deck_remove":
-			option.name = "清退牌型"
-			option.desc = "本轮移除 %s" % card
+			option.name = "移除卡牌"
+			option.desc = "本轮从抽牌池中移除 %s" % _hero_name_for_card(card)
 		"deck_elite":
-			option.name = "精英来袭"
-			option.desc = "本轮 %s 概率提升至 3 倍" % _hero_name_for_card(boss_card)
+			option.name = "精英强化"
+			option.desc = "本轮 %s 的出现概率提升至 3 倍" % _hero_name_for_card(boss_card)
 			option.card = boss_card
 		"effect_harvest":
 			option.name = "效果丰收"
@@ -1820,61 +1820,61 @@ func _roll_reward_option(reward_id: String) -> Dictionary:
 			option.desc = "本轮不再出现效果卡"
 		"free_reshuffle":
 			option.name = "免费重排"
-			option.desc = "获得 3 次免费重排牌序"
+			option.desc = "获得 3 次免费重排牌序的机会"
 		"bloodline":
 			option.name = "血脉强化"
-			option.desc = "%s 单位属性 +15%%" % str(GameData.HEROES[hero_id].get("name", hero_id))
+			option.desc = "%s 单位全属性提升 15%%" % str(GameData.HEROES[hero_id].get("name", hero_id))
 		"tray_expand":
 			option.name = "台面扩容"
 			option.desc = "本轮合成台增加 1 格"
 		"free_clear":
-			option.name = "免费清台券"
+			option.name = "清台券"
 			option.desc = "获得 1 张免费清台券"
 		"coin_bag":
-			option.name = "金币袋"
+			option.name = "金币补给"
 			option.desc = "立即获得 200 金币"
 		"loot_boost":
-			option.name = "战利品加成"
-			option.desc = "本轮击杀金币收益 +30%"
+			option.name = "战利品增益"
+			option.desc = "本轮击杀获得的金币提升 30%"
 		"atk_up":
 			option.name = "全军强攻"
-			option.desc = "我方单位攻击力 +10%"
+			option.desc = "我方全体单位攻击力提升 10%"
 		"hp_up":
 			option.name = "全军健体"
-			option.desc = "我方单位生命值 +12%"
+			option.desc = "我方全体单位生命值提升 12%"
 		"aspd_up":
 			option.name = "全军迅击"
-			option.desc = "我方单位攻速 +10%"
+			option.desc = "我方全体单位攻击速度提升 10%"
 		"move_up":
 			option.name = "全军疾行"
-			option.desc = "我方单位移速 +12%"
+			option.desc = "我方全体单位移动速度提升 12%"
 		"crit":
 			option.name = "致命一击"
-			option.desc = "我方单位暴击率 +10%"
+			option.desc = "我方全体单位暴击率提升 10%"
 		"lifesteal":
 			option.name = "生命汲取"
-			option.desc = "我方单位造成伤害的 8% 转为治疗"
+			option.desc = "我方全体单位造成伤害的 8% 转化为治疗"
 		"tank_guard":
 			option.name = "坚盾守护"
-			option.desc = "我方坦克受到伤害 -15%"
+			option.desc = "我方坦克单位受到的伤害降低 15%"
 		"ranged_up":
 			option.name = "远程精通"
-			option.desc = "我方远程单位攻击力 +20%"
+			option.desc = "我方远程单位攻击力提升 20%"
 		"assassin_crit":
 			option.name = "刺客专精"
-			option.desc = "我方刺客暴击率 +25%，暴击伤害 +0.5 倍"
+			option.desc = "我方刺客单位暴击率提升 25%，暴击伤害提升 0.5 倍"
 		"energy_start":
 			option.name = "充能启动"
-			option.desc = "本轮我方技能初始能量 +1"
+			option.desc = "本轮我方技能初始能量增加 1 点"
 		"stun_boost":
 			option.name = "震慑强化"
-			option.desc = "我方眩晕技能时长提升 50%"
+			option.desc = "我方眩晕类技能的持续时间提升 50%"
 		"call_reinforce":
-			option.name = "白嫖援军"
-			option.desc = "立刻召唤 3 个随机援军"
+			option.name = "紧急增援"
+			option.desc = "立即召唤 3 个随机援军"
 		"tower_overload":
 			option.name = "塔炮过载"
-			option.desc = "我方塔攻击力提升 50%"
+			option.desc = "我方防御塔攻击力提升 50%"
 	return option
 
 func _show_round_reward() -> void:
