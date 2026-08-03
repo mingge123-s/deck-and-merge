@@ -373,7 +373,7 @@ func _play_hit_punch() -> void:
 	hit_punch_tween.tween_property(visual, "scale", visual_base_scale * 1.06, 0.045)
 	hit_punch_tween.tween_property(visual, "scale", visual_base_scale, 0.055)
 
-func play_spin(duration := 0.5, turns := 2) -> void:
+func play_spin(duration := 0.55, turns := 3) -> void:
 	if not is_instance_valid(visual):
 		return
 	if spin_tween != null:
@@ -383,6 +383,8 @@ func play_spin(duration := 0.5, turns := 2) -> void:
 	visual.scale = visual_base_scale
 	visual.position.y = 0.0
 	spin_tween = create_tween()
+	spin_tween.set_ease(Tween.EASE_OUT)
+	spin_tween.set_trans(Tween.TRANS_QUAD)
 	var quarters := maxi(1, turns) * 4
 	var step := duration / float(quarters)
 	var seq := [0.0, -visual_base_scale.x, 0.0, visual_base_scale.x]
@@ -396,6 +398,41 @@ func play_spin(duration := 0.5, turns := 2) -> void:
 	var hop := create_tween()
 	hop.tween_property(visual, "position:y", -10.0, duration * 0.5)
 	hop.tween_property(visual, "position:y", 0.0, duration * 0.5)
+
+func play_whirlwind_trail(color: Color, duration := 0.55, turns := 3) -> void:
+	var trail := Node2D.new()
+	trail.position = Vector2(0, -body_height * 0.5)
+	trail.z_index = 3
+	add_child(trail)
+	var arc := Line2D.new()
+	arc.width = 7.0
+	arc.antialiased = true
+	arc.begin_cap_mode = Line2D.LINE_CAP_ROUND
+	arc.end_cap_mode = Line2D.LINE_CAP_ROUND
+	var radius := maxf(38.0, body_height * 0.42)
+	var points := PackedVector2Array()
+	var span := deg_to_rad(150.0)
+	var steps := 14
+	for index in range(steps + 1):
+		var angle := -span * 0.5 + span * float(index) / float(steps)
+		points.append(Vector2(cos(angle), sin(angle)) * radius)
+	arc.points = points
+	var gradient := Gradient.new()
+	gradient.set_color(0, Color(color, 0.0))
+	gradient.set_color(1, Color(color, 0.9))
+	arc.gradient = gradient
+	trail.add_child(arc)
+	var rotation_tween := create_tween()
+	rotation_tween.set_ease(Tween.EASE_OUT)
+	rotation_tween.set_trans(Tween.TRANS_QUAD)
+	rotation_tween.tween_property(trail, "rotation", TAU * float(turns), duration)
+	var fade_tween := create_tween()
+	fade_tween.tween_interval(duration * 0.65)
+	fade_tween.tween_property(trail, "modulate:a", 0.0, duration * 0.35)
+	fade_tween.tween_callback(func() -> void:
+		if is_instance_valid(trail):
+			trail.queue_free()
+	)
 
 func _die() -> void:
 	alive = false
