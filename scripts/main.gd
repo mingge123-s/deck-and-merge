@@ -72,6 +72,7 @@ const BOUNTY_COIN_BASE := 15
 ## 合成台上长按多久弹卡牌详情
 const CARD_INFO_HOLD := 0.4
 const EFFECT_ICON_PATH := "res://assets/icons/effects/%s.png"
+const REWARD_ICON_PATH := "res://assets/icons/rewards/%s.png"
 const EFFECT_CARD_PREFIX := "effect_"
 const EFFECT_CARD_PAIR_SIZE := 2
 ## 每批发多少「对」效果卡：基础对数 + 随轮次增长（每 EFFECT_PAIRS_ROUND_STEP 轮 +1 对），上限封顶
@@ -279,6 +280,9 @@ var reward_active := false
 var reward_overlay: Control
 var reward_panel: Panel
 var reward_buttons: Array[Button] = []
+var reward_icons: Array[TextureRect] = []
+var reward_name_labels: Array[Label] = []
+var reward_desc_labels: Array[Label] = []
 var reward_options: Array[Dictionary] = []
 var run_atk_mult := 1.0
 var run_hp_mult := 1.0
@@ -857,23 +861,43 @@ func _build_reward_overlay() -> void:
 	shade.color = Color(0.05, 0.02, 0.01, 0.78)
 	reward_overlay.add_child(shade)
 	reward_panel = Panel.new()
-	reward_panel.size = Vector2(600, 620)
+	reward_panel.size = Vector2(680, 620)
 	reward_panel.position = Vector2((VIEW_SIZE.x - reward_panel.size.x) * 0.5, 300)
 	reward_panel.add_theme_stylebox_override("panel", _panel_style(Color("#c58a53"), Color("#ffd273"), 24, 3))
 	reward_overlay.add_child(reward_panel)
-	var title := _label(reward_panel, "选择一项增益", Vector2(0, 34), Vector2(600, 52), 30, Color("#fff0c7"))
+	var title := _label(reward_panel, "选择一项增益", Vector2(0, 34), Vector2(680, 52), 30, Color("#fff0c7"))
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	for index in range(3):
-		var button := _menu_button(
-			reward_panel,
-			"",
-			Vector2(40, 120 + index * 150),
-			Vector2(520, 120),
-			16
-		)
-		button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		var button := Button.new()
+		button.position = Vector2(24 + index * 224, 130)
+		button.size = Vector2(208, 360)
+		button.add_theme_stylebox_override("normal", _panel_style(Color("#c58a53"), Color("#ffd273"), 20, 3))
+		button.add_theme_stylebox_override("hover", _panel_style(Color("#e0a05e"), Color("#ffe19a"), 20, 3))
+		button.add_theme_stylebox_override("pressed", _panel_style(Color("#b87549"), Color("#ffd273"), 20, 3))
+		button.pressed.connect(_play_button_sfx)
 		button.pressed.connect(_on_reward_button_pressed.bind(index))
+		reward_panel.add_child(button)
 		reward_buttons.append(button)
+		var icon := TextureRect.new()
+		icon.position = Vector2(48, 24)
+		icon.size = Vector2(112, 112)
+		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		button.add_child(icon)
+		reward_icons.append(icon)
+		var name_label := _label(button, "", Vector2(12, 150), Vector2(184, 54), 20, Color("#fff0c7"))
+		name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		name_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		name_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		name_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		reward_name_labels.append(name_label)
+		var desc_label := _label(button, "", Vector2(14, 214), Vector2(180, 128), 15, Color("#f0dcb4"))
+		desc_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		desc_label.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+		desc_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		desc_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		reward_desc_labels.append(desc_label)
 	reward_overlay.visible = false
 
 func _fx_unit_count() -> int:
@@ -1775,29 +1799,29 @@ func _roll_reward_option(reward_id: String) -> Dictionary:
 	option.hero = hero_id
 	match reward_id:
 		"tower_wall":
-			option.name = "塔壁加固"
-			option.desc = "我方塔最大生命值 +20%"
+			option.name = "壁垒加固"
+			option.desc = "我方防御塔最大生命值提升 20%"
 		"tower_repair":
 			option.name = "紧急修复"
-			option.desc = "我方塔立刻回满生命"
+			option.desc = "立即将我方防御塔生命值恢复至满"
 		"tower_cannon":
-			option.name = "塔炮升级"
-			option.desc = "我方塔攻击力提升 30%"
+			option.name = "塔炮强化"
+			option.desc = "我方防御塔攻击力提升 30%"
 		"tower_thorns":
-			option.name = "荆棘之塔"
-			option.desc = "本轮敌人近战攻击塔时反弹 40%伤害"
+			option.name = "荆棘壁垒"
+			option.desc = "本轮敌方近战攻击防御塔时，反弹 40% 伤害"
 		"tower_regen":
-			option.name = "自愈之塔"
-			option.desc = "本轮我方塔每秒回复 2%最大生命"
+			option.name = "自愈壁垒"
+			option.desc = "本轮我方防御塔每秒恢复 2% 最大生命值"
 		"deck_boost":
-			option.name = "%s 权重增加" % card
-			option.desc = "本轮该小兵卡出现概率翻倍"
+			option.name = "征募强化：%s" % _hero_name_for_card(card)
+			option.desc = "本轮该单位卡的出现概率提升一倍"
 		"deck_remove":
-			option.name = "清退牌型"
-			option.desc = "本轮移除 %s" % card
+			option.name = "移除卡牌"
+			option.desc = "本轮从抽牌池中移除 %s" % _hero_name_for_card(card)
 		"deck_elite":
-			option.name = "精英来袭"
-			option.desc = "本轮 %s 概率提升至 3 倍" % _hero_name_for_card(boss_card)
+			option.name = "精英强化"
+			option.desc = "本轮 %s 的出现概率提升至 3 倍" % _hero_name_for_card(boss_card)
 			option.card = boss_card
 		"effect_harvest":
 			option.name = "效果丰收"
@@ -1807,61 +1831,61 @@ func _roll_reward_option(reward_id: String) -> Dictionary:
 			option.desc = "本轮不再出现效果卡"
 		"free_reshuffle":
 			option.name = "免费重排"
-			option.desc = "获得 3 次免费重排牌序"
+			option.desc = "获得 3 次免费重排牌序的机会"
 		"bloodline":
 			option.name = "血脉强化"
-			option.desc = "%s 单位属性 +15%%" % str(GameData.HEROES[hero_id].get("name", hero_id))
+			option.desc = "%s 单位全属性提升 15%%" % str(GameData.HEROES[hero_id].get("name", hero_id))
 		"tray_expand":
 			option.name = "台面扩容"
 			option.desc = "本轮合成台增加 1 格"
 		"free_clear":
-			option.name = "免费清台券"
+			option.name = "清台券"
 			option.desc = "获得 1 张免费清台券"
 		"coin_bag":
-			option.name = "金币袋"
+			option.name = "金币补给"
 			option.desc = "立即获得 200 金币"
 		"loot_boost":
-			option.name = "战利品加成"
-			option.desc = "本轮击杀金币收益 +30%"
+			option.name = "战利品增益"
+			option.desc = "本轮击杀获得的金币提升 30%"
 		"atk_up":
 			option.name = "全军强攻"
-			option.desc = "我方单位攻击力 +10%"
+			option.desc = "我方全体单位攻击力提升 10%"
 		"hp_up":
 			option.name = "全军健体"
-			option.desc = "我方单位生命值 +12%"
+			option.desc = "我方全体单位生命值提升 12%"
 		"aspd_up":
 			option.name = "全军迅击"
-			option.desc = "我方单位攻速 +10%"
+			option.desc = "我方全体单位攻击速度提升 10%"
 		"move_up":
 			option.name = "全军疾行"
-			option.desc = "我方单位移速 +12%"
+			option.desc = "我方全体单位移动速度提升 12%"
 		"crit":
 			option.name = "致命一击"
-			option.desc = "我方单位暴击率 +10%"
+			option.desc = "我方全体单位暴击率提升 10%"
 		"lifesteal":
 			option.name = "生命汲取"
-			option.desc = "我方单位造成伤害的 8% 转为治疗"
+			option.desc = "我方全体单位造成伤害的 8% 转化为治疗"
 		"tank_guard":
 			option.name = "坚盾守护"
-			option.desc = "我方坦克受到伤害 -15%"
+			option.desc = "我方坦克单位受到的伤害降低 15%"
 		"ranged_up":
 			option.name = "远程精通"
-			option.desc = "我方远程单位攻击力 +20%"
+			option.desc = "我方远程单位攻击力提升 20%"
 		"assassin_crit":
 			option.name = "刺客专精"
-			option.desc = "我方刺客暴击率 +25%，暴击伤害 +0.5 倍"
+			option.desc = "我方刺客单位暴击率提升 25%，暴击伤害提升 0.5 倍"
 		"energy_start":
 			option.name = "充能启动"
-			option.desc = "本轮我方技能初始能量 +1"
+			option.desc = "本轮我方技能初始能量增加 1 点"
 		"stun_boost":
 			option.name = "震慑强化"
-			option.desc = "我方眩晕技能时长提升 50%"
+			option.desc = "我方眩晕类技能的持续时间提升 50%"
 		"call_reinforce":
-			option.name = "白嫖援军"
-			option.desc = "立刻召唤 3 个随机援军"
+			option.name = "紧急增援"
+			option.desc = "立即召唤 3 个随机援军"
 		"tower_overload":
 			option.name = "塔炮过载"
-			option.desc = "我方塔攻击力提升 50%"
+			option.desc = "我方防御塔攻击力提升 50%"
 	return option
 
 func _show_round_reward() -> void:
@@ -1872,10 +1896,16 @@ func _show_round_reward() -> void:
 	reward_options.clear()
 	for index in range(3):
 		reward_options.append(_roll_reward_option(pool[index]))
-		reward_buttons[index].text = "%s\n%s" % [
-			str(reward_options[index].name),
-			str(reward_options[index].desc),
-		]
+		var option := reward_options[index]
+		reward_name_labels[index].text = str(option.name)
+		reward_desc_labels[index].text = str(option.desc)
+		var icon_path := REWARD_ICON_PATH % str(option.id)
+		if ResourceLoader.exists(icon_path):
+			reward_icons[index].texture = load(icon_path) as Texture2D
+			reward_icons[index].visible = true
+		else:
+			reward_icons[index].texture = null
+			reward_icons[index].visible = false
 		reward_buttons[index].disabled = false
 	reward_active = true
 	reward_overlay.visible = true
