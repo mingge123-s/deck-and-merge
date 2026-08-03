@@ -71,6 +71,7 @@ const BOUNTY_COIN_BASE := 15
 ## 合成台上长按多久弹卡牌详情
 const CARD_INFO_HOLD := 0.4
 const EFFECT_ICON_PATH := "res://assets/icons/effects/%s.png"
+const REWARD_ICON_PATH := "res://assets/icons/rewards/%s.png"
 const EFFECT_CARD_PREFIX := "effect_"
 const EFFECT_CARD_PAIR_SIZE := 2
 ## 每批发多少「对」效果卡：基础对数 + 随轮次增长（每 EFFECT_PAIRS_ROUND_STEP 轮 +1 对），上限封顶
@@ -278,6 +279,9 @@ var reward_active := false
 var reward_overlay: Control
 var reward_panel: Panel
 var reward_buttons: Array[Button] = []
+var reward_icons: Array[TextureRect] = []
+var reward_name_labels: Array[Label] = []
+var reward_desc_labels: Array[Label] = []
 var reward_options: Array[Dictionary] = []
 var run_atk_mult := 1.0
 var run_hp_mult := 1.0
@@ -847,23 +851,43 @@ func _build_reward_overlay() -> void:
 	shade.color = Color(0.05, 0.02, 0.01, 0.78)
 	reward_overlay.add_child(shade)
 	reward_panel = Panel.new()
-	reward_panel.size = Vector2(600, 620)
+	reward_panel.size = Vector2(680, 620)
 	reward_panel.position = Vector2((VIEW_SIZE.x - reward_panel.size.x) * 0.5, 300)
 	reward_panel.add_theme_stylebox_override("panel", _panel_style(Color("#c58a53"), Color("#ffd273"), 24, 3))
 	reward_overlay.add_child(reward_panel)
-	var title := _label(reward_panel, "选择一项增益", Vector2(0, 34), Vector2(600, 52), 30, Color("#fff0c7"))
+	var title := _label(reward_panel, "选择一项增益", Vector2(0, 34), Vector2(680, 52), 30, Color("#fff0c7"))
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	for index in range(3):
-		var button := _menu_button(
-			reward_panel,
-			"",
-			Vector2(40, 120 + index * 150),
-			Vector2(520, 120),
-			16
-		)
-		button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		var button := Button.new()
+		button.position = Vector2(24 + index * 224, 130)
+		button.size = Vector2(208, 360)
+		button.add_theme_stylebox_override("normal", _panel_style(Color("#c58a53"), Color("#ffd273"), 20, 3))
+		button.add_theme_stylebox_override("hover", _panel_style(Color("#e0a05e"), Color("#ffe19a"), 20, 3))
+		button.add_theme_stylebox_override("pressed", _panel_style(Color("#b87549"), Color("#ffd273"), 20, 3))
+		button.pressed.connect(_play_button_sfx)
 		button.pressed.connect(_on_reward_button_pressed.bind(index))
+		reward_panel.add_child(button)
 		reward_buttons.append(button)
+		var icon := TextureRect.new()
+		icon.position = Vector2(48, 24)
+		icon.size = Vector2(112, 112)
+		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		button.add_child(icon)
+		reward_icons.append(icon)
+		var name_label := _label(button, "", Vector2(12, 150), Vector2(184, 54), 20, Color("#fff0c7"))
+		name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		name_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		name_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		name_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		reward_name_labels.append(name_label)
+		var desc_label := _label(button, "", Vector2(14, 214), Vector2(180, 128), 15, Color("#f0dcb4"))
+		desc_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		desc_label.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+		desc_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		desc_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		reward_desc_labels.append(desc_label)
 	reward_overlay.visible = false
 
 func _fx_unit_count() -> int:
@@ -1861,10 +1885,16 @@ func _show_round_reward() -> void:
 	reward_options.clear()
 	for index in range(3):
 		reward_options.append(_roll_reward_option(pool[index]))
-		reward_buttons[index].text = "%s\n%s" % [
-			str(reward_options[index].name),
-			str(reward_options[index].desc),
-		]
+		var option := reward_options[index]
+		reward_name_labels[index].text = str(option.name)
+		reward_desc_labels[index].text = str(option.desc)
+		var icon_path := REWARD_ICON_PATH % str(option.id)
+		if ResourceLoader.exists(icon_path):
+			reward_icons[index].texture = load(icon_path) as Texture2D
+			reward_icons[index].visible = true
+		else:
+			reward_icons[index].texture = null
+			reward_icons[index].visible = false
 		reward_buttons[index].disabled = false
 	reward_active = true
 	reward_overlay.visible = true
