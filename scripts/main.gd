@@ -42,6 +42,7 @@ const TOWER_BASE_DAMAGE := 90.0
 const TOWER_POWER_MAX := 3.0
 const TANK_AGGRO_RADIUS := 150.0
 const PROJECTILE_RANGE_THRESHOLD := 100.0
+const RANGED_RANGE_MULT := 1.2 # 玩家远程单位的攻击距离提升 20%
 const FRONT_TOLERANCE := 8.0
 const SANDBOX_SIDE_CAP := 20
 const UNIT_CAP := 30
@@ -3650,6 +3651,7 @@ func _spawn_ally(hero_id: String) -> BattleUnit:
 	data["attack"] = float(data.get("attack", 1.0)) * run_atk_mult * hero_mult
 	if role == "ranged":
 		data["attack"] = float(data.attack) * run_ranged_atk_mult
+		data["range"] = float(data.get("range", 0.0)) * RANGED_RANGE_MULT
 	data["attack_speed"] = float(data.get("attack_speed", 1.0)) * run_aspd_mult
 	data["move_speed"] = float(data.get("move_speed", 0.0)) * run_move_mult
 	var texture: Texture2D
@@ -3811,6 +3813,13 @@ func _step_battle(delta: float) -> void:
 		if unit.skill_ready() and _skill_type(unit) == "blink_crit":
 			if unit.attack_cooldown <= 0.0 and _try_cast_skill(unit, null):
 				continue
+		var tower_x := ENEMY_TOWER_X if unit.faction == "ally" else ALLY_TOWER_X
+		var tower_reach := maxf(_engage_distance(unit), TOWER_RANGE)
+		if absf(tower_x - unit.position.x) <= tower_reach:
+			unit.set_moving(false)
+			if unit.attack_cooldown <= 0.0:
+				_attack_tower(unit)
+			continue
 		var target := _find_target(unit, ally_units, enemy_units)
 		if target != null:
 			var distance := absf(target.position.x - unit.position.x)
@@ -3825,7 +3834,6 @@ func _step_battle(delta: float) -> void:
 				if not _try_cast_skill(unit, target):
 					_attack(unit, target)
 		else:
-			var tower_x := ENEMY_TOWER_X if unit.faction == "ally" else ALLY_TOWER_X
 			if absf(tower_x - unit.position.x) > TOWER_RANGE:
 				_move_unit(unit, tower_x, delta)
 			elif unit.attack_cooldown <= 0.0:
