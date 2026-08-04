@@ -49,7 +49,7 @@ const ENEMY_UNIT_CAP := 60 # 敌方同屏上限（AI出兵x5后需高于己方�
 const VICTORY_REWARD_BASE := 120
 const RANDOM_EFFECT_PRICE_BASE := 260
 const CLEAR_TRAY_COST := 200
-const RESHUFFLE_COST := 100
+const RESHUFFLE_COST := 200
 const AI_EFFECT_CD := 8.0
 const RALLY_BURST := 6
 # weight 越大越常见（按强度分档：常见 10 / 中等 6 / 稀有 3 / 极稀有 1）
@@ -160,6 +160,7 @@ var difficulty_buttons: Dictionary = {}
 var era_index := 0
 var kill_score := 0
 var coin_label: Label
+var score_label: Label
 var era_label: Label
 var deck_label: Label
 var reshuffle_button: Button
@@ -682,6 +683,7 @@ func _build_top_bar() -> void:
 	help_button.pressed.connect(_play_button_sfx)
 	bar.add_child(help_button)
 	coin_label = _label(bar, "", Vector2(70, 18), Vector2(140, 28), 16, Color("#fff0c7"))
+	score_label = _label(bar, "", Vector2(70, 40), Vector2(160, 22), 13, Color("#f6d69f"))
 	era_label = _label(bar, "", Vector2(215, 22), Vector2(250, 20), 12, Color("#f6d69f"))
 	reshuffle_button = Button.new()
 	reshuffle_button.position = Vector2(480, 9)
@@ -4613,6 +4615,8 @@ func _update_progress_ui() -> void:
 		else:
 			state = "距下次整备 %d 波" % (PREP_WAVE_INTERVAL - wave_number % PREP_WAVE_INTERVAL)
 	era_label.text = "%s · 第 %d 轮 · %s" % [GameData.ERA_NAMES.get(current_era, current_era), round_number, state]
+	if score_label != null:
+		score_label.text = "积分 %d" % kill_score
 	if deck_label != null:
 		deck_label.text = "剩 %d 张" % deck_cards.size()
 	_update_reshuffle_button()
