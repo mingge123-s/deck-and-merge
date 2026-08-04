@@ -42,6 +42,7 @@ const TOWER_BASE_DAMAGE := 90.0
 const TOWER_POWER_MAX := 3.0
 const TANK_AGGRO_RADIUS := 150.0
 const PROJECTILE_RANGE_THRESHOLD := 100.0
+const RANGED_RANGE_MULT := 1.2 # 玩家远程单位的攻击距离提升 20%
 const FRONT_TOLERANCE := 8.0
 const SANDBOX_SIDE_CAP := 20
 const UNIT_CAP := 30
@@ -49,7 +50,7 @@ const ENEMY_UNIT_CAP := 60 # 敌方同屏上限（AI出兵x5后需高于己方�
 const VICTORY_REWARD_BASE := 120
 const RANDOM_EFFECT_PRICE_BASE := 260
 const CLEAR_TRAY_COST := 200
-const RESHUFFLE_COST := 100
+const RESHUFFLE_COST := 200
 const AI_EFFECT_CD := 8.0
 const RALLY_BURST := 6
 # weight 越大越常见（按强度分档：常见 10 / 中等 6 / 稀有 3 / 极稀有 1）
@@ -160,6 +161,7 @@ var difficulty_buttons: Dictionary = {}
 var era_index := 0
 var kill_score := 0
 var coin_label: Label
+var score_label: Label
 var era_label: Label
 var deck_label: Label
 var reshuffle_button: Button
@@ -284,6 +286,7 @@ var reward_icons: Array[TextureRect] = []
 var reward_name_labels: Array[Label] = []
 var reward_desc_labels: Array[Label] = []
 var reward_options: Array[Dictionary] = []
+var reward_context := "round"
 var run_atk_mult := 1.0
 var run_hp_mult := 1.0
 var run_aspd_mult := 1.0
@@ -520,15 +523,12 @@ func _process(delta: float) -> void:
 	enemy_coin += float(_diff().ai_trickle) * KILL_COIN_MULT * delta
 	enemy_effect_cd = maxf(0.0, enemy_effect_cd - delta)
 	if enemy_tower_max_hp > 0.0 and enemy_tower_hp > 0.0:
-		var target_crossed := 0
-		for t in [0.8, 0.6, 0.4, 0.2]:
-			if enemy_tower_hp <= enemy_tower_max_hp * float(t):
-				target_crossed += 1
-		if target_crossed > enemy_rally_fired:
+		var enemy_tower_ratio := enemy_tower_hp / enemy_tower_max_hp
+		if enemy_tower_ratio < 0.1 and enemy_rally_fired == 0:
 			_enemy_rally_surge()
-			enemy_rally_fired += 1
-		elif target_crossed < enemy_rally_fired:
-			enemy_rally_fired = target_crossed
+			enemy_rally_fired = 1
+		elif enemy_tower_ratio >= 0.1:
+			enemy_rally_fired = 0
 	var cleared := not wave_spawning and _living_units("enemy").is_empty()
 	if prep_pending:
 		if cleared:
@@ -684,6 +684,7 @@ func _build_top_bar() -> void:
 	help_button.pressed.connect(_play_button_sfx)
 	bar.add_child(help_button)
 	coin_label = _label(bar, "", Vector2(70, 18), Vector2(140, 28), 16, Color("#fff0c7"))
+	score_label = _label(bar, "", Vector2(70, 40), Vector2(160, 22), 13, Color("#f6d69f"))
 	era_label = _label(bar, "", Vector2(215, 22), Vector2(250, 20), 12, Color("#f6d69f"))
 	reshuffle_button = Button.new()
 	reshuffle_button.position = Vector2(480, 9)
@@ -1075,6 +1076,7 @@ func _create_tower_ui(ally: bool) -> void:
 	if ally:
 		ally_tower_bar = bar
 	else:
+		bar.show_phases = true
 		enemy_tower_bar = bar
 
 func _build_overlay() -> void:
@@ -1889,8 +1891,15 @@ func _roll_reward_option(reward_id: String) -> Dictionary:
 	return option
 
 func _show_round_reward() -> void:
+	_show_reward("round")
+
+func _show_era_up_reward() -> void:
+	_show_reward("era_up")
+
+func _show_reward(context: String) -> void:
 	if reward_overlay == null or reward_active:
 		return
+	reward_context = context
 	var pool := _reward_pool()
 	pool.shuffle()
 	reward_options.clear()
@@ -1913,7 +1922,10 @@ func _show_round_reward() -> void:
 func _on_reward_button_pressed(index: int) -> void:
 	if not reward_active or index < 0 or index >= reward_options.size():
 		return
-	_apply_round_reward(reward_options[index])
+	if reward_context == "era_up":
+		_apply_era_up_reward(reward_options[index])
+	else:
+		_apply_round_reward(reward_options[index])
 
 func _reset_round_mods() -> void:
 	round_weight_mult.clear()
@@ -1930,6 +1942,23 @@ func _reset_round_mods() -> void:
 
 func _apply_round_reward(option: Dictionary) -> void:
 	_reset_round_mods()
+	_apply_reward_effect(option)
+	reward_active = false
+	reward_overlay.visible = false
+	reward_options.clear()
+	AudioManager.play_sfx("era")
+	_update_tower_ui()
+	_spawn_next_batch()
+	_update_progress_ui()
+
+func _apply_era_up_reward(option: Dictionary) -> void:
+	_apply_reward_effect(option)
+	reward_active = false
+	reward_overlay.visible = false
+	reward_options.clear()
+	_ascend_enemy_era_phase()
+
+func _apply_reward_effect(option: Dictionary) -> void:
 	var reward_id := str(option.get("id", ""))
 	match reward_id:
 		"tower_wall":
@@ -1997,13 +2026,6 @@ func _apply_round_reward(option: Dictionary) -> void:
 				_summon_reinforcement(true)
 		"tower_overload":
 			tower_attack_bonus = minf(tower_attack_bonus * 1.5, TOWER_POWER_MAX)
-	reward_active = false
-	reward_overlay.visible = false
-	reward_options.clear()
-	AudioManager.play_sfx("era")
-	_update_tower_ui()
-	_spawn_next_batch()
-	_update_progress_ui()
 
 func _effect_icon_bb(effect_id: String, icon_size: int) -> String:
 	var path := EFFECT_ICON_PATH % effect_id
@@ -3629,6 +3651,7 @@ func _spawn_ally(hero_id: String) -> BattleUnit:
 	data["attack"] = float(data.get("attack", 1.0)) * run_atk_mult * hero_mult
 	if role == "ranged":
 		data["attack"] = float(data.attack) * run_ranged_atk_mult
+		data["range"] = float(data.get("range", 0.0)) * RANGED_RANGE_MULT
 	data["attack_speed"] = float(data.get("attack_speed", 1.0)) * run_aspd_mult
 	data["move_speed"] = float(data.get("move_speed", 0.0)) * run_move_mult
 	var texture: Texture2D
@@ -3725,13 +3748,6 @@ func _enemy_rally_surge() -> void:
 
 func _enemy_ai_take_turn() -> void:
 	var d := _diff()
-	var next_index := enemy_era_index + 1
-	if next_index < GameData.ERAS.size() and enemy_era_index < era_index + 1:
-		var cost := int(GameData.ERA_UPGRADE_COST.get(enemy_era, 0))
-		if cost > 0 and enemy_coin >= float(cost):
-			enemy_coin -= float(cost)
-			_advance_enemy_era()
-			return
 	if enemy_effect_cd <= 0.0 and rng.randf() < float(d.ai_effect_chance):
 		var price := _era_amount_for(enemy_era, RANDOM_EFFECT_PRICE_BASE)
 		if enemy_coin >= float(price) and not ai_effects.is_empty():
@@ -3797,6 +3813,13 @@ func _step_battle(delta: float) -> void:
 		if unit.skill_ready() and _skill_type(unit) == "blink_crit":
 			if unit.attack_cooldown <= 0.0 and _try_cast_skill(unit, null):
 				continue
+		var tower_x := ENEMY_TOWER_X if unit.faction == "ally" else ALLY_TOWER_X
+		var tower_reach := maxf(_engage_distance(unit), TOWER_RANGE)
+		if absf(tower_x - unit.position.x) <= tower_reach:
+			unit.set_moving(false)
+			if unit.attack_cooldown <= 0.0:
+				_attack_tower(unit)
+			continue
 		var target := _find_target(unit, ally_units, enemy_units)
 		if target != null:
 			var distance := absf(target.position.x - unit.position.x)
@@ -3811,7 +3834,6 @@ func _step_battle(delta: float) -> void:
 				if not _try_cast_skill(unit, target):
 					_attack(unit, target)
 		else:
-			var tower_x := ENEMY_TOWER_X if unit.faction == "ally" else ALLY_TOWER_X
 			if absf(tower_x - unit.position.x) > TOWER_RANGE:
 				_move_unit(unit, tower_x, delta)
 			elif unit.attack_cooldown <= 0.0:
@@ -3821,7 +3843,7 @@ func _step_battle(delta: float) -> void:
 	_process_tower_attack(true, enemy_units)
 	_process_tower_attack(false, ally_units)
 	if enemy_tower_hp <= 0.0:
-		_trigger_tower_destruction(true)
+		_on_enemy_tower_destroyed()
 	elif ally_tower_hp <= 0.0:
 		_trigger_tower_destruction(false)
 
@@ -4363,6 +4385,14 @@ func _trigger_tower_destruction(won: bool) -> void:
 	tween.tween_interval(0.6)
 	tween.tween_callback(_finish_battle.bind(won, "胜利！敌方防御塔已摧毁" if won else "失败！己方防御塔被摧毁"))
 
+func _on_enemy_tower_destroyed() -> void:
+	if sandbox_mode:
+		return
+	if enemy_era_index >= GameData.ERAS.size() - 1:
+		_trigger_tower_destruction(true)
+		return
+	_show_era_up_reward()
+
 func _advance_era() -> void:
 	if era_index >= GameData.ERAS.size() - 1:
 		return
@@ -4383,16 +4413,63 @@ func _advance_enemy_era() -> void:
 		return
 	enemy_era_index += 1
 	enemy_era = GameData.ERAS[enemy_era_index]
-	var target := GameData.tower_hp(enemy_era)
-	if target > enemy_tower_max_hp:
-		enemy_tower_hp = target * (enemy_tower_hp / maxf(1.0, enemy_tower_max_hp))
-		enemy_tower_max_hp = target
+	enemy_tower_max_hp = GameData.tower_hp(enemy_era)
+	enemy_tower_hp = enemy_tower_max_hp
+	enemy_rally_fired = 0
 	_refresh_era_visuals(true)
 	_update_tower_ui()
 	AudioManager.play_sfx("era")
 	if fx_manager != null:
 		fx_manager.emit_era_transition(Vector2(360, 280), _era_fx_color(enemy_era), enemy_era)
 	_announce_enemy_action("敌方进阶：%s" % str(GameData.ERA_NAMES.get(enemy_era, enemy_era)), "")
+
+func _ascend_enemy_era_phase() -> void:
+	_advance_enemy_era()
+	_clear_enemy_phase_units()
+	_regroup_ally_units()
+	wave_spawning = false
+	wave_active_timer = 0.0
+	wave_boss_pending = false
+	enemy_spawn_timer = 0.0
+	enemy_spawn_index = 0
+	enemy_lane_cursor = 0
+	wave_min_timer = 0.35
+	prep_pending = false
+	auto_prep = false
+	_update_tower_ui()
+
+func _clear_enemy_phase_units() -> void:
+	for unit in battle_units.duplicate():
+		if not is_instance_valid(unit) or unit.faction != "enemy":
+			continue
+		battle_units.erase(unit)
+		walk_dust_cooldowns.erase(unit.get_instance_id())
+		unit.queue_free()
+	if world != null:
+		for child in world.get_children():
+			if child is Projectile:
+				child.queue_free()
+
+func _regroup_ally_units() -> void:
+	var allies := _living_units("ally")
+	ally_lane_cursor = 0
+	for index in range(allies.size()):
+		var unit := allies[index]
+		var units_per_row := 6
+		var row := index / units_per_row
+		var column := index % units_per_row
+		var spacing := 48.0
+		var lane := ally_lane_cursor % BATTLE_LANES
+		ally_lane_cursor += 1
+		var lane_offset := (float(lane) - float(BATTLE_LANES - 1) * 0.5) * BATTLE_LANE_STEP
+		unit.position = Vector2(
+			ALLY_TOWER_X + 96 + column * spacing + row * 28.0,
+			BATTLE_GROUND_Y + lane_offset
+		)
+		unit.attack_cooldown = 0.0
+		unit.taunted_by = null
+		unit.taunt_time = 0.0
+		unit.set_moving(true)
 
 func _era_fx_color(era: String) -> Color:
 	var material: Dictionary = fx_manager.era_material(era) if fx_manager != null else {}
@@ -4546,6 +4623,8 @@ func _update_progress_ui() -> void:
 		else:
 			state = "距下次整备 %d 波" % (PREP_WAVE_INTERVAL - wave_number % PREP_WAVE_INTERVAL)
 	era_label.text = "%s · 第 %d 轮 · %s" % [GameData.ERA_NAMES.get(current_era, current_era), round_number, state]
+	if score_label != null:
+		score_label.text = "积分 %d" % kill_score
 	if deck_label != null:
 		deck_label.text = "剩 %d 张" % deck_cards.size()
 	_update_reshuffle_button()
@@ -4560,6 +4639,11 @@ func _update_tower_ui() -> void:
 		return
 	ally_tower_bar.set_health(ally_tower_hp, ally_tower_max_hp)
 	enemy_tower_bar.set_health(enemy_tower_hp, enemy_tower_max_hp)
+	enemy_tower_bar.set_phase(
+		enemy_era_index,
+		GameData.ERAS.size(),
+		str(GameData.ERA_NAMES.get(enemy_era, enemy_era))
+	)
 	if ally_tower_max_hp > 0.0:
 		var health_ratio := ally_tower_hp / ally_tower_max_hp
 		if health_ratio <= 0.25 and not ally_alarm_25_played:
