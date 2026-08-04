@@ -12,7 +12,6 @@ const TRAY_SLOT_ORIGIN := Vector2(16, 48)
 const DECK_LOW_MARGIN := 12 # 牌堆少于目标-12张才触发补牌；每次把缺口最大的卡补齐到目标(单张单批≤3)
 const TRAY_SLOTS := 7
 const PREP_WAVE_INTERVAL := 3
-const SPAWN_STAGGER := 0.6
 const WAVE_DURATION := 180.0
 const KILL_COIN_MULT := 0.2
 const ERA_UP_ROUNDS := [2, 4, 7, 10] # 在这些轮次各升一级时代：1石器/2铁器/4工业/7现代/10未来
@@ -20,9 +19,9 @@ const BATCH_BASE_GROUPS := 60
 const BATCH_GROUP_STEP := 10
 const MIN_BOSS_GROUPS := 2 # 每批保底当前时代 BOSS 组数（保证至少能合成）
 const DIFFICULTIES := {
-	"easy": {"name": "简单", "wave_min": 6.0, "first_delay": 7.0, "count_base": 5, "count_step": 6, "count_max": 10, "enemy_mult": 0.6, "boss_wave": 8, "tower_mult": 1.9, "ai_income_mult": 0.6, "ai_trickle": 0.3, "ai_effect_chance": 0.25},
-	"normal": {"name": "普通", "wave_min": 5.0, "first_delay": 4.0, "count_base": 5, "count_step": 4, "count_max": 13, "enemy_mult": 1.0, "boss_wave": 5, "tower_mult": 1.1, "ai_income_mult": 1.0, "ai_trickle": 0.5, "ai_effect_chance": 0.4},
-	"hard": {"name": "困难", "wave_min": 3.0, "first_delay": 3.0, "count_base": 8, "count_step": 3, "count_max": 18, "enemy_mult": 1.3, "boss_wave": 4, "tower_mult": 1.0, "ai_income_mult": 1.4, "ai_trickle": 0.8, "ai_effect_chance": 0.55},
+	"easy": {"name": "简单", "wave_min": 6.0, "first_delay": 7.0, "enemy_mult": 0.6, "boss_wave": 8, "tower_mult": 1.9, "ai_income_mult": 0.6, "ai_trickle": 0.3, "ai_effect_chance": 0.25},
+	"normal": {"name": "普通", "wave_min": 5.0, "first_delay": 4.0, "enemy_mult": 1.0, "boss_wave": 5, "tower_mult": 1.1, "ai_income_mult": 1.0, "ai_trickle": 0.5, "ai_effect_chance": 0.4},
+	"hard": {"name": "困难", "wave_min": 3.0, "first_delay": 3.0, "enemy_mult": 1.3, "boss_wave": 4, "tower_mult": 1.0, "ai_income_mult": 1.4, "ai_trickle": 0.8, "ai_effect_chance": 0.55},
 }
 const BATTLE_GROUND_Y := 222.0
 const BATTLE_LANES := 5
@@ -242,9 +241,8 @@ var paused := false
 var wave_min_timer := 0.0
 var wave_spawning := false
 var wave_active_timer := 0.0
-var wave_boss_pending := false
-var enemy_spawn_timer := 0.0
 var enemy_spawn_index := 0
+var ai_spawn := AiSpawn.new()
 var wave_number := 0
 var round_number := 0
 var base_era_index := 0
@@ -387,6 +385,7 @@ func _ready() -> void:
 	_register_effect_cards()
 	coin_count = 300
 	rng.randomize()
+	_setup_ai_spawn()
 	for effect in RANDOM_EFFECTS:
 		if str(effect.id) != "bounty":
 			ai_effects.append(effect)
@@ -518,10 +517,7 @@ func _process(delta: float) -> void:
 		if wave_active_timer <= 0.0:
 			wave_spawning = false
 		else:
-			enemy_spawn_timer -= delta
-			if enemy_spawn_timer <= 0.0 and _living_units("enemy").size() < _wave_field_target() and _living_units("enemy").size() < ENEMY_UNIT_CAP:
-				_spawn_one_enemy()
-				enemy_spawn_timer = SPAWN_STAGGER
+			ai_spawn.tick(delta)
 	wave_min_timer -= delta
 	enemy_coin += float(_diff().ai_trickle) * KILL_COIN_MULT * delta
 	enemy_effect_cd = maxf(0.0, enemy_effect_cd - delta)
@@ -1275,9 +1271,9 @@ func _enter_preparation() -> void:
 	paused = true
 	wave_spawning = false
 	wave_active_timer = 0.0
-	wave_boss_pending = false
-	enemy_spawn_timer = 0.0
 	enemy_spawn_index = 0
+	ai_spawn.reset()
+	ai_spawn.set_difficulty(current_difficulty)
 	wave_min_timer = _diff().wave_min
 	_configure_pause("prep")
 	_set_pause_text(
@@ -2769,9 +2765,9 @@ func _start_sandbox_battle() -> void:
 	wave_spawning = false
 	wave_min_timer = 0.0
 	wave_active_timer = 0.0
-	wave_boss_pending = false
-	enemy_spawn_timer = 0.0
 	enemy_spawn_index = 0
+	ai_spawn.reset()
+	ai_spawn.set_difficulty(current_difficulty)
 	wave_number = 0
 	round_number = 0
 	ally_tower_cd = 0.0
@@ -3019,9 +3015,9 @@ func _start_round(start_era_index: int = 0) -> void:
 	wave_min_timer = _diff().first_delay
 	wave_spawning = false
 	wave_active_timer = 0.0
-	wave_boss_pending = false
-	enemy_spawn_timer = 0.0
 	enemy_spawn_index = 0
+	ai_spawn.reset()
+	ai_spawn.set_difficulty(current_difficulty)
 	wave_number = 0
 	round_number = 0
 	ally_tower_cd = 0.0
@@ -3733,52 +3729,39 @@ func _spawn_wave() -> void:
 	var d := _diff()
 	wave_active_timer = WAVE_DURATION
 	wave_spawning = true
-	wave_boss_pending = wave_number % int(d.boss_wave) == 0
 	enemy_spawn_index = 0
-	enemy_spawn_timer = 0.0
+	ai_spawn.set_difficulty(current_difficulty)
+	ai_spawn.begin_wave(wave_number, int(d.boss_wave))
 	if fx_manager != null:
 		fx_manager.emit_wave_start(Vector2(360, BATTLE_GROUND_Y - 36.0), Color("#ff9a78"), enemy_era)
 	_enemy_ai_take_turn()
 
-func _wave_field_target() -> int:
-	var d := _diff()
-	return clampi(int(d.count_base) + wave_number / int(d.count_step), int(d.count_base), int(d.count_max))
+func _setup_ai_spawn() -> void:
+	ai_spawn.setup(
+		rng,
+		func() -> String: return enemy_era,
+		func() -> int: return _living_units("enemy").size(),
+		_spawn_ai_enemy,
+		ENEMY_UNIT_CAP,
+		func() -> int: return enemy_era_index
+	)
+	ai_spawn.set_difficulty(current_difficulty)
 
-func _spawn_one_enemy(allow_boss_in_pool := false) -> void:
-	var ids := GameData.heroes_for_era(enemy_era)
-	if ids.is_empty():
-		return
-	var chosen := ""
-	if wave_boss_pending:
-		for hero_id in ids:
-			if str(GameData.HEROES[hero_id].get("role", "")) == "boss":
-				chosen = hero_id
-				break
-		wave_boss_pending = false
-	if chosen == "":
-		var weighted: Array[String] = []
-		for hero_id in ids:
-			if not allow_boss_in_pool and str(GameData.HEROES[hero_id].get("role", "")) == "boss":
-				continue
-			var weight := maxi(0, int(GameData.HEROES[hero_id].get("deck_count", 12)))
-			for _w in range(weight):
-				weighted.append(hero_id)
-		if weighted.is_empty():
-			weighted = ids
-		chosen = weighted[rng.randi_range(0, weighted.size() - 1)]
-	_spawn_enemy(chosen, enemy_spawn_index % 3, 3)
+func _spawn_ai_enemy(hero_id: String) -> bool:
+	var unit := _spawn_enemy(hero_id, enemy_spawn_index % 3, 3)
+	if unit == null:
+		return false
 	enemy_spawn_index += 1
+	return true
 
 func _enemy_rally_surge() -> void:
 	var room := ENEMY_UNIT_CAP - _living_units("enemy").size()
 	if room <= 0:
 		return
 	var burst := mini(RALLY_BURST, room)
-	var saved_boss := wave_boss_pending
-	wave_boss_pending = false
 	for _i in range(burst):
-		_spawn_one_enemy(true)
-	wave_boss_pending = saved_boss
+		ai_spawn.spawn_one(true)
+	ai_spawn.on_rally()
 	_announce_enemy_action("敌方拼死反扑！", "")
 	AudioManager.play_sfx("era")
 	_update_tower_ui()
@@ -4917,9 +4900,8 @@ func _ascend_enemy_era_phase() -> void:
 	_regroup_ally_units()
 	wave_spawning = false
 	wave_active_timer = 0.0
-	wave_boss_pending = false
-	enemy_spawn_timer = 0.0
 	enemy_spawn_index = 0
+	ai_spawn.on_phase_start()
 	enemy_lane_cursor = 0
 	wave_min_timer = 0.35
 	prep_pending = false

@@ -40,10 +40,11 @@ RANDOM_EFFECTS = [
     ("塔炮升级", "我方塔攻击 ×1.5（可叠加）", "整局"),
     ("悬赏令", "每击杀额外 +15 × 时代倍率 金币", "30 秒"),
 ]
+# 出兵节奏参数与 scripts/ai_spawn_config.gd 的 PROFILES 对应（概率制出兵）
 DIFFICULTIES = {
-    "easy": {"name": "简单", "wave_interval": 12.0, "first_delay": 6.0, "count_base": 1, "count_step": 5, "count_max": 3, "enemy_mult": 0.7},
-    "normal": {"name": "普通", "wave_interval": 9.0, "first_delay": 4.0, "count_base": 2, "count_step": 4, "count_max": 5, "enemy_mult": 1.0},
-    "hard": {"name": "困难", "wave_interval": 6.0, "first_delay": 3.0, "count_base": 3, "count_step": 3, "count_max": 7, "enemy_mult": 1.3},
+    "easy": {"name": "简单", "wave_min": 6.0, "first_delay": 7.0, "tick": 1.6, "spawn_chance": 0.30, "soft_cap": 8, "boss_wave": 8, "enemy_mult": 0.6},
+    "normal": {"name": "普通", "wave_min": 5.0, "first_delay": 4.0, "tick": 1.1, "spawn_chance": 0.45, "soft_cap": 12, "boss_wave": 5, "enemy_mult": 1.0},
+    "hard": {"name": "困难", "wave_min": 3.0, "first_delay": 3.0, "tick": 0.9, "spawn_chance": 0.60, "soft_cap": 16, "boss_wave": 4, "enemy_mult": 1.3},
 }
 ECONOMY = [
     ("局内固定初始金币", 300),
@@ -145,10 +146,11 @@ def main():
                    TOWER_ATTACK_RANGE, tower_art[e], 300,
                    round(TOWER_BASE_HP * era_mult[e] * TOWER_REPAIR_RATIO)] for e in eras]
 
-    diff_headers = ["难度", "敌方数值倍率", "首波延迟(秒)", "出兵间隔(秒)", "起始每波人数",
-                    "每 N 波 +1 人", "每波人数上限", "BOSS 波"]
-    diff_rows = [[d["name"], d["enemy_mult"], d["first_delay"], d["wave_interval"], d["count_base"],
-                  d["count_step"], d["count_max"], "每 5 波必出 BOSS"]
+    diff_headers = ["难度", "敌方数值倍率", "首波延迟(秒)", "波间最短间隔(秒)", "出兵掷骰间隔(秒)",
+                    "单次出兵概率", "期望速率(个/秒)", "同屏软顶", "BOSS 安排"]
+    diff_rows = [[d["name"], d["enemy_mult"], d["first_delay"], d["wave_min"], d["tick"],
+                  d["spawn_chance"], round(d["spawn_chance"] / d["tick"], 2), d["soft_cap"],
+                  "每 %d 波安排一次（再按概率稀疏出场）" % d["boss_wave"]]
                  for d in (DIFFICULTIES[k] for k in ("easy", "normal", "hard"))]
 
     enemy_headers = ["时代", "英雄", "定位", "简单(生命／攻击)", "普通(生命／攻击)", "困难(生命／攻击)"]
