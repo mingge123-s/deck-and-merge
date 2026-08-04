@@ -73,6 +73,9 @@ const BOUNTY_COIN_BASE := 15
 const CARD_INFO_HOLD := 0.4
 const EFFECT_ICON_PATH := "res://assets/icons/effects/%s.png"
 const REWARD_ICON_PATH := "res://assets/icons/rewards/%s.png"
+const SKILL_ICON_PATH := "res://assets/icons/skills/%s.png"
+## 致盲状态下普攻的失手概率
+const BLIND_MISS_CHANCE := 0.5
 const EFFECT_CARD_PREFIX := "effect_"
 const EFFECT_CARD_PAIR_SIZE := 2
 ## 每批发多少「对」效果卡：基础对数 + 随轮次增长（每 EFFECT_PAIRS_ROUND_STEP 轮 +1 对），上限封顶
@@ -2575,7 +2578,11 @@ func _show_codex_detail_unit(hero_id: String) -> void:
 	var skill: Variant = hero.get("skill", {})
 	if skill is Dictionary and not skill.is_empty():
 		lines.append("")
-		var skill_line := "技能：[b]%s[/b]" % str(skill.get("name", "特殊技能"))
+		var skill_icon := _skill_icon_path(str(skill.get("type", "")))
+		var skill_line := "技能："
+		if skill_icon != "":
+			skill_line += "[img=26]%s[/img] " % skill_icon
+		skill_line += "[b]%s[/b]" % str(skill.get("name", "特殊技能"))
 		if skill.has("cost"):
 			skill_line += "（消耗 %d）" % int(skill.get("cost", 0))
 		lines.append(skill_line)
@@ -2630,6 +2637,36 @@ func _skill_description(skill_type: String) -> String:
 			return "同时射击最多 3 个敌人"
 		"berserk":
 			return "进入狂暴，短时间大幅提升攻击与攻速"
+		"overpressure_steam":
+			return "举盾获得强力护盾，锅炉泄压把周围敌人击退并减速"
+		"piston_charge":
+			return "直线冲刺挥拳，沿途造成伤害，正面第一个敌人被击退并眩晕"
+		"smoke_raid":
+			return "烟雾弹致盲并减速周围敌人，自身短暂闪避，目标中毒"
+		"shotgun_blast":
+			return "近距离扇形散射，命中前方多个敌人并击退"
+		"overpressure_burst":
+			return "大范围蒸汽爆炸眩晕敌人，并给我方全体攻速光环"
+		"shield_wall":
+			return "身后我方群体减伤，盾击震晕正面敌人"
+		"suppress_fire":
+			return "对目标及周围多段扫射，并施加压制减速"
+		"decap_strike":
+			return "突进最脆弱的目标，按其缺失生命提升斩杀伤害"
+		"lethal_snipe":
+			return "蓄力后必定暴击的远程一枪，贯穿直线上的敌人"
+		"artillery_support":
+			return "预警后延迟落下大范围轰炸，并给我方全体攻击增益"
+		"force_field":
+			return "为我方全体附加能量护盾，自身短暂免疫伤害"
+		"laser_slash":
+			return "前方大扇形激光横扫，范围爆发并附加灼烧"
+		"phase_execute":
+			return "隐身瞬移到目标身后斩杀，残血目标伤害大幅提升，自身短暂不可被选中"
+		"plasma_lance":
+			return "蓄力光束贯穿直线上的所有敌人"
+		"overload_barrage":
+			return "肩炮多发弹幕轰击，随后 EMP 眩晕并清空敌方技能能量，自身过载狂暴"
 		_:
 			return "特殊技能"
 
@@ -3794,7 +3831,7 @@ func _step_battle(delta: float) -> void:
 			unit.set_moving(false)
 			continue
 		unit.attack_cooldown = maxf(0.0, unit.attack_cooldown - delta)
-		if unit.skill_ready() and _skill_type(unit) == "blink_crit":
+		if unit.skill_ready() and _is_seek_skill(_skill_type(unit)):
 			if unit.attack_cooldown <= 0.0 and _try_cast_skill(unit, null):
 				continue
 		var target := _find_target(unit, ally_units, enemy_units)
@@ -3830,7 +3867,7 @@ func _find_tower_target(ally: bool, candidates: Array[BattleUnit]) -> BattleUnit
 	var nearest: BattleUnit
 	var nearest_distance := TOWER_ATTACK_RANGE + 1.0
 	for unit in candidates:
-		if not is_instance_valid(unit) or not unit.alive:
+		if not is_instance_valid(unit) or not unit.targetable():
 			continue
 		var distance := absf(unit.position.x - tower_x)
 		if distance <= TOWER_ATTACK_RANGE and distance < nearest_distance:
@@ -3879,6 +3916,7 @@ func _move_unit(unit: BattleUnit, target_x: float, delta: float) -> void:
 	var speed := float(unit.stats.move_speed)
 	if _buff_active_side(unit.faction, "haste"):
 		speed *= 1.5
+	speed *= unit.move_speed_multiplier()
 	unit.position.x += direction * speed * delta
 	unit.set_moving(true)
 	var unit_key := unit.get_instance_id()
@@ -3919,6 +3957,12 @@ func _unit_damage(attacker: BattleUnit) -> float:
 func _deal_damage(target: BattleUnit, amount: float, source: String, attacker: BattleUnit = null) -> void:
 	if not is_instance_valid(target) or not target.alive:
 		return
+	if target.invuln_time > 0.0:
+		_spawn_hit_fx(target.position, Color("#9ff2ff"), "免疫", 0.4)
+		return
+	if target.dodge_time > 0.0 and attacker != null:
+		_spawn_hit_fx(target.position, Color("#c9a8ff"), "闪避", 0.4)
+		return
 	var damage := amount
 	if _buff_active_side(target.faction, "bulwark"):
 		damage *= 0.7
@@ -3949,7 +3993,11 @@ func _deal_damage(target: BattleUnit, amount: float, source: String, attacker: B
 		attacker.receive_damage(damage * target.reflect_frac, "hero")
 
 func _find_target(unit: BattleUnit, ally_units: Array[BattleUnit], enemy_units: Array[BattleUnit]) -> BattleUnit:
-	var candidates := enemy_units if unit.faction == "ally" else ally_units
+	var source_candidates := enemy_units if unit.faction == "ally" else ally_units
+	var candidates: Array[BattleUnit] = []
+	for candidate in source_candidates:
+		if is_instance_valid(candidate) and candidate.targetable():
+			candidates.append(candidate)
 	if candidates.is_empty():
 		return null
 	if unit.taunt_time > 0.0 and is_instance_valid(unit.taunted_by) and unit.taunted_by.alive:
@@ -3998,6 +4046,10 @@ func _skill_type(unit: BattleUnit) -> String:
 func _skill_color(unit: BattleUnit) -> Color:
 	return Color("#ffd273") if unit.faction == "ally" else Color("#ff8e70")
 
+## 会主动扑向目标的突进类技能，不需要目标已在攻击距离内
+func _is_seek_skill(skill_type: String) -> bool:
+	return skill_type in ["blink_crit", "decap_strike", "phase_execute"]
+
 func _spend_unit_attack_time(unit: BattleUnit) -> void:
 	unit.spend_attack_time()
 	if _buff_active_side(unit.faction, "frenzy"):
@@ -4009,11 +4061,9 @@ func _try_cast_skill(unit: BattleUnit, target: BattleUnit) -> bool:
 	if not unit.skill_ready():
 		return false
 	var skill_type := _skill_type(unit)
-	if skill_type == "blink_crit":
+	if _is_seek_skill(skill_type):
 		target = _lowest_health_enemy(unit, 600.0)
-	elif target == null or not is_instance_valid(target) or not target.alive:
-		return false
-	if skill_type == "blink_crit" and target == null:
+	if target == null or not is_instance_valid(target) or not target.alive:
 		return false
 	_spend_unit_attack_time(unit)
 	unit.play_attack()
@@ -4038,6 +4088,7 @@ func _cast_skill(unit: BattleUnit, target: BattleUnit) -> void:
 	var color := _skill_color(unit)
 	var stun_mult := run_stun_mult if unit.faction == "ally" else 1.0
 	_spawn_hit_fx(unit.position, color, skill_name, 0.8, -12.0)
+	_spawn_skill_icon_fx(unit, skill_type)
 	var era := str(unit.stats.get("era", "stone"))
 	match skill_type:
 		"taunt_shield":
@@ -4125,6 +4176,36 @@ func _cast_skill(unit: BattleUnit, target: BattleUnit) -> void:
 			var pulse := create_tween()
 			pulse.tween_property(unit, "scale", Vector2(1.12, 1.12), 0.12)
 			pulse.tween_property(unit, "scale", Vector2.ONE, 0.18)
+		"overpressure_steam":
+			_cast_overpressure_steam(unit, stun_mult)
+		"piston_charge":
+			_cast_piston_charge(unit, target, stun_mult)
+		"smoke_raid":
+			_cast_smoke_raid(unit, target)
+		"shotgun_blast":
+			_cast_shotgun_blast(unit)
+		"overpressure_burst":
+			_cast_overpressure_burst(unit, stun_mult)
+		"shield_wall":
+			_cast_shield_wall(unit, target, stun_mult)
+		"suppress_fire":
+			_cast_suppress_fire(unit, target)
+		"decap_strike":
+			_cast_decap_strike(unit, target)
+		"lethal_snipe":
+			_cast_lethal_snipe(unit)
+		"artillery_support":
+			_cast_artillery_support(unit, stun_mult)
+		"force_field":
+			_cast_force_field(unit)
+		"laser_slash":
+			_cast_laser_slash(unit)
+		"phase_execute":
+			_cast_phase_execute(unit, target)
+		"plasma_lance":
+			_cast_plasma_lance(unit)
+		"overload_barrage":
+			_cast_overload_barrage(unit, stun_mult)
 
 func _lowest_health_enemy(unit: BattleUnit, radius: float) -> BattleUnit:
 	var candidates := _living_units("enemy" if unit.faction == "ally" else "ally")
@@ -4172,6 +4253,409 @@ func _cast_multishot(attacker: BattleUnit, target: BattleUnit) -> void:
 		if fx_manager != null:
 			fx_manager.emit_hit(victim.position, (victim.position - attacker.position).normalized(), str(attacker.stats.era))
 
+func _skill_icon_path(skill_type: String) -> String:
+	var path := SKILL_ICON_PATH % skill_type
+	return path if ResourceLoader.exists(path) else ""
+
+func _spawn_skill_icon_fx(unit: BattleUnit, skill_type: String) -> void:
+	var path := _skill_icon_path(skill_type)
+	if path == "":
+		return
+	var texture := load(path) as Texture2D
+	if texture == null:
+		return
+	var icon := Sprite2D.new()
+	icon.texture = texture
+	icon.position = unit.position + Vector2(0, -unit.body_height - 46.0)
+	icon.z_index = 7
+	icon.scale = Vector2(0.5, 0.5)
+	world.add_child(icon)
+	var tween := create_tween()
+	tween.set_parallel(true)
+	tween.tween_property(icon, "scale", Vector2(0.85, 0.85), 0.16).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tween.tween_property(icon, "position:y", icon.position.y - 24.0, 0.7)
+	tween.chain().tween_property(icon, "modulate:a", 0.0, 0.22)
+	tween.chain().tween_callback(icon.queue_free)
+
+func _skill_facing(unit: BattleUnit) -> float:
+	return 1.0 if unit.faction == "ally" else -1.0
+
+func _opposing_units(unit: BattleUnit) -> Array[BattleUnit]:
+	var result: Array[BattleUnit] = []
+	for candidate in _living_units("enemy" if unit.faction == "ally" else "ally"):
+		if candidate.targetable():
+			result.append(candidate)
+	return result
+
+func _friendly_units(unit: BattleUnit) -> Array[BattleUnit]:
+	return _living_units(unit.faction)
+
+func _delayed_call(delay: float, action: Callable) -> void:
+	var tween := create_tween()
+	tween.tween_interval(maxf(0.0, delay))
+	tween.tween_callback(action)
+
+func _knockback(victim: BattleUnit, facing: float, distance: float) -> void:
+	if not is_instance_valid(victim) or not victim.alive:
+		return
+	var destination := clampf(
+		victim.position.x + facing * distance,
+		ALLY_TOWER_X + 40.0,
+		ENEMY_TOWER_X - 40.0
+	)
+	var tween := create_tween()
+	tween.set_trans(Tween.TRANS_QUAD)
+	tween.set_ease(Tween.EASE_OUT)
+	tween.tween_property(victim, "position:x", destination, 0.18)
+
+func _cone_victims(unit: BattleUnit, radius: float, half_angle: float) -> Array[BattleUnit]:
+	var facing := _skill_facing(unit)
+	var result: Array[BattleUnit] = []
+	for victim in _opposing_units(unit):
+		var offset := victim.position - unit.position
+		if offset.length() > radius:
+			continue
+		if signf(offset.x) != facing and absf(offset.x) > 12.0:
+			continue
+		var angle := absf(atan2(offset.y, absf(offset.x)))
+		if angle <= half_angle:
+			result.append(victim)
+	return result
+
+func _line_victims(unit: BattleUnit, length: float, half_height: float) -> Array[BattleUnit]:
+	var facing := _skill_facing(unit)
+	var result: Array[BattleUnit] = []
+	for victim in _opposing_units(unit):
+		var offset := victim.position - unit.position
+		if signf(offset.x) != facing and absf(offset.x) > 12.0:
+			continue
+		if absf(offset.x) > length or absf(offset.y) > half_height:
+			continue
+		result.append(victim)
+	result.sort_custom(func(a: BattleUnit, b: BattleUnit) -> bool:
+		return absf(a.position.x - unit.position.x) < absf(b.position.x - unit.position.x)
+	)
+	return result
+
+func _radius_victims(unit: BattleUnit, center: Vector2, radius: float) -> Array[BattleUnit]:
+	var result: Array[BattleUnit] = []
+	for victim in _opposing_units(unit):
+		if victim.position.distance_to(center) <= radius:
+			result.append(victim)
+	return result
+
+func _dash_to(unit: BattleUnit, destination_x: float, duration := 0.16) -> void:
+	var destination := clampf(destination_x, ALLY_TOWER_X + 40.0, ENEMY_TOWER_X - 40.0)
+	if fx_manager != null:
+		fx_manager.emit_afterimage(unit.position, Vector2(destination, unit.position.y), _skill_color(unit))
+	var tween := create_tween()
+	tween.set_trans(Tween.TRANS_QUAD)
+	tween.set_ease(Tween.EASE_OUT)
+	tween.tween_property(unit, "position:x", destination, duration)
+
+func _cast_overpressure_steam(unit: BattleUnit, stun_mult: float) -> void:
+	var era := str(unit.stats.get("era", "industrial"))
+	unit.add_shield(6.0, 0.55)
+	var facing := _skill_facing(unit)
+	for victim in _radius_victims(unit, unit.position, 190.0):
+		_deal_damage(victim, _unit_damage(unit) * 0.6, "hero", unit)
+		victim.add_slow(4.0, 0.55)
+		victim.add_stun(0.3 * stun_mult)
+		_knockback(victim, signf(victim.position.x - unit.position.x) if victim.position.x != unit.position.x else facing, 74.0)
+		_spawn_hit_fx(victim.position, Color("#bfe6ff"), "泄压", 0.45)
+	if fx_manager != null:
+		fx_manager.emit_dome(unit.position, Color("#ffd273"), 62.0, 1.1)
+		fx_manager.emit_shockwave(unit.position, Color("#e8e2d2"), 190.0)
+		fx_manager.emit_smoke_cloud(unit.position, Color("#e6e6e6"), 150.0, era)
+	_shake_battlefield()
+
+func _cast_piston_charge(unit: BattleUnit, target: BattleUnit, stun_mult: float) -> void:
+	var facing := _skill_facing(unit)
+	var start_x := unit.position.x
+	var destination_x := target.position.x - facing * 46.0
+	_dash_to(unit, destination_x, 0.18)
+	_delayed_call(0.18, func() -> void:
+		if not is_instance_valid(unit) or not unit.alive:
+			return
+		var low := minf(start_x, unit.position.x) - 30.0
+		var high := maxf(start_x, unit.position.x) + 30.0
+		var first: BattleUnit
+		for victim in _opposing_units(unit):
+			if victim.position.x < low or victim.position.x > high:
+				continue
+			if absf(victim.position.y - unit.position.y) > 46.0:
+				continue
+			_deal_damage(victim, _unit_damage(unit) * 0.9, "hero", unit)
+			if first == null or absf(victim.position.x - unit.position.x) < absf(first.position.x - unit.position.x):
+				first = victim
+		if first == null:
+			first = target
+		if is_instance_valid(first) and first.alive:
+			_deal_damage(first, _unit_damage(unit) * 1.6, "hero", unit)
+			first.add_stun(1.4 * stun_mult)
+			_knockback(first, facing, 96.0)
+			_spawn_hit_fx(first.position, Color("#ffcf7a"), "冲拳!", 0.6)
+			if fx_manager != null:
+				fx_manager.emit("blast", first.position + Vector2(0, -44), Vector2.UP, str(unit.stats.era), 0, 20, Color("#ffcf7a"))
+				fx_manager.emit_impact_line(first.position + Vector2(0, -44), Vector2(facing, 0), Color("#fff4c4"), 0.2)
+		if fx_manager != null:
+			fx_manager.emit_smoke_cloud(Vector2(start_x, unit.position.y), Color("#dcdcdc"), 70.0, str(unit.stats.era))
+		_shake_battlefield()
+	)
+
+func _cast_smoke_raid(unit: BattleUnit, target: BattleUnit) -> void:
+	var era := str(unit.stats.get("era", "industrial"))
+	unit.add_dodge(2.0)
+	target.add_poison(5.0, _unit_damage(unit) * 0.6, unit.faction)
+	_spawn_hit_fx(target.position, Color("#9df078"), "中毒", 0.6)
+	for victim in _radius_victims(unit, target.position, 150.0):
+		victim.add_blind(4.0)
+		victim.add_slow(3.0, 0.6)
+		_spawn_hit_fx(victim.position, Color("#b7b7b7"), "致盲", 0.5)
+	if fx_manager != null:
+		fx_manager.emit_smoke_cloud(target.position, Color("#c8ccc9"), 150.0, era)
+		fx_manager.emit_ring(unit.position, Color("#9fb3b0"), 60.0, 0.5, 1)
+
+func _cast_shotgun_blast(unit: BattleUnit) -> void:
+	var facing := _skill_facing(unit)
+	var victims := _cone_victims(unit, 230.0, 0.42)
+	for victim in victims:
+		_deal_damage(victim, _unit_damage(unit) * 1.1, "hero", unit)
+		_knockback(victim, facing, 58.0)
+		_spawn_hit_fx(victim.position, Color("#ffd9a0"), "霰弹", 0.4)
+		if fx_manager != null:
+			fx_manager.emit_hit(victim.position, Vector2(facing, 0), str(unit.stats.era))
+	if fx_manager != null:
+		fx_manager.emit_cone(unit.position, facing, 230.0, 0.42, Color("#ffcf7a"), 0.34)
+		fx_manager.emit("smoke", unit.position + Vector2(facing * 34.0, -52.0), Vector2(facing, 0), str(unit.stats.era), 1, 8, Color("#e8e8e8"))
+
+func _cast_overpressure_burst(unit: BattleUnit, stun_mult: float) -> void:
+	var era := str(unit.stats.get("era", "industrial"))
+	for victim in _radius_victims(unit, unit.position, 240.0):
+		_deal_damage(victim, _unit_damage(unit) * 1.4, "hero", unit)
+		victim.add_stun(2.0 * stun_mult)
+		_spawn_hit_fx(victim.position, Color("#fff0bd"), "眩晕", 0.55)
+	for friend in _friendly_units(unit):
+		friend.add_berserk(10.0, 1.0, 1.4)
+	_spawn_hit_fx(unit.position, Color("#ffcf7a"), "攻速光环", 0.7, -40.0)
+	if fx_manager != null:
+		fx_manager.emit_shockwave(unit.position, Color("#ffcf7a"), 240.0)
+		fx_manager.emit_smoke_cloud(unit.position, Color("#efefef"), 210.0, era)
+		fx_manager.emit_dome(unit.position, Color("#ffb347"), 90.0, 0.8)
+	_shake_battlefield()
+
+func _cast_shield_wall(unit: BattleUnit, target: BattleUnit, stun_mult: float) -> void:
+	var facing := _skill_facing(unit)
+	for friend in _friendly_units(unit):
+		if (friend.position.x - unit.position.x) * facing > 20.0:
+			continue
+		if absf(friend.position.x - unit.position.x) > 300.0:
+			continue
+		friend.add_shield(6.0, 0.35)
+		if fx_manager != null:
+			fx_manager.emit_ring(friend.position, Color("#7fb8ff"), 44.0, 0.5, 2)
+	_deal_damage(target, _unit_damage(unit) * 1.2, "hero", unit)
+	target.add_stun(1.5 * stun_mult)
+	_knockback(target, facing, 46.0)
+	_spawn_hit_fx(target.position, Color("#cfe4ff"), "盾击", 0.55)
+	if fx_manager != null:
+		fx_manager.emit_dome(unit.position, Color("#7fb8ff"), 64.0, 1.0)
+		fx_manager.emit_impact_line(target.position + Vector2(0, -46), Vector2(facing, 0), Color("#dceaff"), 0.22)
+	_shake_battlefield()
+
+func _cast_suppress_fire(unit: BattleUnit, target: BattleUnit) -> void:
+	var impact := target.position
+	for index in range(5):
+		_delayed_call(0.12 * float(index), func() -> void:
+			if not is_instance_valid(unit) or not unit.alive:
+				return
+			var center := target.position if is_instance_valid(target) and target.alive else impact
+			for victim in _radius_victims(unit, center, 90.0):
+				_deal_damage(victim, _unit_damage(unit) * 0.45, "hero", unit)
+				victim.add_slow(3.0, 0.6)
+				if fx_manager != null:
+					fx_manager.emit_hit(victim.position, (victim.position - unit.position).normalized(), str(unit.stats.era))
+			if fx_manager != null:
+				fx_manager.emit_beam(
+					unit.position + Vector2(_skill_facing(unit) * 26.0, -56.0),
+					center + Vector2(rng.randf_range(-20.0, 20.0), -50.0),
+					Color("#ffe9a8"),
+					4.0,
+					0.14
+				)
+		)
+	_spawn_hit_fx(target.position, Color("#ffe9a8"), "压制", 0.6)
+
+func _cast_decap_strike(unit: BattleUnit, target: BattleUnit) -> void:
+	var facing := _skill_facing(unit)
+	_dash_to(unit, target.position.x - facing * 40.0, 0.14)
+	_delayed_call(0.14, func() -> void:
+		if not is_instance_valid(unit) or not unit.alive or not is_instance_valid(target) or not target.alive:
+			return
+		var missing := 1.0 - clampf(target.hp / maxf(1.0, target.max_hp), 0.0, 1.0)
+		var damage := _unit_damage(unit) * (1.8 + missing * 2.2)
+		_deal_damage(target, damage, "hero", unit)
+		_spawn_hit_fx(target.position, Color("#ff9f6b"), "斩首!", 0.7)
+		if fx_manager != null:
+			fx_manager.emit_slash_arc(target.position + Vector2(0, -54), Color("#ffd0b0"), 90.0, facing)
+			fx_manager.emit_hit(target.position, Vector2(facing, 0), str(unit.stats.era))
+	)
+
+func _cast_lethal_snipe(unit: BattleUnit) -> void:
+	var facing := _skill_facing(unit)
+	if fx_manager != null:
+		fx_manager.emit_charge_up(unit.position + Vector2(facing * 26.0, -56.0), Color("#ffe9a8"), 0.4)
+	_delayed_call(0.4, func() -> void:
+		if not is_instance_valid(unit) or not unit.alive:
+			return
+		var origin := unit.position + Vector2(facing * 26.0, -56.0)
+		var victims := _line_victims(unit, 560.0, 34.0)
+		for victim in victims:
+			_deal_damage(victim, _unit_damage(unit) * 2.0 * 1.5, "hero", unit)
+			_spawn_hit_fx(victim.position, Color("#fff4ae"), "暴击!", 0.6)
+			if fx_manager != null:
+				fx_manager.emit_hit(victim.position, Vector2(facing, 0), str(unit.stats.era))
+		if fx_manager != null:
+			fx_manager.emit_beam(origin, origin + Vector2(facing * 560.0, 0), Color("#fff0c0"), 7.0, 0.3)
+		AudioManager.play_sfx("hit")
+	)
+
+func _cast_artillery_support(unit: BattleUnit, stun_mult: float) -> void:
+	var facing := _skill_facing(unit)
+	for friend in _friendly_units(unit):
+		friend.add_berserk(12.0, 1.35, 1.0)
+	_spawn_hit_fx(unit.position, Color("#ffd273"), "攻击增益", 0.7, -40.0)
+	var victims := _opposing_units(unit)
+	var centers: Array[Vector2] = []
+	if victims.is_empty():
+		centers.append(unit.position + Vector2(facing * 260.0, 0))
+	else:
+		victims.sort_custom(func(a: BattleUnit, b: BattleUnit) -> bool:
+			return absf(a.position.x - unit.position.x) < absf(b.position.x - unit.position.x)
+		)
+		for index in range(mini(3, victims.size())):
+			centers.append(victims[index].position)
+	var damage := _unit_damage(unit) * 1.6
+	for center in centers:
+		if fx_manager != null:
+			fx_manager.emit_warning_circle(center, Color("#ff8e70"), 110.0, 1.1)
+		_delayed_call(1.1, func() -> void:
+			if not is_instance_valid(unit):
+				return
+			for victim in _radius_victims(unit, center, 110.0):
+				_deal_damage(victim, damage, "hero", unit)
+				victim.add_stun(0.8 * stun_mult)
+				_spawn_hit_fx(victim.position, Color("#ffb27a"), "轰炸", 0.5)
+			if fx_manager != null:
+				fx_manager.emit("blast", center + Vector2(0, -30), Vector2.UP, str(unit.stats.era), 0, 26, Color("#ffb27a"))
+				fx_manager.emit_shockwave(center, Color("#ff8e70"), 110.0)
+				fx_manager.emit_smoke_cloud(center, Color("#d8d2c8"), 110.0, str(unit.stats.era))
+			_shake_battlefield()
+			AudioManager.play_sfx("hit")
+		)
+
+func _cast_force_field(unit: BattleUnit) -> void:
+	unit.add_invulnerable(1.6)
+	for friend in _friendly_units(unit):
+		friend.add_shield(8.0, 0.4)
+		if fx_manager != null:
+			fx_manager.emit_dome(friend.position, Color("#7ee8ff"), 48.0, 0.8)
+	_spawn_hit_fx(unit.position, Color("#9ff2ff"), "全体护盾", 0.7, -40.0)
+	if fx_manager != null:
+		fx_manager.emit_dome(unit.position, Color("#9ff2ff"), 74.0, 1.4)
+		fx_manager.emit_ring(unit.position, Color("#7ee8ff"), 120.0, 0.7, 0)
+
+func _cast_laser_slash(unit: BattleUnit) -> void:
+	var facing := _skill_facing(unit)
+	var victims := _cone_victims(unit, 210.0, 0.72)
+	for victim in victims:
+		_deal_damage(victim, _unit_damage(unit) * 1.6, "hero", unit)
+		victim.add_poison(4.0, _unit_damage(unit) * 0.3, unit.faction)
+		_spawn_hit_fx(victim.position, Color("#8fd8ff"), "灼烧", 0.5)
+	if fx_manager != null:
+		fx_manager.emit_cone(unit.position, facing, 210.0, 0.72, Color("#3aa0d8"), 0.36)
+		fx_manager.emit_slash_arc(unit.position + Vector2(0, -54), Color("#9fe0ff"), 150.0, facing)
+		fx_manager.emit_beam(
+			unit.position + Vector2(0, -54),
+			unit.position + Vector2(facing * 210.0, -54),
+			Color("#6fd0ff"),
+			10.0,
+			0.26
+		)
+	_shake_battlefield()
+
+func _cast_phase_execute(unit: BattleUnit, target: BattleUnit) -> void:
+	var facing := _skill_facing(unit)
+	var from := unit.position
+	unit.position = Vector2(
+		clampf(target.position.x + facing * 44.0, ALLY_TOWER_X + 40.0, ENEMY_TOWER_X - 40.0),
+		target.position.y
+	)
+	unit.add_untargetable(1.5)
+	var ratio := target.hp / maxf(1.0, target.max_hp)
+	var damage := _unit_damage(unit) * 2.0
+	var executed := ratio <= 0.25
+	if executed:
+		damage *= 2.5
+	_deal_damage(target, damage, "hero", unit)
+	_spawn_hit_fx(target.position, Color("#e0a8ff"), "处决!" if executed else "相位斩", 0.7)
+	if fx_manager != null:
+		fx_manager.emit_afterimage(from, unit.position, Color("#c78cff"))
+		fx_manager.emit_slash_arc(target.position + Vector2(0, -54), Color("#d9a8ff"), 96.0, -facing)
+		fx_manager.emit_hit(target.position, Vector2(-facing, 0), str(unit.stats.era))
+
+func _cast_plasma_lance(unit: BattleUnit) -> void:
+	var facing := _skill_facing(unit)
+	if fx_manager != null:
+		fx_manager.emit_charge_up(unit.position + Vector2(facing * 28.0, -56.0), Color("#39c06a"), 0.45)
+	_delayed_call(0.45, func() -> void:
+		if not is_instance_valid(unit) or not unit.alive:
+			return
+		var origin := unit.position + Vector2(facing * 28.0, -56.0)
+		for victim in _line_victims(unit, 620.0, 40.0):
+			_deal_damage(victim, _unit_damage(unit) * 1.8, "hero", unit)
+			_spawn_hit_fx(victim.position, Color("#8cf0a8"), "贯穿", 0.5)
+			if fx_manager != null:
+				fx_manager.emit_ring(victim.position, Color("#39c06a"), 46.0, 0.4, 1)
+		if fx_manager != null:
+			fx_manager.emit_beam(origin, origin + Vector2(facing * 620.0, 0), Color("#4fe08a"), 16.0, 0.34)
+		_shake_battlefield()
+		AudioManager.play_sfx("hit")
+	)
+
+func _cast_overload_barrage(unit: BattleUnit, stun_mult: float) -> void:
+	var era := str(unit.stats.get("era", "future"))
+	unit.add_berserk(10.0, 1.4, 1.4)
+	var damage := _unit_damage(unit) * 0.7
+	for index in range(6):
+		_delayed_call(0.14 * float(index), func() -> void:
+			if not is_instance_valid(unit) or not unit.alive:
+				return
+			var victims := _opposing_units(unit)
+			if victims.is_empty():
+				return
+			var focus: BattleUnit = victims[rng.randi_range(0, victims.size() - 1)]
+			var center := focus.position
+			for victim in _radius_victims(unit, center, 70.0):
+				_deal_damage(victim, damage, "hero", unit)
+			if fx_manager != null:
+				fx_manager.emit("blast", center + Vector2(0, -30), Vector2.UP, era, 1, 14, Color("#ff6b8e"))
+				fx_manager.emit_ring(center, Color("#ff6b8e"), 70.0, 0.35, 1)
+			_spawn_hit_fx(center, Color("#ff9db4"), "弹幕", 0.35)
+		)
+	_delayed_call(0.95, func() -> void:
+		if not is_instance_valid(unit) or not unit.alive:
+			return
+		for victim in _radius_victims(unit, unit.position, 320.0):
+			victim.add_stun(1.8 * stun_mult)
+			victim.drain_energy()
+			_spawn_hit_fx(victim.position, Color("#a8e8ff"), "EMP", 0.55)
+		if fx_manager != null:
+			fx_manager.emit_shockwave(unit.position, Color("#7ee8ff"), 320.0)
+			fx_manager.emit_dome(unit.position, Color("#7ee8ff"), 120.0, 0.7)
+		_shake_battlefield()
+	)
+
 func _apply_basic_splash(attacker: BattleUnit, target: BattleUnit, damage: float) -> void:
 	var splash_value: Variant = attacker.stats.get("basic_splash", null)
 	if not splash_value is Dictionary:
@@ -4199,6 +4683,10 @@ func _on_unit_poison_tick(unit: BattleUnit, dps_amount: float, source: String) -
 func _attack(attacker: BattleUnit, target: BattleUnit) -> void:
 	_spend_unit_attack_time(attacker)
 	attacker.play_attack()
+	if attacker.blind_time > 0.0 and rng.randf() < BLIND_MISS_CHANCE:
+		attacker.gain_energy()
+		_spawn_hit_fx(attacker.position, Color("#b7b7b7"), "失准", 0.35)
+		return
 	var damage := _unit_damage(attacker)
 	if float(attacker.stats.get("range", 0.0)) >= PROJECTILE_RANGE_THRESHOLD:
 		var facing := 1.0 if attacker.faction == "ally" else -1.0

@@ -548,6 +548,131 @@ func emit_victory(position: Vector2, color: Color, era := "stone") -> void:
 	emit("victory", position, Vector2.UP, era, 0, 44, color)
 	emit_ring(position, color, 130.0, 0.9, 0)
 
+func emit_cone(position: Vector2, facing: float, radius: float, half_angle: float, color: Color, duration := 0.32) -> void:
+	var fan := Polygon2D.new()
+	var points := PackedVector2Array([Vector2.ZERO])
+	var steps := 12
+	for index in range(steps + 1):
+		var angle := -half_angle + 2.0 * half_angle * float(index) / float(steps)
+		points.append(Vector2(cos(angle) * facing, sin(angle)) * radius)
+	fan.polygon = points
+	fan.color = Color(color, 0.42)
+	fan.position = position + Vector2(0, -46)
+	fan.scale = Vector2(0.6, 0.55)
+	fan.z_index = 5
+	add_child(fan)
+	var tween := create_tween()
+	tween.set_parallel(true)
+	tween.tween_property(fan, "scale", Vector2(1.0, 0.62), duration)
+	tween.tween_property(fan, "modulate:a", 0.0, duration)
+	tween.chain().tween_callback(fan.queue_free)
+
+func emit_beam(from: Vector2, to: Vector2, color: Color, width := 12.0, duration := 0.28) -> void:
+	var beam := Line2D.new()
+	beam.points = PackedVector2Array([from, to])
+	beam.width = width
+	beam.default_color = Color(color, 0.9)
+	beam.begin_cap_mode = Line2D.LINE_CAP_ROUND
+	beam.end_cap_mode = Line2D.LINE_CAP_ROUND
+	beam.antialiased = true
+	beam.z_index = 6
+	add_child(beam)
+	var core := Line2D.new()
+	core.points = beam.points
+	core.width = width * 0.42
+	core.default_color = Color(color.lightened(0.6), 0.95)
+	core.begin_cap_mode = Line2D.LINE_CAP_ROUND
+	core.end_cap_mode = Line2D.LINE_CAP_ROUND
+	core.z_index = 7
+	add_child(core)
+	var tween := create_tween()
+	tween.set_parallel(true)
+	tween.tween_property(beam, "modulate:a", 0.0, duration)
+	tween.tween_property(core, "modulate:a", 0.0, duration)
+	tween.tween_property(beam, "width", width * 0.2, duration)
+	tween.chain().tween_callback(func() -> void:
+		beam.queue_free()
+		core.queue_free()
+	)
+
+func emit_charge_up(position: Vector2, color: Color, duration := 0.45) -> void:
+	var glow := Line2D.new()
+	glow.closed = true
+	glow.width = 5.0
+	glow.antialiased = true
+	glow.default_color = Color(color, 0.9)
+	var points := PackedVector2Array()
+	for index in range(19):
+		var angle := TAU * float(index) / 18.0
+		points.append(Vector2(cos(angle), sin(angle)) * 34.0)
+	glow.points = points
+	glow.position = position
+	glow.scale = Vector2(1.3, 0.62)
+	glow.z_index = 5
+	add_child(glow)
+	var tween := create_tween()
+	tween.set_parallel(true)
+	tween.tween_property(glow, "scale", Vector2(0.25, 0.12), duration)
+	tween.tween_property(glow, "modulate:a", 0.2, duration)
+	tween.chain().tween_callback(glow.queue_free)
+
+func emit_dome(position: Vector2, color: Color, radius := 56.0, duration := 0.9) -> void:
+	var dome := Line2D.new()
+	dome.closed = true
+	dome.width = 4.5
+	dome.antialiased = true
+	dome.default_color = Color(color, 0.95)
+	var points := PackedVector2Array()
+	for index in range(25):
+		var angle := TAU * float(index) / 24.0
+		points.append(Vector2(cos(angle) * radius, sin(angle) * radius * 0.92))
+	dome.points = points
+	dome.position = position + Vector2(0, -radius * 0.72)
+	dome.scale = Vector2(0.3, 0.3)
+	dome.z_index = 5
+	add_child(dome)
+	var fill := Polygon2D.new()
+	fill.polygon = points
+	fill.color = Color(color, 0.16)
+	fill.position = dome.position
+	fill.scale = dome.scale
+	fill.z_index = 4
+	add_child(fill)
+	for node in [dome, fill]:
+		var tween := create_tween()
+		tween.tween_property(node, "scale", Vector2.ONE, 0.22).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		tween.tween_interval(maxf(0.0, duration - 0.5))
+		tween.tween_property(node, "modulate:a", 0.0, 0.28)
+		tween.tween_callback(node.queue_free)
+
+func emit_warning_circle(position: Vector2, color: Color, radius: float, delay: float) -> void:
+	var marker := Line2D.new()
+	marker.closed = true
+	marker.width = 5.0
+	marker.antialiased = true
+	marker.default_color = Color(color, 0.95)
+	var points := PackedVector2Array()
+	for index in range(25):
+		var angle := TAU * float(index) / 24.0
+		points.append(Vector2(cos(angle) * radius, sin(angle) * radius * 0.36))
+	marker.points = points
+	marker.position = position
+	marker.z_index = 3
+	add_child(marker)
+	var blink := create_tween()
+	blink.set_loops(maxi(1, int(delay / 0.24)))
+	blink.tween_property(marker, "modulate:a", 0.25, 0.12)
+	blink.tween_property(marker, "modulate:a", 1.0, 0.12)
+	var life := create_tween()
+	life.tween_interval(delay)
+	life.tween_callback(marker.queue_free)
+
+func emit_smoke_cloud(position: Vector2, color: Color, radius := 90.0, era := "industrial") -> void:
+	emit("smoke", position + Vector2(0, -20), Vector2.UP, era, 0, 16, color)
+	emit("smoke", position + Vector2(-radius * 0.4, -34), Vector2.UP, era, 1, 10, color)
+	emit("smoke", position + Vector2(radius * 0.4, -34), Vector2.UP, era, 1, 10, color)
+	emit_ring(position, Color(color, 0.7), radius, 0.7, 1)
+
 func budget_stats() -> Dictionary:
 	var emitters := 0
 	for active in emitter_active:

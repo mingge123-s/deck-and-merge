@@ -46,6 +46,12 @@ var berserk_aspd := 1.0
 var poison_time := 0.0
 var poison_dps := 0.0
 var poison_source := "hero"
+var slow_time := 0.0
+var slow_factor := 1.0
+var dodge_time := 0.0
+var invuln_time := 0.0
+var untargetable_time := 0.0
+var blind_time := 0.0
 var taunted_by: BattleUnit
 var taunt_time := 0.0
 var _buff_aura_root: Node2D
@@ -293,6 +299,13 @@ func _process(delta: float) -> void:
 		visual.modulate = Color(1.0, 0.7, 0.5) if flash_time > 0.0 else Color.WHITE
 	stun_time = maxf(0.0, stun_time - delta)
 	shield_time = maxf(0.0, shield_time - delta)
+	slow_time = maxf(0.0, slow_time - delta)
+	if slow_time <= 0.0:
+		slow_factor = 1.0
+	dodge_time = maxf(0.0, dodge_time - delta)
+	invuln_time = maxf(0.0, invuln_time - delta)
+	untargetable_time = maxf(0.0, untargetable_time - delta)
+	blind_time = maxf(0.0, blind_time - delta)
 	reflect_time = maxf(0.0, reflect_time - delta)
 	berserk_time = maxf(0.0, berserk_time - delta)
 	taunt_time = maxf(0.0, taunt_time - delta)
@@ -344,6 +357,37 @@ func add_poison(duration: float, dps: float, source: String) -> void:
 	poison_dps = dps
 	poison_source = source
 	queue_redraw()
+
+func add_slow(duration: float, factor: float) -> void:
+	slow_time = maxf(slow_time, duration)
+	slow_factor = minf(slow_factor, clampf(factor, 0.1, 1.0))
+	queue_redraw()
+
+func add_dodge(duration: float) -> void:
+	dodge_time = maxf(dodge_time, duration)
+	queue_redraw()
+
+func add_invulnerable(duration: float) -> void:
+	invuln_time = maxf(invuln_time, duration)
+	queue_redraw()
+
+func add_untargetable(duration: float) -> void:
+	untargetable_time = maxf(untargetable_time, duration)
+	queue_redraw()
+
+func add_blind(duration: float) -> void:
+	blind_time = maxf(blind_time, duration)
+	queue_redraw()
+
+func drain_energy() -> void:
+	energy = 0.0
+	queue_redraw()
+
+func move_speed_multiplier() -> float:
+	return slow_factor if slow_time > 0.0 else 1.0
+
+func targetable() -> bool:
+	return alive and untargetable_time <= 0.0
 
 func add_taunt(source: BattleUnit, duration: float) -> void:
 	taunted_by = source
@@ -489,6 +533,21 @@ func _draw() -> void:
 	if shield_time > 0.0 or reflect_time > 0.0:
 		var shield_color := Color("#ffd273") if shield_time > 0.0 else Color("#d7e9ff")
 		draw_arc(Vector2(0, -body_height * 0.42), 42.0, 0.0, TAU, 32, Color(shield_color, 0.75), 3.0)
+	if invuln_time > 0.0:
+		draw_arc(Vector2(0, -body_height * 0.42), 48.0, 0.0, TAU, 36, Color("#9ff2ff", 0.9), 4.0)
+	if slow_time > 0.0:
+		var slow_center := Vector2(0, -6)
+		draw_arc(slow_center, 30.0, 0.0, TAU, 24, Color("#7fc8ff", 0.7), 2.5)
+		draw_line(slow_center + Vector2(-8, -4), slow_center + Vector2(8, 4), Color("#bfe6ff", 0.7), 2.0)
+	if blind_time > 0.0:
+		draw_line(
+			Vector2(-16, -body_height * 0.72),
+			Vector2(16, -body_height * 0.72),
+			Color("#4a4a4a", 0.85),
+			6.0
+		)
+	if dodge_time > 0.0 or untargetable_time > 0.0:
+		draw_arc(Vector2(0, -body_height * 0.42), 36.0, 0.0, TAU, 24, Color("#c9a8ff", 0.55), 2.0)
 	if stun_time > 0.0:
 		var star_y := -(body_height + 35.0)
 		for index in range(3):
