@@ -6,6 +6,8 @@ func _init() -> void:
 	GameData.initialize()
 	for key in ["easy", "normal", "hard"]:
 		_run(key)
+	_print_rate_table()
+	_check_windows()
 	quit()
 
 func _run(difficulty_key: String) -> void:
@@ -13,19 +15,7 @@ func _run(difficulty_key: String) -> void:
 	rng.seed = 12345
 	# GDScript lambda 按值捕获局部变量，用字典（引用类型）共享状态
 	var state := {"alive": 0, "total": 0, "boss": 0}
-	var spawner := AiSpawn.new()
-	spawner.setup(
-		rng,
-		func() -> String: return "stone",
-		func() -> int: return int(state["alive"]),
-		func(hero_id: String) -> bool:
-			state["total"] += 1
-			if str(GameData.HEROES[hero_id].get("role", "")) == "boss":
-				state["boss"] += 1
-			state["alive"] += 1
-			return true,
-		60
-	)
+	var spawner := _make_spawner(rng, state, 0)
 	spawner.set_difficulty(difficulty_key)
 	spawner.reset()
 	# 模拟 10 波 x 30 秒，每波假设玩家清场（alive 归零）
@@ -49,4 +39,63 @@ func _run(difficulty_key: String) -> void:
 		state["total"],
 		state["boss"],
 		str(capped_ok),
+	])
+
+func _make_spawner(rng: RandomNumberGenerator, state: Dictionary, era_index: int) -> AiSpawn:
+	var spawner := AiSpawn.new()
+	spawner.setup(
+		rng,
+		func() -> String: return "stone",
+		func() -> int: return int(state["alive"]),
+		func(hero_id: String) -> bool:
+			state["total"] += 1
+			if str(GameData.HEROES[hero_id].get("role", "")) == "boss":
+				state["boss"] += 1
+			state["alive"] += 1
+			return true,
+		60,
+		func() -> int: return era_index
+	)
+	return spawner
+
+func _print_rate_table() -> void:
+	for key in ["easy", "normal", "hard"]:
+		var row := "[%s] 期望速率(个/秒) 各时代: " % key
+		for era_index in range(5):
+			row += "%d档=%.2f " % [era_index, AiSpawnConfig.expected_rate(key, 1, era_index)]
+		row += "| 软顶 %d→%d" % [
+			AiSpawnConfig.field_soft_cap(key, 1, 0),
+			AiSpawnConfig.field_soft_cap(key, 1, 4),
+		]
+		print(row)
+
+func _check_windows() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 7
+	var state := {"alive": 0, "total": 0, "boss": 0}
+	var spawner := _make_spawner(rng, state, 0)
+	spawner.set_difficulty("normal")
+	spawner.reset()
+	spawner.begin_wave(1, 5)
+	var base_p := spawner.spawn_chance()
+	spawner.on_rally()
+	var rally_p := spawner.spawn_chance()
+	spawner.reset()
+	spawner.on_phase_start()
+	var break_p := spawner.spawn_chance()
+	# 窗口到期后回落
+	for _frame in range(int(AiSpawnConfig.TOWER_BREAK_DURATION / 0.05) + 4):
+		spawner.tick(0.05)
+	var after_p := spawner.spawn_chance()
+	print("[windows] base=%.3f 反扑=%.3f 拆塔喘息=%.3f 窗口到期回落=%.3f" % [base_p, rally_p, break_p, after_p])
+	# boss 最小间隔
+	spawner.reset()
+	spawner.begin_wave(5, 5)
+	var boss_before: int = state["boss"]
+	for _frame in range(int(120.0 / 0.05)):
+		state["alive"] = 0
+		spawner.tick(0.05)
+	print("[boss] 普通档 120 秒内 boss 出场=%d 次（最小间隔 %.0fs）" % [
+		state["boss"] - boss_before,
+		AiSpawnConfig.boss_min_gap("normal"),
 	])

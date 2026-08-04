@@ -3742,7 +3742,8 @@ func _setup_ai_spawn() -> void:
 		func() -> String: return enemy_era,
 		func() -> int: return _living_units("enemy").size(),
 		_spawn_ai_enemy,
-		ENEMY_UNIT_CAP
+		ENEMY_UNIT_CAP,
+		func() -> int: return enemy_era_index
 	)
 	ai_spawn.set_difficulty(current_difficulty)
 
@@ -3760,6 +3761,7 @@ func _enemy_rally_surge() -> void:
 	var burst := mini(RALLY_BURST, room)
 	for _i in range(burst):
 		ai_spawn.spawn_one(true)
+	ai_spawn.on_rally()
 	_announce_enemy_action("敌方拼死反扑！", "")
 	AudioManager.play_sfx("era")
 	_update_tower_ui()
