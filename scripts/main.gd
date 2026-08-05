@@ -51,7 +51,6 @@ const RANDOM_EFFECT_PRICE_BASE := 260
 const CLEAR_TRAY_COST := 200
 const RESHUFFLE_COST := 200
 const AI_EFFECT_CD := 8.0
-const RALLY_BURST := 6
 # weight 越大越常见（按强度分档：常见 10 / 中等 6 / 稀有 3 / 极稀有 1）
 const RANDOM_EFFECTS := [
 	{"id": "reinforcement", "name": "召唤援军", "desc": "立刻召唤 1 个随机时代的随机英雄", "duration": 0.0, "weight": 3.0},
@@ -3758,7 +3757,7 @@ func _enemy_rally_surge() -> void:
 	var room := ENEMY_UNIT_CAP - _living_units("enemy").size()
 	if room <= 0:
 		return
-	var burst := mini(RALLY_BURST, room)
+	var burst := mini(AiSpawnConfig.rally_burst(enemy_era_index), room)
 	for _i in range(burst):
 		ai_spawn.spawn_one(true)
 	ai_spawn.on_rally()

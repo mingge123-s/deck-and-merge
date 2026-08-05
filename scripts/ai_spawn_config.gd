@@ -41,10 +41,10 @@ const PROFILES := {
 		"tick_interval": 1.1,
 		"spawn_chance": 0.45,
 		"chance_per_wave": 0.0,
-		"soft_cap_base": 12,
+		"soft_cap_base": 14,
 		"soft_cap_per_era": 1,
 		"soft_cap_wave_step": 0,
-		"soft_cap_max": 20,
+		"soft_cap_max": 22,
 		"boss_tick_chance": 0.25,
 		"boss_ambient_chance": 0.07,
 		"boss_min_gap": 55.0,
@@ -67,8 +67,10 @@ const PROFILES := {
 
 ## 敌方时代对节奏的修正（索引 = GameData.ERAS 下标：0 石器 → 4 未来）。
 ## 高时代温和加压：p 最多 +20%，tick 最多缩短 8%（单位强度已由难度的 enemy_mult / 时代倍率承担）。
-const ERA_P_MULT := [1.0, 1.05, 1.10, 1.15, 1.20]
-const ERA_TICK_MULT := [1.0, 0.99, 0.97, 0.95, 0.92]
+## 石器（下标 0）在 s5 单独抬压：p 倍率 1.20、tick 收到 0.95，缓解「石器开局太弱」；
+## 铁器略抬到 1.08 避免石器→铁器断层。
+const ERA_P_MULT := [1.20, 1.08, 1.10, 1.15, 1.20]
+const ERA_TICK_MULT := [0.95, 0.99, 0.97, 0.95, 0.92]
 
 ## 上下限夹紧，防止倍率叠加出极端值（p=1 等价于旧的必出兵）。
 const P_MIN := 0.05
@@ -79,6 +81,10 @@ const TICK_MAX := 3.0
 ## 敌方拼死反扑窗口：只乘 p、不动 tick，便于叠乘与回退。
 const RALLY_P_MULT := 1.8
 const RALLY_DURATION := 6.0
+## 残血爆兵一次性数量，按敌方当前时代分档（索引 = GameData.ERAS 下标：0 石器 → 4 未来）。
+## 石器开局压力最弱，给最多的爆兵；后期单位已更强，逐级收敛：
+## 石器 10 / 铁器 8 / 工业 7 / 现代 6 / 未来 6。
+const RALLY_BURST_BY_ERA := [10, 8, 7, 6, 6]
 ## 玩家刚打爆一座敌塔（阶段击破）后的喘息窗：降低出兵速率作为正反馈奖励。
 const TOWER_BREAK_P_MULT := 0.5
 const TOWER_BREAK_DURATION := 4.0
@@ -137,6 +143,12 @@ static func boss_min_gap(difficulty_key: String) -> float:
 ## 新阶段（敌塔被打爆、敌方升时代）后首波挂上 boss_pending 的概率
 static func phase_boss_chance(difficulty_key: String) -> float:
 	return clampf(float(profile(difficulty_key).get("phase_boss_chance", 0.4)), 0.0, 1.0)
+
+## 残血爆兵一次性数量（按敌方当前时代分档），main.gd::_enemy_rally_surge 调用
+static func rally_burst(era_index := 0) -> int:
+	if RALLY_BURST_BY_ERA.is_empty():
+		return 6
+	return int(RALLY_BURST_BY_ERA[clampi(era_index, 0, RALLY_BURST_BY_ERA.size() - 1)])
 
 ## 统一掷骰入口，便于日志集中
 static func roll(rng: RandomNumberGenerator, chance: float) -> bool:
