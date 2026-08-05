@@ -1940,8 +1940,8 @@ func _update_reward_selection() -> void:
 	for index in range(reward_buttons.size()):
 		var button := reward_buttons[index]
 		if index == reward_selected_index:
-			button.add_theme_stylebox_override("normal", _panel_style(Color("#e8b46a"), Color("#fff4cd"), 20, 6))
-			button.add_theme_stylebox_override("hover", _panel_style(Color("#efc17c"), Color("#fff4cd"), 20, 6))
+			button.add_theme_stylebox_override("normal", _panel_style(Color("#b87549"), Color("#fff4cd"), 20, 6))
+			button.add_theme_stylebox_override("hover", _panel_style(Color("#c07d50"), Color("#fff4cd"), 20, 6))
 		else:
 			button.add_theme_stylebox_override("normal", _panel_style(Color("#c58a53"), Color("#ffd273"), 20, 3))
 			button.add_theme_stylebox_override("hover", _panel_style(Color("#e0a05e"), Color("#ffe19a"), 20, 3))
