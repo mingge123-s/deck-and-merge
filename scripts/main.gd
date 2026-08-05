@@ -1180,14 +1180,21 @@ func _build_pause_overlay() -> void:
 	pause_overlay = Control.new()
 	pause_overlay.size = VIEW_SIZE
 	pause_overlay.z_index = 4000
-	pause_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pause_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
 	pause_overlay.visible = false
 	add_child(pause_overlay)
 	var shade := ColorRect.new()
 	shade.size = VIEW_SIZE
-	shade.color = Color(0.05, 0.03, 0.02, 0.35)
-	shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	shade.color = Color(0.04, 0.03, 0.02, 0.88)
+	shade.mouse_filter = Control.MOUSE_FILTER_STOP
 	pause_overlay.add_child(shade)
+	for rect in [BATTLE_RECT, TRAY_RECT, BOARD_RECT]:
+		var cover := ColorRect.new()
+		cover.position = rect.position - Vector2(6, 6)
+		cover.size = rect.size + Vector2(12, 12)
+		cover.color = Color(0.06, 0.04, 0.03, 1.0)
+		cover.mouse_filter = Control.MOUSE_FILTER_STOP
+		pause_overlay.add_child(cover)
 	var panel := Panel.new()
 	panel.position = Vector2(130, 136)
 	panel.size = Vector2(460, 280)
