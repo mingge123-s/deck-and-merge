@@ -31,8 +31,10 @@ func _initialize() -> void:
 	main.run_atk_mult = 1.5
 	main.free_reshuffles = 2
 	main.free_clear_tokens = 1
-	for _stage in range(GameData.ERAS.size() - 1):
+	while main.enemy_era_index < GameData.ERAS.size() - 1:
 		await _clear_stage()
+		if main.enemy_era_index == 1:
+			await _test_stage_two_rewards()
 	# 最后一关打爆敌塔 → 胜利
 	_check(main.enemy_era_index == GameData.ERAS.size() - 1, "应已抵达最后一关")
 	main.enemy_tower_hp = 0.0
@@ -96,6 +98,31 @@ func _deck_has_era_card(era: String) -> bool:
 		if era_cards.has(card.card_id):
 			return true
 	return false
+
+func _test_stage_two_rewards() -> void:
+	# 第 2 关抽空牌堆只推进轮次，不应误触发过关。
+	main._show_round_reward()
+	_check(main.reward_active, "第 2 关抽空牌堆应弹出轮次奖励")
+	_check(main.reward_context == "round", "第 2 关抽空牌堆奖励上下文应为 round")
+	_take_reward(Callable())
+	await process_frame
+	_check(main.round_number == 2, "第 2 关抽空牌堆后应进入第 2 轮，实际 %d" % main.round_number)
+	_check(main.enemy_era_index == 1, "第 2 关抽空牌堆不得跨关")
+
+	# 轮次奖励展示期间摧毁敌塔，过关奖励应排队并在确认轮次奖励后弹出。
+	main._show_round_reward()
+	_check(main.reward_active, "第 2 关应可再次打开轮次奖励")
+	main.enemy_tower_hp = 0.0
+	main._on_enemy_tower_destroyed()
+	_check(main.stage_clear_pending, "轮次奖励期间摧毁敌塔应排队过关奖励")
+	_take_reward(Callable())
+	await process_frame
+	_check(main.reward_active, "确认轮次奖励后应弹出排队的过关奖励")
+	_check(main.reward_context == "stage_clear", "排队奖励上下文应为 stage_clear")
+	_take_reward(Callable())
+	await process_frame
+	_check(main.enemy_era_index == 2, "确认排队过关奖励后应进入第 3 关")
+	_check(not main.reward_active, "确认排队过关奖励后不应卡在奖励状态")
 
 ## 打开（可选）奖励面板并确认第一个选项
 func _take_reward(opener: Callable) -> void:
