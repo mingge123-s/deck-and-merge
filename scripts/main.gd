@@ -52,6 +52,8 @@ const VICTORY_REWARD_BASE := 120
 const RANDOM_EFFECT_PRICE_BASE := 260
 const CLEAR_TRAY_COST := 200
 const RESHUFFLE_COST := 200
+# 奖励面板刷新（重roll 三选一）花费的金币，便于以后调整
+const REWARD_REROLL_COST := 100
 const AI_EFFECT_CD := 8.0
 # weight 越大越常见（按强度分档：常见 10 / 中等 6 / 稀有 3 / 极稀有 1）
 const RANDOM_EFFECTS := [
@@ -297,6 +299,7 @@ var reward_name_labels: Array[Label] = []
 var reward_desc_labels: Array[Label] = []
 var reward_options: Array[Dictionary] = []
 var reward_confirm_button: Button
+var reward_reroll_button: Button
 var reward_selected_index := -1
 var reward_context := "round"
 var reward_title_label: Label
@@ -933,6 +936,19 @@ func _build_reward_overlay() -> void:
 	reward_confirm_button.pressed.connect(_play_button_sfx)
 	reward_confirm_button.pressed.connect(_on_reward_confirm_pressed)
 	reward_panel.add_child(reward_confirm_button)
+	reward_reroll_button = Button.new()
+	reward_reroll_button.size = Vector2(180, 64)
+	reward_reroll_button.position = Vector2(24, 520)
+	reward_reroll_button.text = "刷新（%d）" % REWARD_REROLL_COST
+	reward_reroll_button.add_theme_font_size_override("font_size", 20)
+	reward_reroll_button.add_theme_stylebox_override("normal", _panel_style(Color("#e4863e"), Color("#713722"), 16, 3))
+	reward_reroll_button.add_theme_stylebox_override("hover", _panel_style(Color("#f2a252"), Color("#713722"), 16, 3))
+	reward_reroll_button.add_theme_stylebox_override("pressed", _panel_style(Color("#c9702f"), Color("#713722"), 16, 3))
+	reward_reroll_button.add_theme_stylebox_override("disabled", _panel_style(Color("#9c6b45"), Color("#5e3320"), 16, 3))
+	reward_reroll_button.add_theme_color_override("font_disabled_color", Color("#c9b394"))
+	reward_reroll_button.pressed.connect(_play_button_sfx)
+	reward_reroll_button.pressed.connect(_on_reward_reroll_pressed)
+	reward_panel.add_child(reward_reroll_button)
 	reward_overlay.visible = false
 
 func _fx_unit_count() -> int:
@@ -1939,6 +1955,13 @@ func _show_reward(context: String) -> void:
 			reward_title_label.text = "过关！选择一项增益，随后进入%s" % _stage_name(enemy_era_index + 1)
 		else:
 			reward_title_label.text = "选择一项增益"
+	_roll_reward_options()
+	_update_reward_reroll_button()
+	reward_active = true
+	reward_overlay.visible = true
+
+func _roll_reward_options() -> void:
+	# 刷新奖励时重新随机三项，并清空当前选择，避免沿用旧奖励。
 	var pool := _reward_pool()
 	pool.shuffle()
 	reward_options.clear()
@@ -1957,8 +1980,10 @@ func _show_reward(context: String) -> void:
 		reward_buttons[index].disabled = false
 	reward_selected_index = -1
 	_update_reward_selection()
-	reward_active = true
-	reward_overlay.visible = true
+
+func _update_reward_reroll_button() -> void:
+	if reward_reroll_button != null:
+		reward_reroll_button.disabled = coin_count < REWARD_REROLL_COST
 
 func _update_reward_selection() -> void:
 	for index in range(reward_buttons.size()):
@@ -1977,6 +2002,18 @@ func _on_reward_button_pressed(index: int) -> void:
 		return
 	reward_selected_index = index
 	_update_reward_selection()
+
+func _on_reward_reroll_pressed() -> void:
+	if not reward_active:
+		return
+	if coin_count < REWARD_REROLL_COST:
+		_show_toast("金币不足，无法刷新奖励")
+		_update_reward_reroll_button()
+		return
+	# 先扣除刷新费用，再重新随机奖励选项，不关闭面板也不自动确认。
+	_change_coins(-REWARD_REROLL_COST)
+	_roll_reward_options()
+	_update_reward_reroll_button()
 
 func _on_reward_confirm_pressed() -> void:
 	if not reward_active:
