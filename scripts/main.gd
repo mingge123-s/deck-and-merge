@@ -287,6 +287,8 @@ var reward_icons: Array[TextureRect] = []
 var reward_name_labels: Array[Label] = []
 var reward_desc_labels: Array[Label] = []
 var reward_options: Array[Dictionary] = []
+var reward_confirm_button: Button
+var reward_selected_index := -1
 var reward_context := "round"
 var run_atk_mult := 1.0
 var run_hp_mult := 1.0
@@ -898,6 +900,20 @@ func _build_reward_overlay() -> void:
 		desc_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		desc_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		reward_desc_labels.append(desc_label)
+	reward_confirm_button = Button.new()
+	reward_confirm_button.size = Vector2(240, 72)
+	reward_confirm_button.position = Vector2((reward_panel.size.x - 240) * 0.5, 516)
+	reward_confirm_button.text = "确认"
+	reward_confirm_button.add_theme_font_size_override("font_size", 26)
+	reward_confirm_button.add_theme_stylebox_override("normal", _panel_style(Color("#e4863e"), Color("#713722"), 18, 3))
+	reward_confirm_button.add_theme_stylebox_override("hover", _panel_style(Color("#f2a252"), Color("#713722"), 18, 3))
+	reward_confirm_button.add_theme_stylebox_override("pressed", _panel_style(Color("#c9702f"), Color("#713722"), 18, 3))
+	reward_confirm_button.add_theme_stylebox_override("disabled", _panel_style(Color("#9c6b45"), Color("#5e3320"), 18, 3))
+	reward_confirm_button.add_theme_color_override("font_disabled_color", Color("#c9b394"))
+	reward_confirm_button.disabled = true
+	reward_confirm_button.pressed.connect(_play_button_sfx)
+	reward_confirm_button.pressed.connect(_on_reward_confirm_pressed)
+	reward_panel.add_child(reward_confirm_button)
 	reward_overlay.visible = false
 
 func _fx_unit_count() -> int:
@@ -1915,16 +1931,39 @@ func _show_reward(context: String) -> void:
 			reward_icons[index].texture = null
 			reward_icons[index].visible = false
 		reward_buttons[index].disabled = false
+	reward_selected_index = -1
+	_update_reward_selection()
 	reward_active = true
 	reward_overlay.visible = true
+
+func _update_reward_selection() -> void:
+	for index in range(reward_buttons.size()):
+		var button := reward_buttons[index]
+		if index == reward_selected_index:
+			button.add_theme_stylebox_override("normal", _panel_style(Color("#b87549"), Color("#fff4cd"), 20, 6))
+			button.add_theme_stylebox_override("hover", _panel_style(Color("#c07d50"), Color("#fff4cd"), 20, 6))
+		else:
+			button.add_theme_stylebox_override("normal", _panel_style(Color("#c58a53"), Color("#ffd273"), 20, 3))
+			button.add_theme_stylebox_override("hover", _panel_style(Color("#e0a05e"), Color("#ffe19a"), 20, 3))
+	if reward_confirm_button != null:
+		reward_confirm_button.disabled = reward_selected_index < 0
 
 func _on_reward_button_pressed(index: int) -> void:
 	if not reward_active or index < 0 or index >= reward_options.size():
 		return
+	reward_selected_index = index
+	_update_reward_selection()
+
+func _on_reward_confirm_pressed() -> void:
+	if not reward_active:
+		return
+	if reward_selected_index < 0 or reward_selected_index >= reward_options.size():
+		return
+	var option: Dictionary = reward_options[reward_selected_index]
 	if reward_context == "era_up":
-		_apply_era_up_reward(reward_options[index])
+		_apply_era_up_reward(option)
 	else:
-		_apply_round_reward(reward_options[index])
+		_apply_round_reward(option)
 
 func _reset_round_mods() -> void:
 	round_weight_mult.clear()
@@ -1945,6 +1984,8 @@ func _apply_round_reward(option: Dictionary) -> void:
 	reward_active = false
 	reward_overlay.visible = false
 	reward_options.clear()
+	reward_selected_index = -1
+	_update_reward_selection()
 	AudioManager.play_sfx("era")
 	_update_tower_ui()
 	_spawn_next_batch()
@@ -1955,6 +1996,8 @@ func _apply_era_up_reward(option: Dictionary) -> void:
 	reward_active = false
 	reward_overlay.visible = false
 	reward_options.clear()
+	reward_selected_index = -1
+	_update_reward_selection()
 	_ascend_enemy_era_phase()
 
 func _apply_reward_effect(option: Dictionary) -> void:
@@ -2923,6 +2966,8 @@ func _show_main_menu() -> void:
 		tutorial_overlay.visible = false
 	if reward_overlay != null:
 		reward_overlay.visible = false
+	reward_selected_index = -1
+	_update_reward_selection()
 	if pause_button != null:
 		pause_button.visible = false
 	if sandbox_control_panel != null:
