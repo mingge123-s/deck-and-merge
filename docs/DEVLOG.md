@@ -53,3 +53,12 @@
 - 塔壁奖励改为永久：新增 `run_tower_hp_mult`，己方塔满血值统一走 `_ally_tower_target_hp()`，过关重建时仍保留塔血加成。
 - UI 文案：信息栏改为「第 N 关（时代名）· 第 R 轮 · 状态」；敌塔血条阶段标签改为「第 N 关」；过关奖励面板标题提示即将进入的关卡；教程第 4 步改写为关卡说明；GDD / ai-spawn-probability 文档同步。
 - 验证：`godot --headless --path . --import` 无 SCRIPT ERROR；新增 `tools/stage_progression_smoke.gd` 逐关走完 5 关，断言过关后关卡 +1、牌池时代锁定、轮次归 1、双方清场、双方塔满血、金币与永久加成保留、终关打爆敌塔进终局，结果 OK；`tools/ai_spawn_smoke.gd` 回归通过。
+
+## 2026-08-05：恢复同关内轮次牌堆升级（关卡仍靠拆塔推进）
+
+- 问题（#54 回归）：同关内牌堆取空后只发本关时代的牌，第 1 关多轮都是石器原牌堆，等于每轮回到起点。
+- 恢复 `ERA_UP_ROUNDS := [2, 4, 7, 10]` 与 `_advance_era()`：`_spawn_next_batch` 按 `base_era_index + 本关轮次阈值` 推进玩家 `era_index` / `current_era`，再用 `GameData.blended_deck_counts(era_index)` 发牌，只升不降。
+- `_sync_player_era_to_stage()` 改为「提下限」：`base_era_index = max(base_era_index, enemy_era_index)`，`era_index = max(era_index, base_era_index)`；过关后 `round_number = 0` 再发第 1 轮，新关第 1 轮至少是本关时代基底。
+- 敌方关卡 / 敌塔时代仍只在打爆敌塔时推进；玩家牌池可按轮次超前于当前关卡（旧手感）。
+- 文案：教程「同关多轮仍是本关时代牌」改为「牌堆取空后逐轮混入更高时代的卡」；GDD 同步。
+- 验证：`tools/stage_progression_smoke.gd` OK（新增断言：第 1 关第 2 轮 `era_index>=1` 且牌堆同时含铁器与石器卡；每关第 1 轮 `era_index >= 关卡下限`）；`tools/ai_spawn_smoke.gd` 回归通过。
