@@ -13,6 +13,17 @@ const DECK_LOW_MARGIN := 12 # 牌堆少于目标-12张才触发补牌；每次�
 const TRAY_SLOTS := 7
 const PREP_WAVE_INTERVAL := 3
 const WAVE_DURATION := 180.0
+# 每关时间限制（关卡制防刷金币）：超时 = 本局失败，防止磨兵无限刷金币。
+# 语义是「整关时限」：进关时启动并倒计时，过关进入下一关时换本关时限并重新计时；
+# 与 WAVE_DURATION（单波出兵窗口）不同——这是玩家打爆本关敌塔的总时间预算。
+# 暂停 / 奖励面板打开时冻结（不罚玩家看选项）。可按难度、按关卡 index 0..4 配置。
+# 默认：普通 180s（与 WAVE_DURATION 同量级），简单略宽 240s，困难略紧 150s；
+# 五关同一基础时限，如需逐关变化只改对应数组元素即可（例：[180,180,190,200,210]）。
+const STAGE_TIME_LIMIT := {
+	"easy": [240.0, 240.0, 240.0, 240.0, 240.0],
+	"normal": [180.0, 180.0, 180.0, 180.0, 180.0],
+	"hard": [150.0, 150.0, 150.0, 150.0, 150.0],
+}
 const KILL_COIN_MULT := 0.2
 # 关卡制：敌方关卡只靠打爆敌塔推进；玩家牌池时代额外按本关轮次升级
 const ERA_UP_ROUNDS := [2, 4, 7, 10] # 相对本关起始时代，在这些轮次各升一级牌池时代
@@ -109,7 +120,7 @@ const TUTORIAL_STEPS := [
 	},
 	{
 		"title": "第 4 步：关卡与轮次",
-		"text": "信息栏显示当前[b]关卡[/b]、本关轮次、金币与积分（波次进度条在牌堆上方）。共 5 关：第 1 关石器 → 第 2 关铁器 → 第 3 关工业 → 第 4 关现代 → 第 5 关未来。\n[b]打爆敌塔即过关[/b]：选完增益后直接进下一关——当前牌堆与合成台剩牌作废，双方小兵全部消失，双方塔满血重建，发本关第 1 轮牌；金币与永久增益保留。关卡越高，双方塔血与敌方出兵越强。信息栏左端是 ≡ 主界面，右端一排依次是重排 / 暂停 / [b]?[/b]，点最右的 [b]?[/b] 可随时重看本教程。",
+		"text": "信息栏显示当前[b]关卡[/b]、本关轮次、金币与积分（波次进度条在牌堆上方）。每关有独立倒计时（信息栏 ⏱ mm:ss），[b]倒计时归零即「超时失败」[/b]，暂停/选增益时冻结——尽快打爆敌塔，不要磨兵刷金币。共 5 关：第 1 关石器 → 第 2 关铁器 → 第 3 关工业 → 第 4 关现代 → 第 5 关未来。\n[b]打爆敌塔即过关[/b]：选完增益后直接进下一关——当前牌堆与合成台剩牌作废，双方小兵全部消失，双方塔满血重建，发本关第 1 轮牌；金币与永久增益保留。关卡越高，双方塔血与敌方出兵越强。信息栏左端是 ≡ 主界面，右端一排依次是重排 / 暂停 / [b]?[/b]，点最右的 [b]?[/b] 可随时重看本教程。",
 		"rect": INFO_BAR_RECT,
 	},
 	{
@@ -169,6 +180,7 @@ var coin_label: Label
 var score_label: Label
 var era_label: Label
 var deck_label: Label
+var stage_timer_label: Label
 var reshuffle_button: Button
 var reshuffle_confirm_overlay: Control
 var status_label: Label
@@ -292,6 +304,8 @@ var enemy_lane_cursor := 0
 var stuck_warned := false
 var reward_active := false
 var stage_clear_pending := false
+var stage_time_limit := 0.0
+var stage_time_left := 0.0
 var reward_overlay: Control
 var reward_panel: Panel
 var reward_buttons: Array[Button] = []
@@ -525,6 +539,9 @@ func _process(delta: float) -> void:
 		return
 	fx_unit_count_cache = _living_units("ally").size() + _living_units("enemy").size()
 	_tick_buffs(delta)
+	_tick_stage_timer(delta)
+	if battle_ended:
+		return
 	if round_tower_regen and ally_tower_hp > 0.0:
 		ally_tower_hp = minf(ally_tower_max_hp, ally_tower_hp + ally_tower_max_hp * 0.02 * delta)
 	_sync_persistent_status_vfx(delta)
@@ -706,6 +723,8 @@ func _build_top_bar() -> void:
 	coin_label = _label(bar, "", Vector2(70, 18), Vector2(140, 28), 16, Color("#fff0c7"))
 	score_label = _label(bar, "", Vector2(70, 40), Vector2(160, 22), 13, Color("#f6d69f"))
 	era_label = _label(bar, "", Vector2(215, 22), Vector2(250, 20), 12, Color("#f6d69f"))
+	stage_timer_label = _label(bar, "⏱ --:--", Vector2(300, 38), Vector2(170, 24), 17, Color("#f6d69f"))
+	_outline(stage_timer_label, 4)
 	reshuffle_button = Button.new()
 	reshuffle_button.position = Vector2(480, 9)
 	reshuffle_button.size = Vector2(46, 46)
@@ -3259,6 +3278,7 @@ func _start_round(start_era_index: int = 0) -> void:
 	battle_ended = false
 	battle_won = false
 	paused = false
+	_reset_stage_timer()
 	if pause_overlay != null:
 		pause_overlay.visible = false
 	if tutorial_overlay != null:
@@ -5153,6 +5173,45 @@ func _stage_name(stage_number: int) -> String:
 	var era: String = GameData.ERAS[index]
 	return "第 %d 关（%s）" % [stage_number, str(GameData.ERA_NAMES.get(era, era))]
 
+## 本关时限（秒）：按难度表 + 关卡 index（0..4）取值；<=0 表示无限制（不启用）
+func _stage_time_limit_for(stage_index: int) -> float:
+	var table: Array = STAGE_TIME_LIMIT.get(current_difficulty, STAGE_TIME_LIMIT["normal"])
+	if table.is_empty():
+		return 0.0
+	var idx := clampi(stage_index, 0, table.size() - 1)
+	return float(table[idx])
+
+## 进关/开局时重置并启动本关计时
+func _reset_stage_timer() -> void:
+	stage_time_limit = _stage_time_limit_for(enemy_era_index)
+	stage_time_left = stage_time_limit
+	_update_stage_timer_ui()
+
+## 每帧扣时（仅在战斗进行、未暂停、未开奖励面板时被调用 → 天然冻结）
+func _tick_stage_timer(delta: float) -> void:
+	if stage_time_limit <= 0.0 or battle_ended:
+		return
+	stage_time_left = maxf(0.0, stage_time_left - delta)
+	_update_stage_timer_ui()
+	if stage_time_left <= 0.0:
+		_finish_battle(false, "超时失败：本关时间耗尽")
+
+func _update_stage_timer_ui() -> void:
+	if stage_timer_label == null:
+		return
+	if not battle_active or battle_ended or stage_time_limit <= 0.0:
+		stage_timer_label.text = "⏱ --:--"
+		stage_timer_label.add_theme_color_override("font_color", Color("#f6d69f"))
+		return
+	var secs := int(ceil(stage_time_left))
+	stage_timer_label.text = "⏱ %02d:%02d" % [secs / 60, secs % 60]
+	var color := Color("#f6d69f")
+	if stage_time_left <= 15.0:
+		color = Color("#ff5a3c")
+	elif stage_time_left <= 30.0:
+		color = Color("#ffd166")
+	stage_timer_label.add_theme_color_override("font_color", color)
+
 ## 把玩家时代下限提到当前关卡时代：牌池只升不降，已超前的轮次升级保留
 func _sync_player_era_to_stage() -> void:
 	base_era_index = maxi(base_era_index, enemy_era_index)
@@ -5231,6 +5290,7 @@ func _enter_next_stage() -> void:
 	ai_spawn.reset()
 	ai_spawn.on_phase_start()
 	wave_min_timer = _diff().first_delay
+	_reset_stage_timer()
 	# 关卡第 1 轮发牌（_spawn_next_batch 内部会 round_number += 1）
 	round_number = 0
 	_spawn_next_batch()
