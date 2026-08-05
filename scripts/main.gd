@@ -2182,7 +2182,7 @@ func _do_clear_tray() -> void:
 	else:
 		battle_hint.text = "已扣 %d 金币清空合成台（%d 张补回牌堆）" % [CLEAR_TRAY_COST, returned.size()]
 		_show_toast("合成台已满，自动扣 %d 金币清空（%d 张已补回牌堆）" % [CLEAR_TRAY_COST, returned.size()])
-	AudioManager.play_sfx("era")
+	AudioManager.play_sfx("ui_denied")
 	_update_coin_ui()
 	_update_progress_ui()
 
@@ -3484,7 +3484,7 @@ func _enter_clear_confirm() -> void:
 	_set_pause_text("合成台已满", "凑不齐三连，需扣 %d 金币清理合成台" % CLEAR_TRAY_COST)
 	if pause_overlay != null:
 		pause_overlay.visible = true
-	AudioManager.play_sfx("era")
+	AudioManager.play_sfx("ui_denied")
 	_update_progress_ui()
 
 func _confirm_clear_tray() -> void:
