@@ -23,7 +23,9 @@ func _initialize() -> void:
 	await process_frame
 	_check(main.round_number == 2, "同关抽空牌堆应进入第 2 轮，实际 %d" % main.round_number)
 	_check(main.enemy_era_index == stage_before, "同关抽空牌堆不得跨关")
-	_check(main.era_index == main.enemy_era_index, "玩家时代应始终等于当前关卡")
+	_check(main.era_index >= 1, "第 1 关第 2 轮牌池时代应升到铁器，实际 %d" % main.era_index)
+	_check(_deck_has_era_card("iron"), "第 1 关第 2 轮牌堆应混入铁器时代卡")
+	_check(_deck_has_era_card("stone"), "第 1 关第 2 轮牌堆应仍保留石器时代卡")
 
 	# 逐关过关
 	main.run_atk_mult = 1.5
@@ -65,7 +67,8 @@ func _clear_stage() -> void:
 	var stage: int = main.enemy_era_index
 	var label := "第 %d 关" % (stage + 1)
 	_check(stage == stage_before + 1, "%s：过关后关卡应 +1" % label)
-	_check(main.era_index == stage, "%s：玩家牌池时代应锁定本关" % label)
+	_check(main.era_index >= stage, "%s：玩家牌池时代不得低于本关下限" % label)
+	_check(main.base_era_index >= stage, "%s：牌池时代下限应提到本关" % label)
 	_check(main.round_number == 1, "%s：过关后应从第 1 轮开始，实际 %d" % [label, main.round_number])
 	_check(not main.deck_cards.is_empty(), "%s：过关后应发出本关第 1 轮牌" % label)
 	_check(main.tray_cards.is_empty(), "%s：过关应丢弃合成台剩牌" % label)
@@ -86,6 +89,13 @@ func _clear_stage() -> void:
 	_check(main.run_atk_mult >= atk_before, "%s：过关应保留 run_* 永久加成" % label)
 	_check(main.free_reshuffles >= reshuffles_before, "%s：过关应保留免费重排次数" % label)
 	_check(main.free_clear_tokens >= clears_before, "%s：过关应保留免费清台次数" % label)
+
+func _deck_has_era_card(era: String) -> bool:
+	var era_cards := GameData.cards_for_era(era)
+	for card in main.deck_cards:
+		if era_cards.has(card.card_id):
+			return true
+	return false
 
 ## 打开（可选）奖励面板并确认第一个选项
 func _take_reward(opener: Callable) -> void:

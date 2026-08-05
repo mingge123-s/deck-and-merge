@@ -14,7 +14,8 @@ const TRAY_SLOTS := 7
 const PREP_WAVE_INTERVAL := 3
 const WAVE_DURATION := 180.0
 const KILL_COIN_MULT := 0.2
-# 关卡制：时代只跟随关卡推进（打爆敌塔=过关），不再靠抽牌轮次偷偷升时代
+# 关卡制：敌方关卡只靠打爆敌塔推进；玩家牌池时代额外按本关轮次升级
+const ERA_UP_ROUNDS := [2, 4, 7, 10] # 相对本关起始时代，在这些轮次各升一级牌池时代
 const BATCH_BASE_GROUPS := 60
 const BATCH_GROUP_STEP := 10
 const MIN_BOSS_GROUPS := 2 # 每批保底当前时代 BOSS 组数（保证至少能合成）
@@ -91,7 +92,7 @@ const TUTORIAL_STEPS := [
 	},
 	{
 		"title": "第 1 步：从牌堆取牌",
-		"text": "这里是牌堆。点击[b]没被压住[/b]的卡牌，它会飞进上方的合成台；被压在下面的卡点不动。\n牌堆取空就进入[b]本关下一轮[/b]，自动发一批新牌（仍是本关时代的牌）。",
+		"text": "这里是牌堆。点击[b]没被压住[/b]的卡牌，它会飞进上方的合成台；被压在下面的卡点不动。\n牌堆取空就进入[b]本关下一轮[/b]，自动发一批新牌，并逐轮混入[b]更高时代[/b]的卡。",
 		"rect": BOARD_RECT,
 	},
 	{
@@ -111,7 +112,7 @@ const TUTORIAL_STEPS := [
 	},
 	{
 		"title": "开始吧",
-		"text": "一句话口诀：[b]先凑本关时代的三连，别把合成台塑死[/b]。\nBOSS 卡（图腾/王冠/烟囱/军徽/AI核心）少但最强，碰到优先凑齐。",
+		"text": "一句话口诀：[b]先凑当前时代的三连，别把合成台塑死[/b]。\nBOSS 卡（图腾/王冠/烟囱/军徽/AI核心）少但最强，碰到优先凑齐。",
 		"rect": Rect2(),
 	},
 ]
@@ -3264,7 +3265,14 @@ func _spawn_card(card_id: String, index: int, from_bottom := false) -> void:
 
 func _spawn_next_batch() -> void:
 	round_number += 1
-	# 卡池时代与当前关卡锁定：同关内多轮只发本关时代的牌
+	# 牌池时代：本关时代下限 + 本关轮次阈值升级（只升不降）
+	var era_steps := 0
+	for up_round in ERA_UP_ROUNDS:
+		if round_number >= int(up_round):
+			era_steps += 1
+	var target_ei := mini(base_era_index + era_steps, GameData.ERAS.size() - 1)
+	while era_index < target_ei:
+		_advance_era()
 	var groups := BATCH_BASE_GROUPS + (round_number - 1) * BATCH_GROUP_STEP
 	var batch := _build_batch_cards(groups)
 	batch.shuffle()
@@ -5081,12 +5089,27 @@ func _stage_name(stage_number: int) -> String:
 	var era: String = GameData.ERAS[index]
 	return "第 %d 关（%s）" % [stage_number, str(GameData.ERA_NAMES.get(era, era))]
 
-## 把玩家时代锁定到当前关卡时代：牌池 / 背景 / 己方塔强度都跟关卡走
+## 把玩家时代下限提到当前关卡时代：牌池只升不降，已超前的轮次升级保留
 func _sync_player_era_to_stage() -> void:
-	era_index = enemy_era_index
-	base_era_index = era_index
+	base_era_index = maxi(base_era_index, enemy_era_index)
+	era_index = maxi(era_index, base_era_index)
 	current_era = GameData.ERAS[era_index]
 	SaveManager.unlock_era(era_index)
+	_refresh_era_visuals(true)
+
+## 玩家牌池时代 +1（轮次升级），视觉与己方塔强度一并跟随
+func _advance_era() -> void:
+	if era_index >= GameData.ERAS.size() - 1:
+		return
+	era_index += 1
+	current_era = GameData.ERAS[era_index]
+	SaveManager.unlock_era(era_index)
+	AudioManager.play_sfx("era")
+	if fx_manager != null:
+		fx_manager.emit_era_transition(Vector2(360, 280), _era_fx_color(current_era), current_era)
+	_rescale_towers_for_era()
+	_update_progress_ui()
+	battle_hint.text = "文明进阶：%s！新一轮牌堆解锁更高级卡牌" % GameData.ERA_NAMES[current_era]
 	_refresh_era_visuals(true)
 
 func _advance_enemy_era() -> void:
@@ -5148,7 +5171,7 @@ func _enter_next_stage() -> void:
 	_rescale_towers_for_era()
 	_update_tower_ui()
 	_update_progress_ui()
-	battle_hint.text = "进入%s：敌方防御塔已重建，牌堆已换为本关牌池" % _stage_name(_stage_number())
+	battle_hint.text = "进入%s：敌方防御塔已重建，牌堆按本关时代下限重新发牌" % _stage_name(_stage_number())
 	_show_toast("进入%s" % _stage_name(_stage_number()))
 	print("进入关卡: %d (%s)" % [_stage_number(), current_era])
 
