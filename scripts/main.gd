@@ -14,7 +14,7 @@ const TRAY_SLOTS := 7
 const PREP_WAVE_INTERVAL := 3
 const WAVE_DURATION := 180.0
 const KILL_COIN_MULT := 0.2
-const ERA_UP_ROUNDS := [2, 4, 7, 10] # 在这些轮次各升一级时代：1石器/2铁器/4工业/7现代/10未来
+# 关卡制：时代只跟随关卡推进（打爆敌塔=过关），不再靠抽牌轮次偷偷升时代
 const BATCH_BASE_GROUPS := 60
 const BATCH_GROUP_STEP := 10
 const MIN_BOSS_GROUPS := 2 # 每批保底当前时代 BOSS 组数（保证至少能合成）
@@ -86,12 +86,12 @@ const EFFECT_CARD_COLOR := Color("#8754d8")
 const TUTORIAL_STEPS := [
 	{
 		"title": "欢迎来到牌桌远征",
-		"text": "目标：打光敌方塔的血量即获胜，自己的塔被打光则失败。\n跟着下面几步走一遍，十秒学会。",
+		"text": "目标：打爆敌方防御塔即[b]过关[/b]，自己的塔被打爆则失败。共 5 关，打爆第 5 关敌塔获胜。\n跟着下面几步走一遍，十秒学会。",
 		"rect": Rect2(),
 	},
 	{
 		"title": "第 1 步：从牌堆取牌",
-		"text": "这里是牌堆。点击[b]没被压住[/b]的卡牌，它会飞进上方的合成台；被压在下面的卡点不动。\n牌堆取空就进入下一轮，自动发一批新牌。",
+		"text": "这里是牌堆。点击[b]没被压住[/b]的卡牌，它会飞进上方的合成台；被压在下面的卡点不动。\n牌堆取空就进入[b]本关下一轮[/b]，自动发一批新牌（仍是本关时代的牌）。",
 		"rect": BOARD_RECT,
 	},
 	{
@@ -105,13 +105,13 @@ const TUTORIAL_STEPS := [
 		"rect": BATTLE_RECT,
 	},
 	{
-		"title": "第 4 步：时代会自己升级",
-		"text": "合成台与牌堆之间的信息栏会显示当前时代、轮次、金币与积分（波次进度条在牌堆上方）。每过一轮自动推进一个时代：石器 → 铁器 → 工业 → 现代 → 未来。\n时代越高，双方塔的血量与攻击越强，牌堆也会混入新时代的卡。信息栏左端是 ≡ 主界面，右端一排依次是重排 / 暂停 / [b]?[/b]，点最右的 [b]?[/b] 可随时重看本教程。",
+		"title": "第 4 步：关卡与轮次",
+		"text": "信息栏显示当前[b]关卡[/b]、本关轮次、金币与积分（波次进度条在牌堆上方）。共 5 关：第 1 关石器 → 第 2 关铁器 → 第 3 关工业 → 第 4 关现代 → 第 5 关未来。\n[b]打爆敌塔即过关[/b]：选完增益后直接进下一关——当前牌堆与合成台剩牌作废，双方小兵全部消失，双方塔满血重建，发本关第 1 轮牌；金币与永久增益保留。关卡越高，双方塔血与敌方出兵越强。信息栏左端是 ≡ 主界面，右端一排依次是重排 / 暂停 / [b]?[/b]，点最右的 [b]?[/b] 可随时重看本教程。",
 		"rect": INFO_BAR_RECT,
 	},
 	{
 		"title": "开始吧",
-		"text": "一句话口诀：[b]先凑当前时代的三连，别把合成台塑死[/b]。\nBOSS 卡（图腾/王冠/烟囱/军徽/AI核心）少但最强，碰到优先凑齐。",
+		"text": "一句话口诀：[b]先凑本关时代的三连，别把合成台塑死[/b]。\nBOSS 卡（图腾/王冠/烟囱/军徽/AI核心）少但最强，碰到优先凑齐。",
 		"rect": Rect2(),
 	},
 ]
@@ -298,6 +298,7 @@ var reward_options: Array[Dictionary] = []
 var reward_confirm_button: Button
 var reward_selected_index := -1
 var reward_context := "round"
+var reward_title_label: Label
 var run_atk_mult := 1.0
 var run_hp_mult := 1.0
 var run_aspd_mult := 1.0
@@ -309,6 +310,8 @@ var run_ranged_atk_mult := 1.0
 var run_assassin_crit_chance := 0.0
 var run_assassin_crit_mult := 0.0
 var run_stun_mult := 1.0
+## 己方塔满血倍率（塔壁奖励等永久项，过关重建时仍生效）
+var run_tower_hp_mult := 1.0
 var run_hero_mult: Dictionary = {}
 var free_reshuffles := 0
 var free_clear_tokens := 0
@@ -882,6 +885,8 @@ func _build_reward_overlay() -> void:
 	reward_overlay.add_child(reward_panel)
 	var title := _label(reward_panel, "选择一项增益", Vector2(0, 34), Vector2(680, 52), 30, Color("#fff0c7"))
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	reward_title_label = title
 	for index in range(3):
 		var button := Button.new()
 		button.position = Vector2(24 + index * 224, 130)
@@ -1921,13 +1926,18 @@ func _roll_reward_option(reward_id: String) -> Dictionary:
 func _show_round_reward() -> void:
 	_show_reward("round")
 
-func _show_era_up_reward() -> void:
-	_show_reward("era_up")
+func _show_stage_clear_reward() -> void:
+	_show_reward("stage_clear")
 
 func _show_reward(context: String) -> void:
 	if reward_overlay == null or reward_active:
 		return
 	reward_context = context
+	if reward_title_label != null:
+		if context == "stage_clear":
+			reward_title_label.text = "过关！选择一项增益，随后进入%s" % _stage_name(enemy_era_index + 1)
+		else:
+			reward_title_label.text = "选择一项增益"
 	var pool := _reward_pool()
 	pool.shuffle()
 	reward_options.clear()
@@ -1973,8 +1983,8 @@ func _on_reward_confirm_pressed() -> void:
 	if reward_selected_index < 0 or reward_selected_index >= reward_options.size():
 		return
 	var option: Dictionary = reward_options[reward_selected_index]
-	if reward_context == "era_up":
-		_apply_era_up_reward(option)
+	if reward_context == "stage_clear":
+		_apply_stage_clear_reward(option)
 	else:
 		_apply_round_reward(option)
 
@@ -2004,20 +2014,21 @@ func _apply_round_reward(option: Dictionary) -> void:
 	_spawn_next_batch()
 	_update_progress_ui()
 
-func _apply_era_up_reward(option: Dictionary) -> void:
+func _apply_stage_clear_reward(option: Dictionary) -> void:
 	_apply_reward_effect(option)
 	reward_active = false
 	reward_overlay.visible = false
 	reward_options.clear()
 	reward_selected_index = -1
 	_update_reward_selection()
-	_ascend_enemy_era_phase()
+	_enter_next_stage()
 
 func _apply_reward_effect(option: Dictionary) -> void:
 	var reward_id := str(option.get("id", ""))
 	match reward_id:
 		"tower_wall":
 			var old_max := ally_tower_max_hp
+			run_tower_hp_mult *= 1.2
 			ally_tower_max_hp *= 1.2
 			ally_tower_hp = minf(ally_tower_max_hp, ally_tower_hp + ally_tower_max_hp - old_max)
 		"tower_repair":
@@ -2250,12 +2261,11 @@ func _build_era_select_panel() -> void:
 	era_select_panel.add_theme_stylebox_override("panel", _panel_style(Color("#c58a53"), Color("#70412c"), 24, 3))
 	era_select_panel.visible = false
 	main_menu.add_child(era_select_panel)
-	var title := _label(era_select_panel, "选择时代", Vector2(0, 28), Vector2(552, 42), 28)
+	var title := _label(era_select_panel, "选择起始关卡", Vector2(0, 28), Vector2(552, 42), 28)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	for index in range(GameData.ERAS.size()):
-		var era: String = GameData.ERAS[index]
 		var unlocked := index <= SaveManager.get_unlocked_era_index()
-		var text := str(GameData.ERA_NAMES.get(era, era))
+		var text := _stage_name(index + 1)
 		if not unlocked:
 			text += "（未解锁）"
 		var button := _menu_button(era_select_panel, text, Vector2(86, 94 + index * 88), Vector2(380, 60), 19)
@@ -2277,7 +2287,7 @@ func _refresh_era_select_ui() -> void:
 	for index in range(era_select_buttons.size()):
 		var unlocked := index <= unlocked_index
 		era_select_buttons[index].disabled = not unlocked
-		era_select_buttons[index].text = str(GameData.ERA_NAMES.get(GameData.ERAS[index], GameData.ERAS[index]))
+		era_select_buttons[index].text = _stage_name(index + 1)
 		if not unlocked:
 			era_select_buttons[index].text += "（未解锁）"
 
@@ -2969,6 +2979,7 @@ func _start_sandbox_battle() -> void:
 	run_assassin_crit_chance = 0.0
 	run_assassin_crit_mult = 0.0
 	run_stun_mult = 1.0
+	run_tower_hp_mult = 1.0
 	run_hero_mult.clear()
 	_reset_round_mods()
 	ally_alarm_50_played = false
@@ -3155,8 +3166,9 @@ func _start_round(start_era_index: int = 0) -> void:
 	prep_pending = false
 	auto_prep = false
 	stuck_warned = false
-	enemy_era_index = 0
-	enemy_era = "stone"
+	# 关卡制：起始关卡 = 所选时代，敌方与玩家时代同关锁定
+	enemy_era_index = era_index
+	enemy_era = current_era
 	buff_timers.clear()
 	enemy_buff_timers.clear()
 	enemy_freeze_time = 0.0
@@ -3174,6 +3186,7 @@ func _start_round(start_era_index: int = 0) -> void:
 	run_assassin_crit_chance = 0.0
 	run_assassin_crit_mult = 0.0
 	run_stun_mult = 1.0
+	run_tower_hp_mult = 1.0
 	run_hero_mult.clear()
 	free_reshuffles = 0
 	free_clear_tokens = 0
@@ -3208,7 +3221,7 @@ func _start_round(start_era_index: int = 0) -> void:
 	ally_tower_cd = 0.0
 	enemy_tower_cd = 0.0
 	card_z_top = 0
-	ally_tower_hp = GameData.ally_tower_hp(current_era) * float(_diff().tower_mult)
+	ally_tower_hp = _ally_tower_target_hp()
 	enemy_tower_hp = GameData.tower_hp(enemy_era)
 	ally_tower_max_hp = ally_tower_hp
 	enemy_tower_max_hp = enemy_tower_hp
@@ -3251,13 +3264,7 @@ func _spawn_card(card_id: String, index: int, from_bottom := false) -> void:
 
 func _spawn_next_batch() -> void:
 	round_number += 1
-	var era_steps := 0
-	for up_round in ERA_UP_ROUNDS:
-		if round_number >= int(up_round):
-			era_steps += 1
-	var target_ei := mini(base_era_index + era_steps, GameData.ERAS.size() - 1)
-	while era_index < target_ei:
-		_advance_era()
+	# 卡池时代与当前关卡锁定：同关内多轮只发本关时代的牌
 	var groups := BATCH_BASE_GROUPS + (round_number - 1) * BATCH_GROUP_STEP
 	var batch := _build_batch_cards(groups)
 	batch.shuffle()
@@ -5063,22 +5070,24 @@ func _on_enemy_tower_destroyed() -> void:
 	if enemy_era_index >= GameData.ERAS.size() - 1:
 		_trigger_tower_destruction(true)
 		return
-	_show_era_up_reward()
+	_show_stage_clear_reward()
 
-func _advance_era() -> void:
-	if era_index >= GameData.ERAS.size() - 1:
-		return
-	era_index += 1
+## 关卡编号（1 起）与文案：第 1 关=石器 … 第 5 关=未来
+func _stage_number() -> int:
+	return enemy_era_index + 1
+
+func _stage_name(stage_number: int) -> String:
+	var index := clampi(stage_number - 1, 0, GameData.ERAS.size() - 1)
+	var era: String = GameData.ERAS[index]
+	return "第 %d 关（%s）" % [stage_number, str(GameData.ERA_NAMES.get(era, era))]
+
+## 把玩家时代锁定到当前关卡时代：牌池 / 背景 / 己方塔强度都跟关卡走
+func _sync_player_era_to_stage() -> void:
+	era_index = enemy_era_index
+	base_era_index = era_index
 	current_era = GameData.ERAS[era_index]
 	SaveManager.unlock_era(era_index)
-	AudioManager.play_sfx("era")
-	if fx_manager != null:
-		fx_manager.emit_era_transition(Vector2(360, 280), _era_fx_color(current_era), current_era)
-	_rescale_towers_for_era()
-	_update_progress_ui()
-	battle_hint.text = "文明进阶：%s！新一轮牌堆解锁更高级卡牌" % GameData.ERA_NAMES[current_era]
 	_refresh_era_visuals(true)
-	print("时代进阶: %s" % current_era)
 
 func _advance_enemy_era() -> void:
 	if enemy_era_index >= GameData.ERAS.size() - 1:
@@ -5093,61 +5102,90 @@ func _advance_enemy_era() -> void:
 	AudioManager.play_sfx("era")
 	if fx_manager != null:
 		fx_manager.emit_era_transition(Vector2(360, 280), _era_fx_color(enemy_era), enemy_era)
-	_announce_enemy_action("敌方进阶：%s" % str(GameData.ERA_NAMES.get(enemy_era, enemy_era)), "")
+	_announce_enemy_action("敌方防御塔重建：%s" % _stage_name(_stage_number()), "")
 
-func _ascend_enemy_era_phase() -> void:
+## 过关主路径：摧毁敌塔 → 进入下一关（新敌塔满血、双方清场、己方塔满血、发本关第 1 轮牌）
+func _enter_next_stage() -> void:
+	if enemy_era_index >= GameData.ERAS.size() - 1:
+		return
 	_advance_enemy_era()
-	_clear_enemy_phase_units()
-	_regroup_ally_units()
+	_sync_player_era_to_stage()
+	_clear_all_battle_units()
+	# 保留金币与 run_* / free_* 永久项，只重置当轮修饰
+	_reset_round_mods()
+	_discard_all_cards()
+	buff_timers.clear()
+	enemy_buff_timers.clear()
+	enemy_freeze_time = 0.0
+	ally_freeze_time = 0.0
+	enemy_tower_attack_bonus = 1.0
+	_update_buff_ui()
+	# 己方塔按新关卡满血重建
+	ally_tower_max_hp = _ally_tower_target_hp()
+	ally_tower_hp = ally_tower_max_hp
+	ally_alarm_50_played = false
+	ally_alarm_25_played = false
+	# 重启本关出兵节奏
 	wave_spawning = false
 	wave_active_timer = 0.0
+	wave_number = 0
 	enemy_spawn_index = 0
-	ai_spawn.on_phase_start()
 	enemy_lane_cursor = 0
-	wave_min_timer = 0.35
+	ally_lane_cursor = 0
+	enemy_coin = 0.0
+	enemy_effect_cd = 0.0
+	enemy_rally_fired = 0
 	prep_pending = false
 	auto_prep = false
+	stuck_warned = false
+	occupied_units = 0
+	ai_spawn.reset()
+	ai_spawn.on_phase_start()
+	wave_min_timer = _diff().first_delay
+	# 关卡第 1 轮发牌（_spawn_next_batch 内部会 round_number += 1）
+	round_number = 0
+	_spawn_next_batch()
+	_rescale_towers_for_era()
 	_update_tower_ui()
+	_update_progress_ui()
+	battle_hint.text = "进入%s：敌方防御塔已重建，牌堆已换为本关牌池" % _stage_name(_stage_number())
+	_show_toast("进入%s" % _stage_name(_stage_number()))
+	print("进入关卡: %d (%s)" % [_stage_number(), current_era])
 
-func _clear_enemy_phase_units() -> void:
-	for unit in battle_units.duplicate():
-		if not is_instance_valid(unit) or unit.faction != "enemy":
-			continue
-		battle_units.erase(unit)
-		walk_dust_cooldowns.erase(unit.get_instance_id())
-		unit.queue_free()
+## 过关清场：双方单位与投射物全部消失
+func _clear_all_battle_units() -> void:
+	for unit in battle_units:
+		if is_instance_valid(unit):
+			walk_dust_cooldowns.erase(unit.get_instance_id())
+			unit.queue_free()
+	battle_units.clear()
 	if world != null:
 		for child in world.get_children():
 			if child is Projectile:
 				child.queue_free()
 
-func _regroup_ally_units() -> void:
-	var allies := _living_units("ally")
-	ally_lane_cursor = 0
-	for index in range(allies.size()):
-		var unit := allies[index]
-		var units_per_row := 6
-		var row := index / units_per_row
-		var column := index % units_per_row
-		var spacing := 48.0
-		var lane := ally_lane_cursor % BATTLE_LANES
-		ally_lane_cursor += 1
-		var lane_offset := (float(lane) - float(BATTLE_LANES - 1) * 0.5) * BATTLE_LANE_STEP
-		unit.position = Vector2(
-			ALLY_TOWER_X + 96 + column * spacing + row * 28.0,
-			BATTLE_GROUND_Y + lane_offset
-		)
-		unit.attack_cooldown = 0.0
-		unit.taunted_by = null
-		unit.taunt_time = 0.0
-		unit.set_moving(true)
+## 过关丢弃：牌堆 + 合成台当前轮次剩余牌直接作废
+func _discard_all_cards() -> void:
+	for card in deck_cards:
+		if is_instance_valid(card):
+			card.queue_free()
+	deck_cards.clear()
+	tray_cards.clear()
+	tray_incoming = 0
+	tray_slots = TRAY_SLOTS + round_extra_tray_slots
+	_layout_tray_slots()
+	_rebuild_tray_visuals()
 
 func _era_fx_color(era: String) -> Color:
 	var material: Dictionary = fx_manager.era_material(era) if fx_manager != null else {}
 	return material.get("primary", Color("#ffd273"))
 
+## 当前关卡下己方塔的满血值（关卡时代 × 难度倍率 × 永久塔血加成）
+func _ally_tower_target_hp() -> float:
+	return GameData.ally_tower_hp(current_era) * float(_diff().tower_mult) * run_tower_hp_mult
+
 func _rescale_towers_for_era() -> void:
-	var ally_target := GameData.ally_tower_hp(current_era) * float(_diff().tower_mult)
+	var ally_target := _ally_tower_target_hp()
 	if ally_target > ally_tower_max_hp:
 		ally_tower_hp = ally_target * (ally_tower_hp / maxf(1.0, ally_tower_max_hp))
 		ally_tower_max_hp = ally_target
@@ -5290,7 +5328,8 @@ func _update_progress_ui() -> void:
 			state = "清场中"
 		else:
 			state = "战斗中"
-	era_label.text = "%s · 第 %d 轮 · %s" % [GameData.ERA_NAMES.get(current_era, current_era), round_number, state]
+	# 信息栏空间有限：只放关卡号 + 轮次 + 状态（关卡对应时代在提示/奖励面板里给全名）
+	era_label.text = "第 %d 关 · 第 %d 轮 · %s" % [_stage_number(), round_number, state]
 	if score_label != null:
 		score_label.text = "积分 %d" % kill_score
 	if deck_label != null:
@@ -5311,7 +5350,7 @@ func _update_tower_ui() -> void:
 	enemy_tower_bar.set_phase(
 		enemy_era_index,
 		GameData.ERAS.size(),
-		str(GameData.ERA_NAMES.get(enemy_era, enemy_era))
+		"第 %d 关" % _stage_number()
 	)
 	if ally_tower_max_hp > 0.0:
 		var health_ratio := ally_tower_hp / ally_tower_max_hp

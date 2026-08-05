@@ -44,3 +44,12 @@
 - 新增 `scripts/minimap.gd`（`BattleMinimap`，自绘 Control）：右上角小地图实时显示己方蓝点、敌方红点、两端塔标记和当前视窗白框；`main._update_minimap` 每帧按世界坐标映射刷新。
 - HUD 重排：开战按钮移到左上，小地图占右上；塔血条面板保持固定角落 HUD 不随滚动。
 - 验证：`godot --headless --import` 无脚本错误；DISPLAY 实跑确认横移露出远处敌塔、小地图视窗框同步、开战后蓝/红点实时显示并可拖动跟随战斗。
+
+## 2026-08-05：敌方时代多阶段连续战改为关卡制
+
+- 玩法：**摧毁敌方防御塔 = 过关**，选完三选一增益后立即进入下一关（新增 `main.gd::_enter_next_stage()`，替换旧的 `_ascend_enemy_era_phase`「敌方清场 + 己方重整」路径）。过关时牌堆与合成台当前轮次剩牌直接丢弃、双方小兵与投射物全清、双方防御塔按新关时代满血重建、从新关第 1 轮重新发牌；金币与 `run_*` / `run_hero_mult` / `run_tower_hp_mult` / `free_reshuffles` / `free_clear_tokens` 保留，`round_*` 当轮修饰重置。失败条件不变（己方塔被摧毁）。
+- 关卡锁定卡池：移除 `ERA_UP_ROUNDS := [2,4,7,10]` 与 `_advance_era()`「靠抽牌轮次偷升时代」，`era_index` 由 `_sync_player_era_to_stage()` 恒等于当前关卡（`enemy_era_index`）。同关内牌堆取空仍走原「取空 → 下一轮发牌」，只推进 `round_number`。
+- 起始关卡：主菜单「选择时代」改为「选择起始关卡」，选第 N 关时敌方与玩家时代同关锁定（原先敌方总是从石器开始）。
+- 塔壁奖励改为永久：新增 `run_tower_hp_mult`，己方塔满血值统一走 `_ally_tower_target_hp()`，过关重建时仍保留塔血加成。
+- UI 文案：信息栏改为「第 N 关（时代名）· 第 R 轮 · 状态」；敌塔血条阶段标签改为「第 N 关」；过关奖励面板标题提示即将进入的关卡；教程第 4 步改写为关卡说明；GDD / ai-spawn-probability 文档同步。
+- 验证：`godot --headless --path . --import` 无 SCRIPT ERROR；新增 `tools/stage_progression_smoke.gd` 逐关走完 5 关，断言过关后关卡 +1、牌池时代锁定、轮次归 1、双方清场、双方塔满血、金币与永久加成保留、终关打爆敌塔进终局，结果 OK；`tools/ai_spawn_smoke.gd` 回归通过。

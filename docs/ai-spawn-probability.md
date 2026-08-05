@@ -71,10 +71,10 @@ field_soft_cap = clamp(soft_cap_base + wave/soft_cap_step, base, soft_cap_max)
 | 事件 | 倍率 | 时长 | 入口 |
 |---|---|---|---|
 | 敌塔残血拼死反扑 | `RALLY_P_MULT=1.8` | 6s | `begin_rally_pressure()`（`main.gd::_enemy_rally_surge`） |
-| 玩家打爆一座塔 | `TOWER_BREAK_P_MULT=0.5` | 4s | `begin_tower_break_relief()`（`main.gd::_ascend_enemy_era_phase`） |
+| 玩家打爆敌塔（过关） | `TOWER_BREAK_P_MULT=0.5` | 4s | `begin_tower_break_relief()`（`main.gd::_enter_next_stage`） |
 
 - 反扑窗内普通档 `p = min(0.55*1.8, 0.85) = 0.85` → 0.85/s，短时接近旧补位强度，作为拆塔前最后一道压力（`RALLY_BURST` 的一次性爆发仍走 `spawn_one()`，不经过概率）。
-- 拆塔奖励窗内普通档 `p = 0.275` → 0.275/s，给玩家一个喘息窗，让「拆塔 → 升时代」有正反馈。
+- 拆塔奖励窗内普通档 `p = 0.275` → 0.275/s，给玩家一个喘息窗，让「拆塔 → 过关」有正反馈。
 - 两者先后触发时后者覆盖前者；结果始终被 `chance_max` 夹紧。
 
 **BOSS 稀疏化**：boss 不由「维持人数」带出。`boss_pending` 由 ① 波号 `% boss_wave == 0`、② 新阶段首波以 `phase_boss_chance` 掷中 两处置位；置位后每 tick 以 `boss_tick_chance` 概率出场，且出场后 `BOSS_MIN_GAP` 秒内不再出 boss：
