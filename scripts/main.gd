@@ -213,6 +213,9 @@ var codex_category := "unit"
 var codex_category_buttons: Dictionary = {}
 var codex_detail_overlay: Control
 var codex_detail_icon: TextureRect
+var codex_detail_unit_icon: TextureRect
+var codex_detail_icon_label: Label
+var codex_detail_unit_icon_label: Label
 var codex_detail_title: Label
 var codex_detail_text: RichTextLabel
 var tray_press_index := -1
@@ -2596,12 +2599,15 @@ func _codex_add_unit_row(hero_id: String) -> void:
 	if hero.get("color_value", null) is Color:
 		placeholder_color = hero["color_value"]
 	_codex_add_row_icon(button, path, placeholder_color)
-	var title := _label(button, str(hero.get("name", hero_id)), Vector2(68, 10), Vector2(450, 25), 16)
+	var unit_path := GameData.unit_portrait_path(hero_id)
+	if unit_path != "" and unit_path != path:
+		_codex_add_row_icon(button, unit_path, placeholder_color, 58.0)
+	var title := _label(button, str(hero.get("name", hero_id)), Vector2(112, 10), Vector2(410, 25), 16)
 	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var subtitle := _label(
 		button,
 		"%s·%s" % [str(hero.get("era_name", hero.get("era", ""))), str(hero.get("role_name", hero.get("role", "")))],
-		Vector2(68, 36),
+		Vector2(112, 36),
 		Vector2(450, 18),
 		11,
 		Color("#e6c199")
@@ -2639,10 +2645,10 @@ func _codex_row_button() -> Button:
 	button.pressed.connect(_play_button_sfx)
 	return button
 
-func _codex_add_row_icon(parent: Button, path: String, placeholder_color: Color) -> void:
+func _codex_add_row_icon(parent: Button, path: String, placeholder_color: Color, offset_x: float = 10.0) -> void:
 	if ResourceLoader.exists(path):
 		var icon := TextureRect.new()
-		icon.position = Vector2(10, 10)
+		icon.position = Vector2(offset_x, 10)
 		icon.size = Vector2(44, 44)
 		icon.texture = load(path) as Texture2D
 		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
@@ -2651,7 +2657,7 @@ func _codex_add_row_icon(parent: Button, path: String, placeholder_color: Color)
 		parent.add_child(icon)
 		return
 	var placeholder := Panel.new()
-	placeholder.position = Vector2(10, 10)
+	placeholder.position = Vector2(offset_x, 10)
 	placeholder.size = Vector2(44, 44)
 	placeholder.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	placeholder.add_theme_stylebox_override("panel", _panel_style(placeholder_color, Color("#70412c"), 10, 2))
@@ -2686,7 +2692,7 @@ func _build_codex_detail_overlay() -> void:
 	codex_detail_overlay.add_child(shade)
 	var panel := Panel.new()
 	panel.position = Vector2(70, 360)
-	panel.size = Vector2(580, 540)
+	panel.size = Vector2(580, 578)
 	panel.add_theme_stylebox_override("panel", _panel_style(Color("#c58a53"), Color("#70412c"), 24, 3))
 	codex_detail_overlay.add_child(panel)
 	codex_detail_icon = TextureRect.new()
@@ -2696,17 +2702,31 @@ func _build_codex_detail_overlay() -> void:
 	codex_detail_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	codex_detail_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	panel.add_child(codex_detail_icon)
-	codex_detail_title = _label(panel, "", Vector2(20, 126), Vector2(540, 42), 26)
+	codex_detail_unit_icon = TextureRect.new()
+	codex_detail_unit_icon.position = Vector2(332, 24)
+	codex_detail_unit_icon.size = Vector2(96, 96)
+	codex_detail_unit_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	codex_detail_unit_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	codex_detail_unit_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	codex_detail_unit_icon.visible = false
+	panel.add_child(codex_detail_unit_icon)
+	codex_detail_icon_label = _label(panel, "卡牌", Vector2(152, 122), Vector2(96, 22), 13, Color("#e6c199"))
+	codex_detail_icon_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	codex_detail_icon_label.visible = false
+	codex_detail_unit_icon_label = _label(panel, "角色", Vector2(332, 122), Vector2(96, 22), 13, Color("#e6c199"))
+	codex_detail_unit_icon_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	codex_detail_unit_icon_label.visible = false
+	codex_detail_title = _label(panel, "", Vector2(20, 150), Vector2(540, 42), 26)
 	codex_detail_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	codex_detail_text = RichTextLabel.new()
 	codex_detail_text.bbcode_enabled = true
 	codex_detail_text.scroll_active = true
-	codex_detail_text.position = Vector2(40, 178)
-	codex_detail_text.size = Vector2(500, 280)
+	codex_detail_text.position = Vector2(40, 202)
+	codex_detail_text.size = Vector2(500, 292)
 	codex_detail_text.add_theme_font_size_override("normal_font_size", 18)
 	codex_detail_text.add_theme_color_override("default_color", Color("#fff0c7"))
 	panel.add_child(codex_detail_text)
-	var close_button := _menu_button(panel, "关闭", Vector2(190, 472), Vector2(200, 52), 18)
+	var close_button := _menu_button(panel, "关闭", Vector2(190, 510), Vector2(200, 52), 18)
 	close_button.pressed.connect(_hide_codex_detail)
 
 func _on_codex_detail_input(event: InputEvent) -> void:
@@ -2718,7 +2738,22 @@ func _show_codex_detail_unit(hero_id: String) -> void:
 	if hero.is_empty() or codex_detail_overlay == null:
 		return
 	var path := GameData.card_texture_path(str(hero.get("card", hero_id)))
-	codex_detail_icon.texture = load(path) as Texture2D if ResourceLoader.exists(path) else null
+	var unit_path := GameData.unit_portrait_path(hero_id)
+	var card_texture: Texture2D = load(path) as Texture2D if ResourceLoader.exists(path) else null
+	var unit_texture: Texture2D = load(unit_path) as Texture2D if ResourceLoader.exists(unit_path) else null
+	if unit_texture != null and unit_texture == card_texture:
+		unit_texture = null
+	var both := card_texture != null and unit_texture != null
+	codex_detail_icon.texture = card_texture
+	codex_detail_icon.visible = card_texture != null
+	codex_detail_icon.position = Vector2(152 if both else 242, 24)
+	codex_detail_unit_icon.texture = unit_texture
+	codex_detail_unit_icon.visible = unit_texture != null
+	codex_detail_unit_icon.position = Vector2(332 if both else 242, 24)
+	codex_detail_icon_label.visible = card_texture != null
+	codex_detail_icon_label.position = Vector2(152 if both else 242, 122)
+	codex_detail_unit_icon_label.visible = unit_texture != null
+	codex_detail_unit_icon_label.position = Vector2(332 if both else 242, 122)
 	codex_detail_title.text = str(hero.get("name", hero_id))
 	var lines := [
 		"类型：[b]小兵/角色卡[/b]（%s·%s）" % [str(hero.get("era_name", hero.get("era", ""))), str(hero.get("role_name", hero.get("role", "")))],
@@ -2733,6 +2768,8 @@ func _show_codex_detail_unit(hero_id: String) -> void:
 			float(splash.get("radius", 0.0)),
 			float(splash.get("frac", 0.0)) * 100.0,
 		])
+	if card_texture == null or unit_texture == null:
+		lines.append("[i]提示：本英雄暂缺%s图资源[/i]" % ("卡牌" if card_texture == null else "角色"))
 	var skill: Variant = hero.get("skill", {})
 	if skill is Dictionary and not skill.is_empty():
 		lines.append("")
@@ -2756,6 +2793,12 @@ func _show_codex_detail_effect(effect_id: String) -> void:
 		return
 	var path := EFFECT_ICON_PATH % effect_id
 	codex_detail_icon.texture = load(path) as Texture2D if ResourceLoader.exists(path) else null
+	codex_detail_icon.visible = true
+	codex_detail_icon.position = Vector2(242, 24)
+	codex_detail_unit_icon.visible = false
+	codex_detail_unit_icon.texture = null
+	codex_detail_icon_label.visible = false
+	codex_detail_unit_icon_label.visible = false
 	codex_detail_title.text = str(effect.get("name", effect_id))
 	var lines := [
 		"类型：[b]效果卡[/b]",

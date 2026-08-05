@@ -192,5 +192,20 @@ static func hero_texture_path(hero_id: String) -> String:
 		return static_path
 	return ""
 
+static func unit_portrait_path(hero_id: String) -> String:
+	var hero: Dictionary = HEROES.get(hero_id, {})
+	var anim_id := str(hero.get("anim", ""))
+	if anim_id != "":
+		var idle_path := "res://assets/anim/%s/idle.png" % anim_id
+		if ResourceLoader.exists(idle_path):
+			return idle_path
+	var static_path := hero_texture_path(hero_id)
+	if static_path != "":
+		return static_path
+	var fallback := "res://assets/units/%s.png" % hero_id
+	if ResourceLoader.exists(fallback):
+		return fallback
+	return ""
+
 static func tower_hp(era: String) -> float:
 	return TOWER_BASE_HP * float(ERA_MULT.get(era, 1.0))
