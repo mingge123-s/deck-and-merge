@@ -2984,8 +2984,8 @@ func _start_sandbox_battle() -> void:
 	enemy_era_index = display_era_index
 	current_era = GameData.ERAS[display_era_index]
 	enemy_era = current_era
-	ally_tower_hp = GameData.tower_hp(current_era)
-	enemy_tower_hp = ally_tower_hp
+	ally_tower_hp = GameData.ally_tower_hp(current_era)
+	enemy_tower_hp = GameData.tower_hp(current_era)
 	ally_tower_max_hp = ally_tower_hp
 	enemy_tower_max_hp = enemy_tower_hp
 	battle_active = true
@@ -3208,7 +3208,7 @@ func _start_round(start_era_index: int = 0) -> void:
 	ally_tower_cd = 0.0
 	enemy_tower_cd = 0.0
 	card_z_top = 0
-	ally_tower_hp = GameData.tower_hp(current_era) * float(_diff().tower_mult)
+	ally_tower_hp = GameData.ally_tower_hp(current_era) * float(_diff().tower_mult)
 	enemy_tower_hp = GameData.tower_hp(enemy_era)
 	ally_tower_max_hp = ally_tower_hp
 	enemy_tower_max_hp = enemy_tower_hp
@@ -5147,7 +5147,7 @@ func _era_fx_color(era: String) -> Color:
 	return material.get("primary", Color("#ffd273"))
 
 func _rescale_towers_for_era() -> void:
-	var ally_target := GameData.tower_hp(current_era) * float(_diff().tower_mult)
+	var ally_target := GameData.ally_tower_hp(current_era) * float(_diff().tower_mult)
 	if ally_target > ally_tower_max_hp:
 		ally_tower_hp = ally_target * (ally_tower_hp / maxf(1.0, ally_tower_max_hp))
 		ally_tower_max_hp = ally_target
