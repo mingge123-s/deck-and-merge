@@ -44,6 +44,7 @@ const PROJECTILE_RANGE_THRESHOLD := 100.0
 const RANGED_RANGE_MULT := 1.2 # 玩家远程单位的攻击距离提升 20%
 const FRONT_TOLERANCE := 8.0
 const SANDBOX_SIDE_CAP := 20
+const TOUCH_SCROLL_CLICK_THRESHOLD := 12.0
 const UNIT_CAP := 30
 const ENEMY_UNIT_CAP := 60 # 敌方同屏上限（AI出兵x5后需高于己方）
 const VICTORY_REWARD_BASE := 120
@@ -216,6 +217,11 @@ var codex_detail_icon: TextureRect
 var codex_detail_title: Label
 var codex_detail_text: RichTextLabel
 var tray_press_index := -1
+var touch_scroll_press_position := Vector2.ZERO
+var touch_scroll_press_button: Button
+var touch_scroll_dragged := false
+var touch_scroll_hover_button: Button
+var touch_scroll_pressed_button: Button
 var wave_bar: ProgressBar
 var wave_bar_label: Label
 var result_overlay: Control
@@ -662,9 +668,12 @@ func _build_top_bar() -> void:
 	pause_button = Button.new()
 	pause_button.position = Vector2(536, 9)
 	pause_button.size = Vector2(46, 46)
-	pause_button.text = "⏸"
 	pause_button.tooltip_text = "暂停"
-	pause_button.add_theme_font_size_override("font_size", 20)
+	pause_button.icon = load("res://assets/ui/pause_icon.png")
+	pause_button.expand_icon = true
+	pause_button.add_theme_constant_override("icon_max_width", 26)
+	pause_button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	pause_button.vertical_icon_alignment = VERTICAL_ALIGNMENT_CENTER
 	pause_button.add_theme_stylebox_override("normal", _panel_style(Color("#e4863e"), Color("#713722"), 12, 2))
 	pause_button.add_theme_stylebox_override("hover", _panel_style(Color("#f2a252"), Color("#713722"), 12, 2))
 	pause_button.pressed.connect(_toggle_pause)
@@ -696,6 +705,8 @@ func _build_top_bar() -> void:
 	reshuffle_button.icon = load("res://assets/ui/reshuffle_icon.png")
 	reshuffle_button.expand_icon = true
 	reshuffle_button.add_theme_constant_override("icon_max_width", 30)
+	reshuffle_button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	reshuffle_button.vertical_icon_alignment = VERTICAL_ALIGNMENT_CENTER
 	reshuffle_button.pressed.connect(_on_reshuffle_pressed)
 	reshuffle_button.pressed.connect(_play_button_sfx)
 	bar.add_child(reshuffle_button)
@@ -2267,6 +2278,8 @@ func _build_sandbox_config_panel() -> void:
 				if str(data.get("role", "")) != role:
 					continue
 				_sandbox_add_unit_row(rows, str(hero_id), data)
+	_set_touch_scroll_buttons_ignore(rows)
+	_enable_touch_scroll_click_forwarding(scroll, rows)
 	var total_label := _label(sandbox_panel, "", Vector2(24, 820), Vector2(552, 32), 18, Color("#fff0c7"))
 	total_label.name = "SandboxTotalLabel"
 	total_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -2413,9 +2426,90 @@ func _build_codex_panel() -> void:
 	codex_rows = VBoxContainer.new()
 	codex_rows.custom_minimum_size = Vector2(540, 0)
 	codex_rows.add_theme_constant_override("separation", 6)
+	codex_rows.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	scroll.add_child(codex_rows)
+	_enable_touch_scroll_click_forwarding(scroll, codex_rows)
 	var close_button := _menu_button(codex_panel, "返回", Vector2(200, 924), Vector2(200, 54), 18)
 	close_button.pressed.connect(_hide_codex)
+
+func _enable_touch_scroll_click_forwarding(scroll: ScrollContainer, rows: Control) -> void:
+	scroll.gui_input.connect(_on_touch_scroll_gui_input.bind(scroll, rows))
+	scroll.mouse_exited.connect(_on_touch_scroll_mouse_exited)
+
+func _set_touch_scroll_buttons_ignore(control: Control) -> void:
+	control.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	for child in control.get_children():
+		if child is Control:
+			_set_touch_scroll_buttons_ignore(child)
+
+func _on_touch_scroll_mouse_exited() -> void:
+	_set_touch_scroll_button_visual(touch_scroll_hover_button, false)
+	touch_scroll_hover_button = null
+
+func _on_touch_scroll_gui_input(event: InputEvent, scroll: ScrollContainer, rows: Control) -> void:
+	if event is InputEventMouseMotion:
+		var hovered_button := _touch_scroll_button_at_event(scroll, rows, event.position)
+		if hovered_button != touch_scroll_hover_button:
+			_set_touch_scroll_button_visual(touch_scroll_hover_button, false)
+			touch_scroll_hover_button = hovered_button
+			_set_touch_scroll_button_visual(touch_scroll_hover_button, true)
+		return
+	if event is InputEventScreenTouch:
+		if event.pressed:
+			_touch_scroll_begin(scroll, rows, event.position)
+		else:
+			_touch_scroll_end(event.position)
+		return
+	if event is InputEventScreenDrag:
+		if touch_scroll_press_position.distance_to(event.position) >= TOUCH_SCROLL_CLICK_THRESHOLD:
+			touch_scroll_dragged = true
+			_set_touch_scroll_button_visual(touch_scroll_pressed_button, false)
+			touch_scroll_pressed_button = null
+		return
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+		if event.pressed:
+			_touch_scroll_begin(scroll, rows, event.position)
+			touch_scroll_pressed_button = touch_scroll_press_button
+			_set_touch_scroll_button_visual(touch_scroll_pressed_button, true, true)
+		else:
+			_touch_scroll_end(event.position)
+
+func _touch_scroll_begin(scroll: ScrollContainer, rows: Control, position: Vector2) -> void:
+	touch_scroll_press_position = position
+	touch_scroll_press_button = _touch_scroll_button_at_event(scroll, rows, position)
+	touch_scroll_dragged = false
+
+func _touch_scroll_button_at_event(scroll: ScrollContainer, rows: Control, position: Vector2) -> Button:
+	return _touch_scroll_button_at_local(
+		rows,
+		rows.get_global_transform_with_canvas().affine_inverse() * (scroll.get_global_transform_with_canvas() * position)
+	)
+
+func _touch_scroll_end(position: Vector2) -> void:
+	_set_touch_scroll_button_visual(touch_scroll_pressed_button, false)
+	touch_scroll_pressed_button = null
+	if touch_scroll_press_button != null and not touch_scroll_dragged and touch_scroll_press_position.distance_to(position) < TOUCH_SCROLL_CLICK_THRESHOLD:
+		touch_scroll_press_button.emit_signal("pressed")
+	touch_scroll_press_button = null
+	touch_scroll_dragged = false
+
+func _set_touch_scroll_button_visual(button: Button, active: bool, pressed := false) -> void:
+	if button != null and is_instance_valid(button):
+		button.modulate = Color(0.88, 0.88, 0.88) if pressed else Color(1.08, 1.08, 1.08) if active else Color.WHITE
+
+func _touch_scroll_button_at_local(control: Control, position: Vector2) -> Button:
+	for index in range(control.get_child_count() - 1, -1, -1):
+		var child := control.get_child(index)
+		if child is Control:
+			var child_control := child as Control
+			var child_position := child_control.position
+			if Rect2(child_position, child_control.size).has_point(position):
+				if child is Button:
+					return child as Button
+				var nested := _touch_scroll_button_at_local(child_control, position - child_position)
+				if nested != null:
+					return nested
+	return null
 
 func _set_codex_category(category: String) -> void:
 	if category != "unit" and category != "effect":
@@ -2472,7 +2566,7 @@ func _codex_add_unit_row(hero_id: String) -> void:
 	)
 	subtitle.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	button.pressed.connect(_show_codex_detail_unit.bind(hero_id))
-	codex_rows.add_child(button)
+	_codex_add_row(button)
 
 func _codex_add_effect_row(effect_id: String) -> void:
 	var effect := _effect_by_id(effect_id)
@@ -2487,6 +2581,10 @@ func _codex_add_effect_row(effect_id: String) -> void:
 	var subtitle := _label(button, subtitle_text, Vector2(68, 36), Vector2(450, 18), 11, Color("#e6c199"))
 	subtitle.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	button.pressed.connect(_show_codex_detail_effect.bind(effect_id))
+	_codex_add_row(button)
+
+func _codex_add_row(button: Button) -> void:
+	_set_touch_scroll_buttons_ignore(button)
 	codex_rows.add_child(button)
 
 func _codex_row_button() -> Button:
@@ -3397,8 +3495,11 @@ func _on_reshuffle_confirmed() -> void:
 	_do_reshuffle()
 
 func _on_reshuffle_pressed() -> void:
-	if not _can_reshuffle():
+	var reason := _reshuffle_block_reason()
+	if reason != "":
 		AudioManager.play_sfx("ui_denied")
+		battle_hint.text = reason
+		_show_toast(reason)
 		return
 	if not SaveManager.get_reshuffle_hint_seen() and reshuffle_confirm_overlay != null:
 		move_child(reshuffle_confirm_overlay, get_child_count() - 1)
@@ -3407,11 +3508,24 @@ func _on_reshuffle_pressed() -> void:
 	_do_reshuffle()
 
 func _can_reshuffle() -> bool:
+	return _reshuffle_block_reason() == ""
+
+func _reshuffle_live_deck_count() -> int:
 	var live_count := 0
 	for card in deck_cards:
 		if is_instance_valid(card) and not card.claimed:
 			live_count += 1
-	return _can_pick_cards() and (free_reshuffles > 0 or coin_count >= RESHUFFLE_COST) and live_count >= 2
+	return live_count
+
+# 返回空串表示可重排，否则为不可重排的中文原因（用于点击时弹提示）
+func _reshuffle_block_reason() -> String:
+	if not _can_pick_cards():
+		return "当前阶段不可重排"
+	if _reshuffle_live_deck_count() < 2:
+		return "牌堆可重排卡牌不足 2 张"
+	if free_reshuffles <= 0 and coin_count < RESHUFFLE_COST:
+		return "金币不足，重排需要 %d 金币" % RESHUFFLE_COST
+	return ""
 
 func _do_reshuffle() -> void:
 	if not _can_reshuffle():
@@ -5055,24 +5169,21 @@ func _build_wave_bar() -> void:
 func _update_wave_bar() -> void:
 	if wave_bar == null:
 		return
-	var in_wave := 0.0
+	# 进度条反映本波真实进度：出兵中按本波出兵窗口推进，出兵结束后满格进入清场
+	var ratio := 0.0
 	if wave_spawning:
-		in_wave = clampf(1.0 - wave_active_timer / WAVE_DURATION, 0.0, 1.0)
-	var done_waves := wave_number % PREP_WAVE_INTERVAL
-	if wave_spawning and done_waves > 0:
-		done_waves -= 1
-	elif wave_spawning:
-		done_waves = PREP_WAVE_INTERVAL - 1
-	var ratio := clampf((float(done_waves) + in_wave) / float(PREP_WAVE_INTERVAL), 0.0, 1.0)
+		ratio = clampf(1.0 - wave_active_timer / WAVE_DURATION, 0.0, 1.0)
+	elif wave_number > 0:
+		ratio = 1.0
 	wave_bar.value = ratio
 	wave_bar.add_theme_stylebox_override("fill", _panel_style(Color("#4cbf4c").lerp(Color("#e2452f"), ratio), Color("#2b1409"), 14, 0))
 	if not battle_active or battle_ended:
 		wave_bar_label.text = "备战中"
 		wave_bar.value = 0.0
-	elif paused and auto_prep:
-		wave_bar_label.text = "整备期"
 	elif wave_number <= 0:
 		wave_bar_label.text = "敌军将至"
+	elif not wave_spawning and not _living_units("enemy").is_empty():
+		wave_bar_label.text = "第 %d 波 · 清场中" % wave_number
 	else:
 		wave_bar_label.text = "第 %d 波" % wave_number
 
@@ -5084,14 +5195,14 @@ func _update_progress_ui() -> void:
 	if battle_ended:
 		state = "已通关" if battle_won else "已失守"
 	elif battle_active:
-		state = "战斗中"
-	if battle_active and not battle_ended:
-		if paused and auto_prep:
-			state = "整备中"
-		elif prep_pending:
-			state = "本波结束进入整备"
+		if paused:
+			state = "已暂停"
+		elif wave_spawning:
+			state = "战斗中"
+		elif not _living_units("enemy").is_empty():
+			state = "清场中"
 		else:
-			state = "距下次整备 %d 波" % (PREP_WAVE_INTERVAL - wave_number % PREP_WAVE_INTERVAL)
+			state = "战斗中"
 	era_label.text = "%s · 第 %d 轮 · %s" % [GameData.ERA_NAMES.get(current_era, current_era), round_number, state]
 	if score_label != null:
 		score_label.text = "积分 %d" % kill_score
@@ -5102,7 +5213,8 @@ func _update_progress_ui() -> void:
 func _update_reshuffle_button() -> void:
 	if reshuffle_button == null:
 		return
-	reshuffle_button.disabled = not _can_reshuffle()
+	# 保持可点：不可用时点击弹中文提示，而不是静默 disabled
+	reshuffle_button.disabled = false
 
 func _update_tower_ui() -> void:
 	if ally_tower_bar == null:
