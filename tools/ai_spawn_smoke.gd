@@ -70,14 +70,14 @@ func _print_rate_table() -> void:
 		]
 		print(row)
 
-## s5「石器时代开局加压」验收断言：普通档、石器、第 1 波
+## s11「石器时代开局加压」验收断言：普通档、石器、第 1 波（在 s5 基础上再抬）
 func _check_stone_pressure() -> void:
 	var stone_rate := AiSpawnConfig.expected_rate("normal", 1, 0)
 	var stone_cap := AiSpawnConfig.field_soft_cap("normal", 1, 0)
-	assert(stone_rate >= 0.50, "石器普通档期望速率应 >=0.50/s，实际 %.3f" % stone_rate)
+	assert(stone_rate >= 0.72, "石器普通档期望速率应 >=0.72/s（s11 加压），实际 %.3f" % stone_rate)
 	assert(stone_cap >= 14, "石器普通档软顶应 >=14，实际 %d" % stone_cap)
-	# 残血爆兵分档：石器 10 / 铁器 8 / 工业 7 / 现代 6 / 未来 6
-	var expected_burst := [10, 8, 7, 6, 6]
+	# 残血爆兵分档：石器 12 / 铁器 8 / 工业 7 / 现代 6 / 未来 6
+	var expected_burst := [12, 8, 7, 6, 6]
 	for era_index in range(expected_burst.size()):
 		var got := AiSpawnConfig.rally_burst(era_index)
 		assert(got == expected_burst[era_index],

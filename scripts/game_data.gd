@@ -3,6 +3,10 @@ extends RefCounted
 
 const MANIFEST_PATH := "res://data/heroes.json"
 const TOWER_BASE_HP := 1800.0
+## 己方塔生命倍率：塔基础血量对敌我共用（tower_hp 同时给两边算血），
+## 玩家反馈己方塔太脆，仅对己方塔整体 ×2，敌方各时代塔血保持不变。
+## 通过 ally_tower_hp() 单独套用，不动 TOWER_BASE_HP / ERA_MULT，避免连带敌方。
+const ALLY_TOWER_HP_MULT := 2.0
 const LEGACY_CARD_TEXTURES := {
 	"兽皮": "pelt",
 	"木棒": "club",
@@ -209,3 +213,7 @@ static func unit_portrait_path(hero_id: String) -> String:
 
 static func tower_hp(era: String) -> float:
 	return TOWER_BASE_HP * float(ERA_MULT.get(era, 1.0))
+
+## 己方塔最大生命：在共用 tower_hp 基础上套用己方专属倍率（仅己方，敌方仍用 tower_hp）。
+static func ally_tower_hp(era: String) -> float:
+	return tower_hp(era) * ALLY_TOWER_HP_MULT
