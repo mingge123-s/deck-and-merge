@@ -8,6 +8,7 @@ func _init() -> void:
 		_run(key)
 	_print_rate_table()
 	_check_windows()
+	_check_stone_pressure()
 	quit()
 
 func _run(difficulty_key: String) -> void:
@@ -68,6 +69,22 @@ func _print_rate_table() -> void:
 			AiSpawnConfig.field_soft_cap(key, 1, 4),
 		]
 		print(row)
+
+## s5「石器时代开局加压」验收断言：普通档、石器、第 1 波
+func _check_stone_pressure() -> void:
+	var stone_rate := AiSpawnConfig.expected_rate("normal", 1, 0)
+	var stone_cap := AiSpawnConfig.field_soft_cap("normal", 1, 0)
+	assert(stone_rate >= 0.50, "石器普通档期望速率应 >=0.50/s，实际 %.3f" % stone_rate)
+	assert(stone_cap >= 14, "石器普通档软顶应 >=14，实际 %d" % stone_cap)
+	# 残血爆兵分档：石器 10 / 铁器 8 / 工业 7 / 现代 6 / 未来 6
+	var expected_burst := [10, 8, 7, 6, 6]
+	for era_index in range(expected_burst.size()):
+		var got := AiSpawnConfig.rally_burst(era_index)
+		assert(got == expected_burst[era_index],
+			"时代 %d 爆兵应为 %d，实际 %d" % [era_index, expected_burst[era_index], got])
+	print("[stone] 普通档石器第1波 期望速率=%.3f/s 软顶=%d 爆兵分档=%s" % [
+		stone_rate, stone_cap, str(expected_burst),
+	])
 
 func _check_windows() -> void:
 	var rng := RandomNumberGenerator.new()
