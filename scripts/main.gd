@@ -289,6 +289,7 @@ var ally_lane_cursor := 0
 var enemy_lane_cursor := 0
 var stuck_warned := false
 var reward_active := false
+var stage_clear_pending := false
 var reward_overlay: Control
 var reward_panel: Panel
 var reward_buttons: Array[Button] = []
@@ -1931,7 +1932,10 @@ func _show_stage_clear_reward() -> void:
 	_show_reward("stage_clear")
 
 func _show_reward(context: String) -> void:
-	if reward_overlay == null or reward_active:
+	if reward_overlay == null:
+		return
+	if reward_active:
+		push_warning("_show_reward blocked: reward already active (context=%s, requested=%s)" % [reward_context, context])
 		return
 	reward_context = context
 	if reward_title_label != null:
@@ -2012,6 +2016,10 @@ func _apply_round_reward(option: Dictionary) -> void:
 	_update_reward_selection()
 	AudioManager.play_sfx("era")
 	_update_tower_ui()
+	if stage_clear_pending:
+		stage_clear_pending = false
+		_show_stage_clear_reward()
+		return
 	_spawn_next_batch()
 	_update_progress_ui()
 
@@ -3105,6 +3113,7 @@ func _show_main_menu() -> void:
 	sandbox_mode = false
 	paused = false
 	reward_active = false
+	stage_clear_pending = false
 	AudioManager.set_music_filtered(false)
 	_hide_settings()
 	_hide_era_select()
@@ -3192,6 +3201,7 @@ func _start_round(start_era_index: int = 0) -> void:
 	free_reshuffles = 0
 	free_clear_tokens = 0
 	reward_active = false
+	stage_clear_pending = false
 	_reset_round_mods()
 	tower_destruction_started = false
 	enemy_coin = 0.0
@@ -5075,8 +5085,18 @@ func _trigger_tower_destruction(won: bool) -> void:
 func _on_enemy_tower_destroyed() -> void:
 	if sandbox_mode:
 		return
+	if enemy_tower_hp > 0.0:
+		return
 	if enemy_era_index >= GameData.ERAS.size() - 1:
-		_trigger_tower_destruction(true)
+		if not tower_destruction_started:
+			_trigger_tower_destruction(true)
+		return
+	if reward_active and reward_context == "stage_clear":
+		return
+	if stage_clear_pending:
+		return
+	if reward_active:
+		stage_clear_pending = true
 		return
 	_show_stage_clear_reward()
 
@@ -5131,6 +5151,8 @@ func _advance_enemy_era() -> void:
 func _enter_next_stage() -> void:
 	if enemy_era_index >= GameData.ERAS.size() - 1:
 		return
+	stage_clear_pending = false
+	reward_context = "round"
 	_advance_enemy_era()
 	_sync_player_era_to_stage()
 	_clear_all_battle_units()
