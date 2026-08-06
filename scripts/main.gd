@@ -112,7 +112,7 @@ const TUTORIAL_STEPS := [
 	},
 	{
 		"title": "第 2 步：在合成台合成",
-		"text": "合成台共 7 格。小兵卡[b]3 张同名[/b]自动合成英雄并上场；效果卡[b]2 张同名[/b]立刻发动（召唤援军、修复我方塔、塔炮升级等）。\n注意：7 格放满且凑不出任何合成时，会自动扣 100 金币清空，金币不足就判负。别乱收用不上的牌。\n合成台右上角的[b]清空（100）[/b]按钮可随时手动清空，卡牌会补回牌堆底；有免费清空次数时优先消耗免费次数（按钮显示「免费清空」）。",
+		"text": "合成台共 7 格。小兵卡[b]3 张同名[/b]自动合成英雄并上场；效果卡[b]2 张同名[/b]立刻发动（召唤援军、修复我方塔、塔炮升级等）。\n注意：7 格放满且凑不出任何合成时，会自动扣 100 金币清空，金币不足就判负。别乱收用不上的牌。\n信息栏上的[b]清空[/b]方块按钮（重排左侧）可随时手动清空，卡牌会补回牌堆底；有免费清空次数时优先消耗免费次数（角标显示剩余次数）。",
 		"rect": TRAY_RECT,
 	},
 	{
@@ -122,7 +122,7 @@ const TUTORIAL_STEPS := [
 	},
 	{
 		"title": "第 4 步：关卡与轮次",
-		"text": "信息栏显示当前[b]关卡[/b]、本关轮次、金币与积分（波次进度条在牌堆上方）。每关有独立倒计时（信息栏 ⏱ mm:ss），[b]倒计时归零即「超时失败」[/b]，暂停/选增益时冻结——尽快打爆敌塔，不要磨兵刷金币。共 5 关：第 1 关石器 → 第 2 关铁器 → 第 3 关工业 → 第 4 关现代 → 第 5 关未来。\n[b]打爆敌塔即过关[/b]：选完增益后直接进下一关——当前牌堆与合成台剩牌作废，双方小兵全部消失，双方塔满血重建，发本关第 1 轮牌；金币与永久增益保留。关卡越高，双方塔血与敌方出兵越强。信息栏左端是 ≡ 主界面，右端一排依次是重排 / 暂停 / [b]?[/b]，点最右的 [b]?[/b] 可随时重看本教程。",
+		"text": "信息栏显示当前[b]关卡[/b]、本关轮次、金币与积分（波次进度条在牌堆上方）。每关有独立倒计时（信息栏 ⏱ mm:ss），[b]倒计时归零即「超时失败」[/b]，暂停/选增益时冻结——尽快打爆敌塔，不要磨兵刷金币。共 5 关：第 1 关石器 → 第 2 关铁器 → 第 3 关工业 → 第 4 关现代 → 第 5 关未来。\n[b]打爆敌塔即过关[/b]：选完增益后直接进下一关——当前牌堆与合成台剩牌作废，双方小兵全部消失，双方塔满血重建，发本关第 1 轮牌；金币与永久增益保留。关卡越高，双方塔血与敌方出兵越强。信息栏左端是 ≡ 主界面，右端一排依次是清空 / 重排 / 暂停 / [b]?[/b]，点最右的 [b]?[/b] 可随时重看本教程。",
 		"rect": INFO_BAR_RECT,
 	},
 	{
@@ -186,6 +186,7 @@ var stage_timer_label: Label
 var reshuffle_button: Button
 var reshuffle_confirm_overlay: Control
 var clear_tray_button: Button
+var clear_tray_badge: Label
 var clear_tray_confirm_overlay: Control
 var status_label: Label
 var update_status_label: Label
@@ -726,9 +727,37 @@ func _build_top_bar() -> void:
 	bar.add_child(help_button)
 	coin_label = _label(bar, "", Vector2(70, 18), Vector2(140, 28), 16, Color("#fff0c7"))
 	score_label = _label(bar, "", Vector2(70, 40), Vector2(160, 22), 13, Color("#f6d69f"))
-	era_label = _label(bar, "", Vector2(215, 22), Vector2(250, 20), 12, Color("#f6d69f"))
-	stage_timer_label = _label(bar, "⏱ --:--", Vector2(300, 38), Vector2(170, 24), 17, Color("#f6d69f"))
+	era_label = _label(bar, "", Vector2(215, 22), Vector2(200, 20), 12, Color("#f6d69f"))
+	# 倒计时右缘须避开清空按钮（x=424），避免与顶栏右侧方块按钮重叠
+	stage_timer_label = _label(bar, "⏱ --:--", Vector2(250, 38), Vector2(160, 24), 17, Color("#f6d69f"))
 	_outline(stage_timer_label, 4)
+	clear_tray_button = Button.new()
+	clear_tray_button.position = Vector2(424, 9)
+	clear_tray_button.size = Vector2(46, 46)
+	clear_tray_button.tooltip_text = "清空合成台，卡牌补回牌堆底（-%d 金币，有免费次数时优先用免费）" % CLEAR_TRAY_COST
+	clear_tray_button.add_theme_stylebox_override("normal", _panel_style(Color("#e4863e"), Color("#713722"), 12, 2))
+	clear_tray_button.add_theme_stylebox_override("hover", _panel_style(Color("#f2a252"), Color("#713722"), 12, 2))
+	clear_tray_button.add_theme_stylebox_override("pressed", _panel_style(Color("#c9702f"), Color("#713722"), 12, 2))
+	clear_tray_button.add_theme_stylebox_override("disabled", _panel_style(Color("#9c6b45"), Color("#5e3320"), 12, 2))
+	clear_tray_button.icon = load("res://assets/ui/clear_tray_icon.png")
+	clear_tray_button.expand_icon = true
+	clear_tray_button.add_theme_constant_override("icon_max_width", 30)
+	clear_tray_button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	clear_tray_button.vertical_icon_alignment = VERTICAL_ALIGNMENT_CENTER
+	clear_tray_button.pressed.connect(_on_clear_tray_pressed)
+	clear_tray_button.pressed.connect(_play_button_sfx)
+	bar.add_child(clear_tray_button)
+	clear_tray_badge = Label.new()
+	clear_tray_badge.position = Vector2(26, -4)
+	clear_tray_badge.size = Vector2(24, 20)
+	clear_tray_badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	clear_tray_badge.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	clear_tray_badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	clear_tray_badge.add_theme_font_size_override("font_size", 13)
+	clear_tray_badge.add_theme_color_override("font_color", Color("#fff6d0"))
+	_outline(clear_tray_badge, 3)
+	clear_tray_badge.visible = false
+	clear_tray_button.add_child(clear_tray_badge)
 	reshuffle_button = Button.new()
 	reshuffle_button.position = Vector2(480, 9)
 	reshuffle_button.size = Vector2(46, 46)
@@ -747,6 +776,7 @@ func _build_top_bar() -> void:
 	bar.add_child(reshuffle_button)
 	_update_progress_ui()
 	_update_coin_ui()
+	_update_clear_tray_button()
 
 func _update_coin_ui() -> void:
 	if coin_label != null:
@@ -790,19 +820,6 @@ func _build_tray() -> void:
 	add_child(tray)
 	_label(tray, "✨ 合成台", Vector2(18, 9), Vector2(150, 28), 19)
 	_label(tray, "小兵 3 张合成 · 效果 2 张发动", Vector2(168, 13), Vector2(300, 22), 12, Color("#765035"))
-	clear_tray_button = Button.new()
-	clear_tray_button.position = Vector2(486, 8)
-	clear_tray_button.size = Vector2(146, 34)
-	clear_tray_button.text = "清空（%d）" % CLEAR_TRAY_COST
-	clear_tray_button.tooltip_text = "清空合成台，卡牌补回牌堆底（-%d 金币，有免费次数时优先用免费）" % CLEAR_TRAY_COST
-	clear_tray_button.add_theme_font_size_override("font_size", 15)
-	clear_tray_button.add_theme_stylebox_override("normal", _panel_style(Color("#e4863e"), Color("#713722"), 12, 2))
-	clear_tray_button.add_theme_stylebox_override("hover", _panel_style(Color("#f2a252"), Color("#713722"), 12, 2))
-	clear_tray_button.add_theme_stylebox_override("pressed", _panel_style(Color("#c9702f"), Color("#713722"), 12, 2))
-	clear_tray_button.add_theme_stylebox_override("disabled", _panel_style(Color("#9c6b45"), Color("#5e3320"), 12, 2))
-	clear_tray_button.pressed.connect(_on_clear_tray_pressed)
-	clear_tray_button.pressed.connect(_play_button_sfx)
-	tray.add_child(clear_tray_button)
 	for index in range(TRAY_SLOTS + 1):
 		var slot := Panel.new()
 		slot.size = TRAY_SLOT_SIZE
@@ -810,7 +827,6 @@ func _build_tray() -> void:
 		tray.add_child(slot)
 		tray_slot_panels.append(slot)
 	_layout_tray_slots()
-	_update_clear_tray_button()
 
 func _layout_tray_slots() -> void:
 	if tray == null or tray_slot_panels.is_empty():
@@ -5581,13 +5597,15 @@ func _update_reshuffle_button() -> void:
 func _update_clear_tray_button() -> void:
 	if clear_tray_button == null:
 		return
+	clear_tray_button.text = ""
 	var free_clear := free_clear_tokens > 0
 	if free_clear:
-		clear_tray_button.text = "免费清空"
 		clear_tray_button.tooltip_text = "免费清空合成台（剩 %d 次），卡牌补回牌堆底" % free_clear_tokens
 	else:
-		clear_tray_button.text = "清空（%d）" % CLEAR_TRAY_COST
 		clear_tray_button.tooltip_text = "清空合成台，卡牌补回牌堆底（-%d 金币）" % CLEAR_TRAY_COST
+	if clear_tray_badge != null:
+		clear_tray_badge.visible = free_clear
+		clear_tray_badge.text = str(free_clear_tokens) if free_clear else ""
 	# 战斗未开始/已结束/奖励面板打开时直接置灰；其余不可用原因保持可点以弹中文提示
 	clear_tray_button.disabled = not _can_pick_cards()
 

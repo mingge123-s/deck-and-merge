@@ -40,11 +40,15 @@ func _initialize() -> void:
 	main.free_clear_tokens = 0
 	main._update_coin_ui()
 	_check(main._clear_tray_block_reason().contains("金币不足"), "金币不足原因: %s" % main._clear_tray_block_reason())
-	_check(main.clear_tray_button.text == "清空（100）", "按钮文案: %s" % main.clear_tray_button.text)
+	_check(main.clear_tray_button.size == Vector2(46, 46), "清空应为 46x46 方块按钮: %s" % main.clear_tray_button.size)
+	_check(main.clear_tray_button.get_parent() != main.tray, "清空按钮不应挂在合成台上")
+	_check(main.clear_tray_button.tooltip_text.contains("100"), "付费 tooltip: %s" % main.clear_tray_button.tooltip_text)
+	_check(main.clear_tray_badge != null and not main.clear_tray_badge.visible, "无免费次数时角标应隐藏")
 	# 免费次数优先
 	main.free_clear_tokens = 1
 	main._update_coin_ui()
-	_check(main.clear_tray_button.text == "免费清空", "免费按钮文案: %s" % main.clear_tray_button.text)
+	_check(main.clear_tray_button.tooltip_text.contains("免费"), "免费 tooltip: %s" % main.clear_tray_button.tooltip_text)
+	_check(main.clear_tray_badge != null and main.clear_tray_badge.visible and main.clear_tray_badge.text == "1", "免费角标应显示 1")
 	_check(main._clear_tray_block_reason() == "", "有免费次数应可清空")
 	var deck_before: int = main.deck_cards.size()
 	main._do_clear_tray(true)
