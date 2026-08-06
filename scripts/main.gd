@@ -195,6 +195,8 @@ var return_button: Button
 var pause_button: Button
 var main_menu: Control
 var settings_panel: Panel
+var leaderboard_panel: Panel
+var leaderboard_rows: VBoxContainer
 var era_select_panel: Panel
 var sandbox_panel: Panel
 var sandbox_control_panel: Panel
@@ -1487,8 +1489,10 @@ func _build_main_menu() -> void:
 	online_button.tooltip_text = "敬请期待"
 	var soon := _label(card, "敬请期待", Vector2(458, 538), Vector2(94, 24), 12, Color("#e6c199"))
 	soon.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	var settings_button := _menu_button(card, "设置", Vector2(144, 586), Vector2(300, 50), 19)
+	var settings_button := _menu_button(card, "设置", Vector2(144, 586), Vector2(142, 50), 19)
 	settings_button.pressed.connect(_show_settings)
+	var leaderboard_button := _menu_button(card, "排行榜", Vector2(302, 586), Vector2(142, 50), 19)
+	leaderboard_button.pressed.connect(_show_leaderboard)
 	var menu_help_button := _menu_button(card, "玩法介绍", Vector2(388, 34), Vector2(160, 50), 17)
 	menu_help_button.pressed.connect(_show_tutorial)
 	var codex_button := _menu_button(card, "图鉴", Vector2(40, 34), Vector2(160, 50), 17)
@@ -1511,6 +1515,7 @@ func _build_main_menu() -> void:
 	update_status_label = _label(card, "", Vector2(0, 836), Vector2(588, 18), 12, Color("#ffe3a5"))
 	update_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_build_settings_panel(card)
+	_build_leaderboard_panel()
 	_build_era_select_panel()
 	_build_sandbox_config_panel()
 	_build_codex_panel()
@@ -1586,12 +1591,115 @@ func _on_volume_changed(value: float, bus_name: String) -> void:
 	AudioManager.apply_volume(bus_name, value)
 
 func _show_settings() -> void:
+	_hide_leaderboard()
 	if settings_panel != null:
 		settings_panel.visible = true
 
 func _hide_settings() -> void:
 	if settings_panel != null:
 		settings_panel.visible = false
+
+func _build_leaderboard_panel() -> void:
+	leaderboard_panel = Panel.new()
+	leaderboard_panel.name = "LeaderboardPanel"
+	leaderboard_panel.position = Vector2(66, 190)
+	leaderboard_panel.size = Vector2(588, 860)
+	leaderboard_panel.z_index = 25
+	leaderboard_panel.add_theme_stylebox_override("panel", _panel_style(Color("#c58a53"), Color("#70412c"), 24, 3))
+	leaderboard_panel.visible = false
+	main_menu.add_child(leaderboard_panel)
+	var title := _label(leaderboard_panel, "本机排行榜", Vector2(0, 28), Vector2(588, 40), 28)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var subtitle := _label(leaderboard_panel, "Top 10 · 本地记录", Vector2(0, 72), Vector2(588, 26), 15, Color("#e6c199"))
+	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var header := _label(
+		leaderboard_panel,
+		"名次　　积分　　难度　　到达　　时间",
+		Vector2(36, 118),
+		Vector2(516, 28),
+		15,
+		Color("#fff0c7")
+	)
+	header.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	var divider := ColorRect.new()
+	divider.position = Vector2(36, 150)
+	divider.size = Vector2(516, 2)
+	divider.color = Color("#70412c", 0.75)
+	divider.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	leaderboard_panel.add_child(divider)
+	var scroll := ScrollContainer.new()
+	scroll.position = Vector2(28, 164)
+	scroll.size = Vector2(532, 580)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	leaderboard_panel.add_child(scroll)
+	leaderboard_rows = VBoxContainer.new()
+	leaderboard_rows.custom_minimum_size = Vector2(512, 0)
+	leaderboard_rows.add_theme_constant_override("separation", 4)
+	leaderboard_rows.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	scroll.add_child(leaderboard_rows)
+	var close_button := _menu_button(leaderboard_panel, "返回", Vector2(194, 770), Vector2(200, 54), 18)
+	close_button.pressed.connect(_hide_leaderboard)
+
+func _show_leaderboard() -> void:
+	_hide_settings()
+	_hide_era_select()
+	_hide_sandbox_config()
+	_hide_codex()
+	_refresh_leaderboard_panel()
+	if leaderboard_panel != null:
+		leaderboard_panel.visible = true
+
+func _hide_leaderboard() -> void:
+	if leaderboard_panel != null:
+		leaderboard_panel.visible = false
+
+func _refresh_leaderboard_panel() -> void:
+	if leaderboard_rows == null:
+		return
+	for child in leaderboard_rows.get_children():
+		child.queue_free()
+	var board: Array = SaveManager.get_leaderboard()
+	var best := SaveManager.get_best_score()
+	var best_text := "尚无记录，完成一局后结算入榜"
+	if best > 0:
+		best_text = "历史最高　%d" % best
+	var best_line := _label(
+		leaderboard_rows,
+		best_text,
+		Vector2.ZERO,
+		Vector2(512, 30),
+		16,
+		Color("#ffe3a5")
+	)
+	best_line.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	best_line.custom_minimum_size = Vector2(512, 30)
+	if board.is_empty():
+		var empty := _label(leaderboard_rows, "——", Vector2.ZERO, Vector2(512, 36), 18, Color("#e6c199"))
+		empty.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		empty.custom_minimum_size = Vector2(512, 36)
+		return
+	for index in range(board.size()):
+		var row: Dictionary = board[index]
+		var score := int(row.get("score", 0))
+		var diff_key := str(row.get("difficulty", "normal"))
+		var diff_name := str(DIFFICULTIES.get(diff_key, {}).get("name", diff_key))
+		var stage := int(row.get("stage_reached", 1))
+		var stamp := int(row.get("timestamp", 0))
+		var time_text := "—"
+		if stamp > 0:
+			var dt := Time.get_datetime_dict_from_unix_time(stamp)
+			time_text = "%02d-%02d %02d:%02d" % [int(dt.month), int(dt.day), int(dt.hour), int(dt.minute)]
+		var accent := Color("#fff0c7") if index > 0 else Color("#ffd273")
+		var line := _label(
+			leaderboard_rows,
+			"%2d　　%6d　　%s　　第%d关　　%s" % [index + 1, score, diff_name, stage, time_text],
+			Vector2.ZERO,
+			Vector2(512, 40),
+			16,
+			accent
+		)
+		line.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		line.custom_minimum_size = Vector2(512, 40)
 
 func _era_amount(base_amount: int) -> int:
 	return _era_amount_for(current_era, base_amount)
@@ -2374,6 +2482,7 @@ func _build_era_select_panel() -> void:
 
 func _show_era_select() -> void:
 	_hide_settings()
+	_hide_leaderboard()
 	_refresh_era_select_ui()
 	if era_select_panel != null:
 		era_select_panel.visible = true
@@ -2538,6 +2647,7 @@ func _clear_sandbox_counts() -> void:
 
 func _show_sandbox_config() -> void:
 	_hide_settings()
+	_hide_leaderboard()
 	_hide_era_select()
 	_sandbox_refresh_config_ui()
 	if sandbox_panel != null:
@@ -2771,6 +2881,7 @@ func _codex_add_row_icon(parent: Button, path: String, placeholder_color: Color,
 
 func _show_codex() -> void:
 	_hide_settings()
+	_hide_leaderboard()
 	_hide_era_select()
 	_hide_sandbox_config()
 	codex_category = "unit"
@@ -3203,6 +3314,7 @@ func _show_main_menu() -> void:
 	stage_clear_pending = false
 	AudioManager.set_music_filtered(false)
 	_hide_settings()
+	_hide_leaderboard()
 	_hide_era_select()
 	_hide_sandbox_config()
 	_hide_codex()
@@ -5502,9 +5614,12 @@ func _remove_battle_units() -> void:
 				child.queue_free()
 
 func _finish_round(message: String) -> void:
-	var best_score := maxi(SaveManager.get_best_score(), kill_score)
-	SaveManager.set_best_score(best_score)
-	status_label.text = "%s\n本局积分 %d（最高 %d）" % [message, kill_score, best_score]
+	var rank := SaveManager.try_submit_score(kill_score, current_difficulty, _stage_number())
+	var best_score := SaveManager.get_best_score()
+	if rank > 0:
+		status_label.text = "%s\n本局积分 %d（最高 %d）\n新纪录！本机榜第 %d 名" % [message, kill_score, best_score, rank]
+	else:
+		status_label.text = "%s\n本局积分 %d（最高 %d）" % [message, kill_score, best_score]
 	if result_overlay != null:
 		result_overlay.visible = true
 
