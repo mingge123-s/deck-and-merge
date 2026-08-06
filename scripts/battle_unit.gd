@@ -54,6 +54,9 @@ var untargetable_time := 0.0
 var blind_time := 0.0
 var taunted_by: BattleUnit
 var taunt_time := 0.0
+## 被身后近战/英雄打中后，短时优先还击该攻击者（不永久废除前方优先）
+var backstab_retaliate_by: BattleUnit
+var backstab_retaliate_time := 0.0
 var _buff_aura_root: Node2D
 var _buff_ring: Line2D
 var _buff_dots_root: Node2D
@@ -309,6 +312,9 @@ func _process(delta: float) -> void:
 	reflect_time = maxf(0.0, reflect_time - delta)
 	berserk_time = maxf(0.0, berserk_time - delta)
 	taunt_time = maxf(0.0, taunt_time - delta)
+	backstab_retaliate_time = maxf(0.0, backstab_retaliate_time - delta)
+	if backstab_retaliate_time <= 0.0:
+		backstab_retaliate_by = null
 	poison_time = maxf(0.0, poison_time - delta)
 	if poison_time > 0.0 and alive and poison_dps > 0.0:
 		_poison_tick_accumulator += delta
@@ -392,6 +398,13 @@ func targetable() -> bool:
 func add_taunt(source: BattleUnit, duration: float) -> void:
 	taunted_by = source
 	taunt_time = maxf(taunt_time, duration)
+	queue_redraw()
+
+func add_backstab_retaliate(source: BattleUnit, duration: float) -> void:
+	if source == null or not is_instance_valid(source):
+		return
+	backstab_retaliate_by = source
+	backstab_retaliate_time = maxf(backstab_retaliate_time, duration)
 	queue_redraw()
 
 func receive_damage(amount: float, source := "hero") -> void:
