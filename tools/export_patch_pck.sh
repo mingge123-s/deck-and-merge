@@ -83,7 +83,7 @@ if ! [[ "$VERSION" =~ ^[0-9]+$ ]]; then
 	exit 2
 fi
 
-OUT_DIR="${OUT_DIR:-artifacts/pck-patch-v${VERSION}}"
+OUT_DIR="${OUT_DIR:-artifacts/pck-v${VERSION}}"
 PCK_BASENAME="${PCK_BASENAME:-deck-and-merge-v${VERSION}.pck}"
 NOTES="${NOTES:-$(default_notes "$VERSION")}"
 PCK_PATH="${OUT_DIR}/${PCK_BASENAME}"
@@ -108,7 +108,7 @@ write_manifest() {
 EOF
 }
 
-echo "== pck-patch export =="
+echo "== in-app PCK patch export =="
 echo "version:  $VERSION"
 echo "preset:   $PRESET"
 echo "out_dir:  $OUT_DIR"
