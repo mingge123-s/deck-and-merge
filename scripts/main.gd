@@ -4211,7 +4211,9 @@ func _step_battle(delta: float) -> void:
 			if unit.attack_cooldown <= 0.0 and _try_cast_skill(unit, null):
 				continue
 		var tower_x := ENEMY_TOWER_X if unit.faction == "ally" else ALLY_TOWER_X
-		var tower_reach := maxf(_engage_distance(unit), TOWER_RANGE)
+		# Prefer towers once inside full attack range (not engage/stop distance).
+		# Ranged units engage at ~range*0.72 for troops, but can still hit towers at stats.range.
+		var tower_reach := maxf(float(unit.stats.get("range", 0.0)), TOWER_RANGE)
 		if absf(tower_x - unit.position.x) <= tower_reach:
 			unit.set_moving(false)
 			if unit.attack_cooldown <= 0.0:
