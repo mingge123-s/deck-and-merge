@@ -27,9 +27,9 @@ func _initialize() -> void:
 	var info_y: float = main.INFO_BAR_RECT.position.y
 	_check(toast_y < info_y and toast_y >= info_y - 120.0, "toast 应靠近信息栏上方，实际 y=%s info=%s" % [toast_y, info_y])
 	# 遮罩应覆盖牌堆区，且 INFO_BAR 区域无 STOP 子控件
-	var info := main.INFO_BAR_RECT
-	var info_center := info.position + info.size * 0.5
-	var board_center := main.BOARD_RECT.position + main.BOARD_RECT.size * 0.5
+	var info: Rect2 = main.INFO_BAR_RECT
+	var info_center: Vector2 = info.position + info.size * 0.5
+	var board_center: Vector2 = main.BOARD_RECT.position + main.BOARD_RECT.size * 0.5
 	var has_info_hole := true
 	var covers_board := false
 	for child in main.pause_overlay.get_children():
@@ -52,7 +52,10 @@ func _initialize() -> void:
 	await process_frame
 
 	# 摇一摇与按钮同费用：金币不足时不应白嫖重排
-	SaveManager.set_reshuffle_hint_seen(true)
+	var save_manager: Node = root.get_node_or_null("SaveManager")
+	_check(save_manager != null, "应能访问 SaveManager autoload")
+	if save_manager != null:
+		save_manager.set_reshuffle_hint_seen(true)
 	main.coin_count = 0
 	main.free_reshuffles = 0
 	main._update_coin_ui()

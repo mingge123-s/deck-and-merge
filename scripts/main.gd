@@ -919,7 +919,7 @@ func _build_battlefield() -> void:
 	# 拦截提示靠近信息栏；z 高于 pause_overlay，整备/暂停时仍可见
 	toast_overlay.position = Vector2(0.0, INFO_BAR_RECT.position.y - 72.0)
 	toast_overlay.size = Vector2(VIEW_SIZE.x, 72.0)
-	toast_overlay.z_index = 4100
+	toast_overlay.z_index = 4096
 	toast_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(toast_overlay)
 	toast_panel = Panel.new()
