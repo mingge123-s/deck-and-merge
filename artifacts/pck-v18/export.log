@@ -1,0 +1,80 @@
+[  91% ] [90m[1msavepack[22m | Storing File: res://docs/balance/towers.DPS.translation[39m[0m
+[  91% ] [90m[1msavepack[22m | Storing File: res://docs/balance/towers.修复一次回血(25%).translation[39m[0m
+[  91% ] [90m[1msavepack[22m | Storing File: res://docs/balance/towers.单次伤害.translation[39m[0m
+[  92% ] [90m[1msavepack[22m | Storing File: res://docs/balance/towers.塔生命（整局固定上限）.translation[39m[0m
+[  92% ] [90m[1msavepack[22m | Storing File: res://docs/balance/towers.抛射物外观.translation[39m[0m
+[  92% ] [90m[1msavepack[22m | Storing File: res://docs/balance/towers.抛射速度.translation[39m[0m
+[  92% ] [90m[1msavepack[22m | Storing File: res://docs/balance/towers.攻击射程.translation[39m[0m
+[  93% ] [90m[1msavepack[22m | Storing File: res://docs/balance/towers.攻击间隔.translation[39m[0m
+[  93% ] [90m[1msavepack[22m | Storing File: res://.godot/exported/133200997/export-c3c40bb4d42d26c7c74cc88080d6723d-boot.scn[39m[0m
+[  93% ] [90m[1msavepack[22m | Storing File: res://.godot/exported/133200997/export-3ad5c15c4f3250da0cc7c1af1770d85f-main.scn[39m[0m
+[  93% ] [90m[1msavepack[22m | Storing File: res://scripts/ai_spawn.gdc[39m[0m
+[  94% ] [90m[1msavepack[22m | Storing File: res://scripts/ai_spawn_config.gdc[39m[0m
+[  94% ] [90m[1msavepack[22m | Storing File: res://scripts/audio_manager.gdc[39m[0m
+[  94% ] [90m[1msavepack[22m | Storing File: res://scripts/battle_unit.gdc[39m[0m
+[  94% ] [90m[1msavepack[22m | Storing File: res://scripts/boot.gdc[39m[0m
+[  94% ] [90m[1msavepack[22m | Storing File: res://scripts/card_view.gdc[39m[0m
+[  95% ] [90m[1msavepack[22m | Storing File: res://scripts/fx_manager.gdc[39m[0m
+[  95% ] [90m[1msavepack[22m | Storing File: res://scripts/game_data.gdc[39m[0m
+[  95% ] [90m[1msavepack[22m | Storing File: res://scripts/main.gdc[39m[0m
+[  95% ] [90m[1msavepack[22m | Storing File: res://scripts/minimap.gdc[39m[0m
+[  96% ] [90m[1msavepack[22m | Storing File: res://scripts/projectile.gdc[39m[0m
+[  96% ] [90m[1msavepack[22m | Storing File: res://scripts/save_manager.gdc[39m[0m
+[  96% ] [90m[1msavepack[22m | Storing File: res://scripts/tower_health_bar.gdc[39m[0m
+[  96% ] [90m[1msavepack[22m | Storing File: res://scripts/updater.gdc[39m[0m
+[  96% ] [90m[1msavepack[22m | Storing File: res://tools/ai_spawn_smoke.gdc[39m[0m
+[  97% ] [90m[1msavepack[22m | Storing File: res://tools/backstab_aggro_smoke.gdc[39m[0m
+[  97% ] [90m[1msavepack[22m | Storing File: res://tools/clear_tray_smoke.gdc[39m[0m
+[  97% ] [90m[1msavepack[22m | Storing File: res://tools/leaderboard_smoke.gdc[39m[0m
+[  97% ] [90m[1msavepack[22m | Storing File: res://tools/shake_reshuffle_smoke.gdc[39m[0m
+[  98% ] [90m[1msavepack[22m | Storing File: res://tools/skill_smoke.gdc[39m[0m
+[  98% ] [90m[1msavepack[22m | Storing File: res://tools/stage_progression_smoke.gdc[39m[0m
+[  98% ] [90m[1msavepack[22m | Storing File: res://tools/stage_time_limit_smoke.gdc[39m[0m
+[  98% ] [90m[1msavepack[22m | Storing File: res://.godot/exported/133200997/export-19246414aa9fb561ced4b8dce477acec-default_bus_layout.res[39m[0m
+[  98% ] [90m[1msavepack[22m | Storing File: res://scenes/boot.tscn.remap[39m[0m
+[  98% ] [90m[1msavepack[22m | Storing File: res://scenes/main.tscn.remap[39m[0m
+[  98% ] [90m[1msavepack[22m | Storing File: res://scripts/ai_spawn.gd.remap[39m[0m
+[  98% ] [90m[1msavepack[22m | Storing File: res://scripts/ai_spawn_config.gd.remap[39m[0m
+[  98% ] [90m[1msavepack[22m | Storing File: res://scripts/audio_manager.gd.remap[39m[0m
+[  98% ] [90m[1msavepack[22m | Storing File: res://scripts/battle_unit.gd.remap[39m[0m
+[  98% ] [90m[1msavepack[22m | Storing File: res://scripts/boot.gd.remap[39m[0m
+[  98% ] [90m[1msavepack[22m | Storing File: res://scripts/card_view.gd.remap[39m[0m
+[  98% ] [90m[1msavepack[22m | Storing File: res://scripts/fx_manager.gd.remap[39m[0m
+[  98% ] [90m[1msavepack[22m | Storing File: res://scripts/game_data.gd.remap[39m[0m
+[  98% ] [90m[1msavepack[22m | Storing File: res://scripts/main.gd.remap[39m[0m
+[  98% ] [90m[1msavepack[22m | Storing File: res://scripts/minimap.gd.remap[39m[0m
+[  98% ] [90m[1msavepack[22m | Storing File: res://scripts/projectile.gd.remap[39m[0m
+[  98% ] [90m[1msavepack[22m | Storing File: res://scripts/save_manager.gd.remap[39m[0m
+[  98% ] [90m[1msavepack[22m | Storing File: res://scripts/tower_health_bar.gd.remap[39m[0m
+[  98% ] [90m[1msavepack[22m | Storing File: res://scripts/updater.gd.remap[39m[0m
+[  98% ] [90m[1msavepack[22m | Storing File: res://tools/ai_spawn_smoke.gd.remap[39m[0m
+[  98% ] [90m[1msavepack[22m | Storing File: res://tools/backstab_aggro_smoke.gd.remap[39m[0m
+[  98% ] [90m[1msavepack[22m | Storing File: res://tools/clear_tray_smoke.gd.remap[39m[0m
+[  98% ] [90m[1msavepack[22m | Storing File: res://tools/leaderboard_smoke.gd.remap[39m[0m
+[  98% ] [90m[1msavepack[22m | Storing File: res://tools/shake_reshuffle_smoke.gd.remap[39m[0m
+[  98% ] [90m[1msavepack[22m | Storing File: res://tools/skill_smoke.gd.remap[39m[0m
+[  98% ] [90m[1msavepack[22m | Storing File: res://tools/stage_progression_smoke.gd.remap[39m[0m
+[  98% ] [90m[1msavepack[22m | Storing File: res://tools/stage_time_limit_smoke.gd.remap[39m[0m
+[  98% ] [90m[1msavepack[22m | Storing File: res://default_bus_layout.tres.remap[39m[0m
+[  98% ] [90m[1msavepack[22m | Storing File: res://.godot/global_script_class_cache.cfg[39m[0m
+[  98% ] [90m[1msavepack[22m | Storing File: res://.godot/uid_cache.bin[39m[0m
+[  98% ] [90m[1msavepack[22m | Storing File: res://project.binary[39m[0m
+[92m[ DONE ][39m [1msavepack[22m
+[0m
+
+== 完成 ==
+manifest: artifacts/pck-v18/version.json
+{
+  "version": 18,
+  "pck_url": "https://mingge.asia/deck-and-merge/update/deck-and-merge-v18.pck",
+  "notes": "v18：过关文案修正；远程优先打塔；本机Top10排行榜；摇一摇/重排修复；清空按钮迁入顶栏；身后近战还击等（#61–#66）"
+}
+
+sha256:   129ba499c6a5d0093c17b95a5d53cf67a2c3fcb7c6d930456c57c60262668a92
+bytes:    42449480
+meta:     artifacts/pck-v18/RELEASE.txt
+
+上传目标（现网前缀）:
+  https://mingge.asia/deck-and-merge/update/deck-and-merge-v18.pck
+  https://mingge.asia/deck-and-merge/update/version.json
+建议顺序: 先上传 PCK 并 curl 校验，再覆盖 version.json。

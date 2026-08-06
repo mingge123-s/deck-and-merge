@@ -12,6 +12,7 @@ signal update_ready(version: int, notes: String)
 ## 更新清单地址（服务器上的 version.json）。换服务器只改这一行。
 const MANIFEST_URL := "https://mingge.asia/deck-and-merge/update/version.json"
 ## 打进 APK 的基线内容版本。每次发布新 APK 基线时 +1。
+## 热更发布不要随意抬高：玩家靠远端 version > installed_version 下载补丁。
 const BASE_VERSION := 1
 
 const PATCH_DIR := "user://patch"
@@ -23,10 +24,14 @@ const HTTP_TIMEOUT := 20.0
 const DOWNLOAD_TIMEOUT := 0.0
 
 var installed_version := BASE_VERSION
+## 已下载、待玩家重启后生效的补丁版本（0 = 无待重启补丁）
+var pending_restart_version := 0
+var pending_restart_notes := ""
 var _http: HTTPRequest
 var _phase := "idle"  # idle / checking / downloading
 var _pending_version := 0
 var _pending_notes := ""
+var _manual_check := false
 
 func _ready() -> void:
 	DirAccess.make_dir_recursive_absolute(PATCH_DIR)
@@ -53,14 +58,25 @@ func _apply_local_patch() -> void:
 
 func check_for_update(manual := false) -> void:
 	if _phase != "idle":
+		if manual:
+			if _phase == "downloading":
+				status_changed.emit("正在下载 v%d…请稍候" % _pending_version)
+			else:
+				status_changed.emit("正在检查更新…")
 		return
+	if pending_restart_version > installed_version and manual:
+		status_changed.emit("v%d 已就绪，请完全退出后再开" % pending_restart_version)
+		update_ready.emit(pending_restart_version, pending_restart_notes)
+		return
+	_manual_check = manual
 	_phase = "checking"
 	_http.timeout = HTTP_TIMEOUT
+	# 后台无感检查：不刷状态文案，避免打扰主菜单
 	status_changed.emit("正在检查更新…" if manual else "")
 	var err := _http.request(MANIFEST_URL)
 	if err != OK:
 		_phase = "idle"
-		status_changed.emit("检查更新失败（无法连接）")
+		status_changed.emit("检查更新失败（无法连接）" if manual else "")
 
 func _on_request_completed(result: int, code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
 	if _phase == "checking":
@@ -71,12 +87,14 @@ func _on_request_completed(result: int, code: int, _headers: PackedStringArray, 
 func _handle_manifest(result: int, code: int, body: PackedByteArray) -> void:
 	if result != HTTPRequest.RESULT_SUCCESS or code != 200:
 		_phase = "idle"
-		status_changed.emit("检查更新失败（%s）" % _error_text(result, code))
+		if _manual_check:
+			status_changed.emit("检查更新失败（%s）" % _error_text(result, code))
 		return
 	var parsed: Variant = JSON.parse_string(body.get_string_from_utf8())
 	if typeof(parsed) != TYPE_DICTIONARY:
 		_phase = "idle"
-		status_changed.emit("检查更新失败（清单格式错误）")
+		if _manual_check:
+			status_changed.emit("检查更新失败（清单格式错误）")
 		return
 	var manifest: Dictionary = parsed
 	var remote_version := int(manifest.get("version", 0))
@@ -84,7 +102,15 @@ func _handle_manifest(result: int, code: int, body: PackedByteArray) -> void:
 	var notes := str(manifest.get("notes", ""))
 	if remote_version <= installed_version or pck_url == "":
 		_phase = "idle"
-		status_changed.emit("已是最新版本 v%d" % installed_version)
+		if pending_restart_version > installed_version:
+			status_changed.emit("v%d 已就绪，请完全退出后再开" % pending_restart_version)
+		elif _manual_check:
+			status_changed.emit("已是最新版本 v%d" % installed_version)
+		return
+	if pending_restart_version >= remote_version:
+		_phase = "idle"
+		status_changed.emit("v%d 已就绪，请完全退出后再开" % pending_restart_version)
+		update_ready.emit(pending_restart_version, pending_restart_notes)
 		return
 	_pending_version = remote_version
 	_pending_notes = notes
@@ -112,11 +138,13 @@ func _handle_download(result: int, code: int) -> void:
 	var move_err := DirAccess.rename_absolute(TMP_PATH, PCK_PATH)
 	if move_err != OK:
 		_phase = "idle"
-		status_changed.emit("下载完成但写入失败")
+		status_changed.emit("下载完成但写入失败，请重试")
 		return
 	_write_state({"pck_version": _pending_version})
+	pending_restart_version = _pending_version
+	pending_restart_notes = _pending_notes
 	_phase = "idle"
-	status_changed.emit("已下载 v%d，重启游戏生效" % _pending_version)
+	status_changed.emit("★ 已下载 v%d，请完全退出游戏后再打开 ★" % _pending_version)
 	update_ready.emit(_pending_version, _pending_notes)
 
 func _process(_delta: float) -> void:

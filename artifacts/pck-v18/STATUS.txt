@@ -1,0 +1,6 @@
+STATUS=COMMAND_DECISION
+REASON=no_ssh_ftp_token
+ACTION_REQUIRED=commander_upload_artifacts_to_mingge.asia
+TARGET_PCK=https://mingge.asia/deck-and-merge/update/deck-and-merge-v18.pck
+TARGET_MANIFEST=https://mingge.asia/deck-and-merge/update/version.json
+SERVER_DIR=/var/www/deck-and-merge/update/
