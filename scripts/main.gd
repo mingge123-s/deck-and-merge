@@ -57,6 +57,8 @@ const TANK_AGGRO_RADIUS := 150.0
 const PROJECTILE_RANGE_THRESHOLD := 100.0
 const RANGED_RANGE_MULT := 1.2 # 玩家远程单位的攻击距离提升 20%
 const FRONT_TOLERANCE := 8.0
+## 被身后近战/英雄打中后，短时优先还击该攻击者（方案 A；前方优先仍为默认）
+const BACKSTAB_RETALIATE_DURATION := 2.0
 const SANDBOX_SIDE_CAP := 20
 const TOUCH_SCROLL_CLICK_THRESHOLD := 12.0
 const UNIT_CAP := 30
@@ -4530,6 +4532,7 @@ func _deal_damage(target: BattleUnit, amount: float, source: String, attacker: B
 	target.receive_damage(damage, source)
 	if attacker == null or not is_instance_valid(attacker) or not attacker.alive:
 		return
+	_register_backstab_retaliate(target, attacker, source)
 	if _buff_active_side(attacker.faction, "lifesteal"):
 		var heal_amount := damage * 0.2
 		attacker.heal(heal_amount)
@@ -4547,6 +4550,22 @@ func _deal_damage(target: BattleUnit, amount: float, source: String, attacker: B
 	if melee and attacker.faction != target.faction and target.reflect_time > 0.0:
 		attacker.receive_damage(damage * target.reflect_frac, "hero")
 
+func _register_backstab_retaliate(target: BattleUnit, attacker: BattleUnit, source: String) -> void:
+	if source != "hero":
+		return
+	if attacker.faction == target.faction:
+		return
+	var melee := float(attacker.stats.get("range", 0.0)) < PROJECTILE_RANGE_THRESHOLD
+	if not melee:
+		return
+	if _is_front_candidate(target, attacker):
+		return
+	# untargetable（如 phase_execute 1.5s）结束后仍需有有效还击窗口
+	var window := BACKSTAB_RETALIATE_DURATION
+	if attacker.untargetable_time > 0.0:
+		window = maxf(window, attacker.untargetable_time + BACKSTAB_RETALIATE_DURATION)
+	target.add_backstab_retaliate(attacker, window)
+
 func _find_target(unit: BattleUnit, ally_units: Array[BattleUnit], enemy_units: Array[BattleUnit]) -> BattleUnit:
 	var source_candidates := enemy_units if unit.faction == "ally" else ally_units
 	var candidates: Array[BattleUnit] = []
@@ -4557,6 +4576,10 @@ func _find_target(unit: BattleUnit, ally_units: Array[BattleUnit], enemy_units: 
 		return null
 	if unit.taunt_time > 0.0 and is_instance_valid(unit.taunted_by) and unit.taunted_by.alive:
 		return unit.taunted_by
+	# 方案 A：身后近战仇恨窗口内，优先还击该攻击者（不废除默认前方优先）
+	var retaliate := unit.backstab_retaliate_by
+	if unit.backstab_retaliate_time > 0.0 and is_instance_valid(retaliate) and retaliate.alive and retaliate.targetable():
+		return retaliate
 	var aggro_tanks: Array[BattleUnit] = []
 	for candidate in candidates:
 		if not is_instance_valid(candidate) or not candidate.alive:
@@ -4587,6 +4610,9 @@ func _nearest_unit(unit: BattleUnit, candidates: Array[BattleUnit]) -> BattleUni
 	return nearest_front if nearest_front != null else nearest_any
 
 func _is_front_candidate(unit: BattleUnit, candidate: BattleUnit) -> bool:
+	# 身后还击窗口：对该攻击者临时关闭前方过滤（其余目标仍走前方优先）
+	if unit.backstab_retaliate_time > 0.0 and unit.backstab_retaliate_by == candidate:
+		return true
 	if unit.faction == "ally":
 		return candidate.position.x >= unit.position.x - FRONT_TOLERANCE
 	return candidate.position.x <= unit.position.x + FRONT_TOLERANCE
