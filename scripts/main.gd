@@ -40,6 +40,8 @@ const BATTLE_LANES := 5
 const BATTLE_LANE_STEP := 11.0
 const CAMERA_FOLLOW_SPEED := 4.0
 const CAMERA_MANUAL_HOLD := 3.0
+const SHAKE_JERK_THRESHOLD := 12.0 # 相邻两帧加速度变化超过该值判定为一次摇动
+const SHAKE_COOLDOWN := 1.5
 const WORLD_WIDTH := 1680.0
 const BATTLE_VIEW_W := 648.0
 const ALLY_TOWER_X := 96.0
@@ -276,6 +278,9 @@ var base_era_index := 0
 var ally_tower_cd := 0.0
 var enemy_tower_cd := 0.0
 var card_z_top := 0
+var shake_cooldown := 0.0
+var prev_accel := Vector3.ZERO
+var accel_primed := false
 var ally_tower_hp := 1.0
 var enemy_tower_hp := 1.0
 var ally_tower_max_hp := 1.0
@@ -522,6 +527,7 @@ func _update_minimap() -> void:
 	minimap.update_map(dots, towers, camera_x)
 
 func _process(delta: float) -> void:
+	_poll_shake_input(delta)
 	if paused:
 		return
 	if reward_active:
@@ -579,6 +585,32 @@ func _process(delta: float) -> void:
 	_step_battle(delta)
 	_update_camera_follow(delta)
 	_update_tower_ui()
+
+func _poll_shake_input(delta: float) -> void:
+	var accel := Input.get_accelerometer()
+	if accel == Vector3.ZERO:
+		accel = Input.get_gravity()
+	if accel_primed:
+		if (accel - prev_accel).length() > SHAKE_JERK_THRESHOLD and shake_cooldown <= 0.0:
+			_try_shake_deck()
+	else:
+		accel_primed = true
+	prev_accel = accel
+	shake_cooldown = maxf(0.0, shake_cooldown - delta)
+
+func _input(event: InputEvent) -> void:
+	# 桌面调试：按 S 模拟摇一摇（与按钮同费用/同规则）
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_S:
+		_try_shake_deck()
+
+func _try_shake_deck() -> void:
+	if shake_cooldown > 0.0:
+		return
+	if not battle_active or battle_ended:
+		return
+	shake_cooldown = SHAKE_COOLDOWN
+	# 禁止免费绕过：与信息栏重排按钮走同一入口（含首次确认/扣费/拦截 toast）
+	_on_reshuffle_pressed()
 
 func _update_tower_alarm_vfx(delta: float) -> void:
 	var ally_active := ally_tower_max_hp > 0.0 and ally_tower_hp / ally_tower_max_hp <= 0.25
@@ -884,14 +916,15 @@ func _build_battlefield() -> void:
 	boss_entry_banner.add_theme_constant_override("outline_size", 9)
 	boss_entry_overlay.visible = false
 	toast_overlay = Control.new()
-	toast_overlay.position = BATTLE_RECT.position
-	toast_overlay.size = BATTLE_RECT.size
-	toast_overlay.z_index = 101
+	# 拦截提示靠近信息栏；z 高于 pause_overlay，整备/暂停时仍可见
+	toast_overlay.position = Vector2(0.0, INFO_BAR_RECT.position.y - 72.0)
+	toast_overlay.size = Vector2(VIEW_SIZE.x, 72.0)
+	toast_overlay.z_index = 4100
 	toast_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(toast_overlay)
 	toast_panel = Panel.new()
 	toast_panel.size = Vector2(380, 56)
-	toast_panel.position = Vector2((BATTLE_RECT.size.x - 380) * 0.5, 150)
+	toast_panel.position = Vector2((VIEW_SIZE.x - 380.0) * 0.5, 8.0)
 	toast_panel.add_theme_stylebox_override("panel", _panel_style(Color("#3a2016", 0.92), Color("#ffd273"), 14, 2))
 	toast_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	toast_overlay.add_child(toast_panel)
@@ -1219,14 +1252,24 @@ func _build_pause_overlay() -> void:
 	pause_overlay = Control.new()
 	pause_overlay.size = VIEW_SIZE
 	pause_overlay.z_index = 4000
-	pause_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	# 根节点放行：由 shade/cover/panel 各自拦截；INFO_BAR 镂空可点重排
+	pause_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	pause_overlay.visible = false
 	add_child(pause_overlay)
-	var shade := ColorRect.new()
-	shade.size = VIEW_SIZE
-	shade.color = Color(0.04, 0.03, 0.02, 0.88)
-	shade.mouse_filter = Control.MOUSE_FILTER_STOP
-	pause_overlay.add_child(shade)
+	var info := INFO_BAR_RECT
+	var shade_rects: Array[Rect2] = [
+		Rect2(0.0, 0.0, VIEW_SIZE.x, info.position.y),
+		Rect2(0.0, info.end.y, VIEW_SIZE.x, VIEW_SIZE.y - info.end.y),
+		Rect2(0.0, info.position.y, info.position.x, info.size.y),
+		Rect2(info.end.x, info.position.y, VIEW_SIZE.x - info.end.x, info.size.y),
+	]
+	for rect in shade_rects:
+		var shade := ColorRect.new()
+		shade.position = rect.position
+		shade.size = rect.size
+		shade.color = Color(0.04, 0.03, 0.02, 0.88)
+		shade.mouse_filter = Control.MOUSE_FILTER_STOP
+		pause_overlay.add_child(shade)
 	for rect in [BATTLE_RECT, TRAY_RECT, BOARD_RECT]:
 		var cover := ColorRect.new()
 		cover.position = rect.position - Vector2(6, 6)
