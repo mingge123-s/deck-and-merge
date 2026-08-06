@@ -14,3 +14,11 @@
 ## 未改动（纪律边界）
 - `_enter_next_stage` 推进逻辑与 toast（advance 之后 `_stage_number()` 已正确）
 - 玩法数值 / 其他 UI / 重排 / 摇一摇 / 打塔 / 清空 / 排行榜 / 索敌
+
+## 验证
+命令：`godot --headless --path . --script tools/stage_progression_smoke.gd`（Godot 4.5.stable）
+
+结果：`stage_progression_smoke: OK`（exit 0）
+无 `SCRIPT ERROR` / `Parse Error`。
+
+完整输出见 `artifacts/stage_progression_smoke.log`。
