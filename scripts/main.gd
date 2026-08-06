@@ -194,6 +194,8 @@ var clear_tray_badge: Label
 var clear_tray_confirm_overlay: Control
 var status_label: Label
 var update_status_label: Label
+var update_restart_overlay: Control
+var update_restart_notes_label: Label
 var restart_button: Button
 var result_menu_button: Button
 var return_button: Button
@@ -1573,25 +1575,92 @@ func _build_main_menu() -> void:
 	check_update_button.pressed.connect(_on_check_update_pressed)
 	var version_label := _label(card, "内容版本 v%d" % Updater.installed_version, Vector2(0, 818), Vector2(588, 18), 12, Color("#e6c199"))
 	version_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	update_status_label = _label(card, "", Vector2(0, 836), Vector2(588, 18), 12, Color("#ffe3a5"))
+	update_status_label = _label(card, "", Vector2(0, 836), Vector2(588, 36), 14, Color("#ffe3a5"))
 	update_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	update_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_build_settings_panel(card)
 	_build_leaderboard_panel()
 	_build_era_select_panel()
 	_build_sandbox_config_panel()
 	_build_codex_panel()
+	_build_update_restart_overlay()
 
 func _on_check_update_pressed() -> void:
 	_play_button_sfx()
 	Updater.check_for_update(true)
 
 func _on_update_status(text: String) -> void:
-	if update_status_label != null:
-		update_status_label.text = text
+	if update_status_label == null:
+		return
+	update_status_label.text = text
+	# 待重启/下载完成：醒目强调；普通进度保持原色
+	if text.find("退出") >= 0 or text.find("重启") >= 0 or text.begins_with("★"):
+		update_status_label.add_theme_color_override("font_color", Color("#ffd36a"))
+		update_status_label.add_theme_font_size_override("font_size", 15)
+	elif text.find("失败") >= 0:
+		update_status_label.add_theme_color_override("font_color", Color("#ffb0a0"))
+		update_status_label.add_theme_font_size_override("font_size", 14)
+	else:
+		update_status_label.add_theme_color_override("font_color", Color("#ffe3a5"))
+		update_status_label.add_theme_font_size_override("font_size", 14)
 
-func _on_update_ready(version: int, _notes: String) -> void:
+func _on_update_ready(version: int, notes: String) -> void:
 	if update_status_label != null:
-		update_status_label.text = "已下载 v%d，重启生效" % version
+		update_status_label.text = "★ 已下载 v%d，请完全退出后再打开 ★" % version
+		update_status_label.add_theme_color_override("font_color", Color("#ffd36a"))
+		update_status_label.add_theme_font_size_override("font_size", 15)
+	_show_update_restart_overlay(version, notes)
+
+func _build_update_restart_overlay() -> void:
+	update_restart_overlay = Control.new()
+	update_restart_overlay.size = VIEW_SIZE
+	update_restart_overlay.z_index = 4096
+	update_restart_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	update_restart_overlay.visible = false
+	add_child(update_restart_overlay)
+	var shade := ColorRect.new()
+	shade.size = VIEW_SIZE
+	shade.color = Color(0.05, 0.03, 0.02, 0.62)
+	shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	update_restart_overlay.add_child(shade)
+	var panel := Panel.new()
+	panel.position = Vector2(70, 420)
+	panel.size = Vector2(580, 340)
+	panel.add_theme_stylebox_override("panel", _panel_style(Color("#c58a53"), Color("#70412c"), 24, 3))
+	update_restart_overlay.add_child(panel)
+	var title := _label(panel, "更新已就绪", Vector2(0, 28), Vector2(580, 40), 28)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var desc := _label(
+		panel,
+		"新内容已下载完成。\n请完全退出游戏后再次打开，更新才会生效。\n（返回桌面再点图标即可）",
+		Vector2(36, 86),
+		Vector2(508, 110),
+		17,
+		Color("#fff0c7")
+	)
+	desc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	update_restart_notes_label = _label(panel, "", Vector2(36, 200), Vector2(508, 48), 14, Color("#ffe3a5"))
+	update_restart_notes_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	update_restart_notes_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	var ok_button := _menu_button(panel, "知道了", Vector2(190, 260), Vector2(200, 56), 20)
+	ok_button.pressed.connect(_hide_update_restart_overlay)
+
+func _show_update_restart_overlay(version: int, notes: String) -> void:
+	if update_restart_overlay == null:
+		return
+	if update_restart_notes_label != null:
+		var note_text := notes.strip_edges()
+		if note_text == "":
+			update_restart_notes_label.text = "内容版本 v%d" % version
+		else:
+			update_restart_notes_label.text = "v%d：%s" % [version, note_text]
+	move_child(update_restart_overlay, get_child_count() - 1)
+	update_restart_overlay.visible = true
+
+func _hide_update_restart_overlay() -> void:
+	if update_restart_overlay != null:
+		update_restart_overlay.visible = false
 
 func _menu_button(parent: Control, text: String, position: Vector2, size: Vector2, font_size: int) -> Button:
 	var button := Button.new()
