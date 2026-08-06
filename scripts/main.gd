@@ -2001,7 +2001,8 @@ func _show_reward(context: String) -> void:
 	reward_context = context
 	if reward_title_label != null:
 		if context == "stage_clear":
-			reward_title_label.text = "过关！选择一项增益，随后进入%s" % _stage_name(enemy_era_index + 1)
+			# 过关奖励时仍停留在当前关：_stage_number()=N，下一关文案需 N+1（等价 enemy_era_index+2）
+			reward_title_label.text = "过关！选择一项增益，随后进入%s" % _stage_name(_stage_number() + 1)
 		else:
 			reward_title_label.text = "选择一项增益"
 	_roll_reward_options()
