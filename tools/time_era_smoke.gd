@@ -84,10 +84,14 @@ func _initialize() -> void:
 		"新时代敌塔血量应取铁器值"
 	)
 
-	# 毁塔：加金币 + 重建 + 不清牌堆 / 不弹 stage_clear / 不推进时代
+	# 毁塔：加金币 + 加塔分 + 重建 + 不清牌堆 / 不弹奖励面板 / 不推进时代
 	var destroy_era: int = main.enemy_era_index
 	var coin_before: int = main.coin_count
+	var score_before: int = main.kill_score
 	var expected_gold: int = main._tower_destroy_gold()
+	var expected_score: int = main._tower_destroy_score()
+	_check(expected_score == main.TOWER_DESTROY_SCORE_BASE or expected_score >= main.TOWER_DESTROY_SCORE_BASE,
+		"塔分应按时代放大，基准 %d 实际 %d" % [main.TOWER_DESTROY_SCORE_BASE, expected_score])
 	main.tray_cards.append(GameData.cards_for_era(main.current_era)[0])
 	var tray_before: int = main.tray_cards.size()
 	main._summon_reinforcement(false)
@@ -110,6 +114,9 @@ func _initialize() -> void:
 	_check(main.enemy_era_index == destroy_era, "毁塔不得推进敌方时代")
 	_check(main.coin_count == coin_before + expected_gold, "毁塔应发放大量金币，期望 +%d 实际 %+d" % [
 		expected_gold, main.coin_count - coin_before
+	])
+	_check(main.kill_score == score_before + expected_score, "毁塔应计入塔分，期望 +%d 实际 %+d" % [
+		expected_score, main.kill_score - score_before
 	])
 	_check(main.tray_cards.size() == tray_before, "毁塔应保留合成台")
 	_check(not main.deck_cards.is_empty(), "毁塔应保留牌堆")

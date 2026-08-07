@@ -16,8 +16,10 @@ const WAVE_DURATION := 180.0
 # 连续一局：敌方时代按战斗时间推进（暂停/奖励遮罩不累计）。
 # 时长表与 AiSpawnConfig.ERA_DURATION_SEC 保持一致。
 const ERA_DURATION_SEC := [90.0, 90.0, 100.0, 110.0, 120.0]
-# 摧毁敌塔直接发金币（按敌方当前时代倍率放大），不走关卡过关流。
+# 摧毁敌塔：金币直接发放（无奖励面板）；积分计入本局 kill_score（结算/排行榜）。
+# 二者均按敌方当前时代倍率放大（_era_amount_for）。
 const TOWER_DESTROY_GOLD_BASE := 200
+const TOWER_DESTROY_SCORE_BASE := 100
 const KILL_COIN_MULT := 0.2
 # 同局多轮：玩家牌池按轮次混入更高时代卡；敌方时代只靠时间推进
 const ERA_UP_ROUNDS := [2, 4, 7, 10] # 相对起始时代下限，在这些轮次各升一级牌池时代
@@ -5427,12 +5429,14 @@ func _on_enemy_tower_destroyed() -> void:
 		return
 	if enemy_tower_hp > 0.0:
 		return
-	# 验收最高优先级：拆塔绝不弹奖励/三选一；只发金币 + toast/hint，塔重建后继续打
+	# 验收最高优先级：拆塔绝不弹奖励/三选一；金币直接发 + 塔分入账，塔重建后继续打
 	# （不调用 _show_reward / 不设 reward_active / 不停下来等玩家点选）
 	var gold := _tower_destroy_gold()
+	var score := _tower_destroy_score()
 	_change_coins(gold)
-	_show_toast("摧毁敌塔 +%d 金币" % gold)
-	battle_hint.text = "摧毁敌塔 +%d 金币！敌塔已重建" % gold
+	kill_score += score
+	_show_toast("摧毁敌塔 +%d 金币 · +%d 积分" % [gold, score])
+	battle_hint.text = "摧毁敌塔 +%d 金币 · +%d 积分！敌塔已重建" % [gold, score]
 	_clear_enemy_battle_units()
 	_rebuild_enemy_tower()
 	enemy_rally_fired = 0
@@ -5445,6 +5449,9 @@ func _on_enemy_tower_destroyed() -> void:
 
 func _tower_destroy_gold() -> int:
 	return _era_amount_for(enemy_era, TOWER_DESTROY_GOLD_BASE)
+
+func _tower_destroy_score() -> int:
+	return _era_amount_for(enemy_era, TOWER_DESTROY_SCORE_BASE)
 
 ## 时代进度（1 起），排行榜复用 stage_reached 字段存此值
 func _era_progress() -> int:

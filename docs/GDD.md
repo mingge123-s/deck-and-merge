@@ -21,7 +21,7 @@
 
 **不要关卡制**。一局为连续生存：石器 → 铁器 → 工业 → 现代 → 未来，由战斗时间推进（`era_elapsed` / `battle_elapsed`），暂停与奖励遮罩不累计。时长表：`ERA_DURATION_SEC := [90, 90, 100, 110, 120]`（`main.gd` / `AiSpawnConfig`）。
 
-- **毁塔奖励**：摧毁敌塔发放 `TOWER_DESTROY_GOLD_BASE`（按 `enemy_era` 倍率放大）金币，toast「摧毁敌塔 +N 金币」；敌塔按**当前时代**满血重建；清除敌方小兵、保留己方单位与牌堆/合成台。不弹过关三选一，不进「下一关」。
+- **毁塔奖励**：摧毁敌塔直接发放 `TOWER_DESTROY_GOLD_BASE := 200`（×时代）金币，并计入 `TOWER_DESTROY_SCORE_BASE := 100`（×时代）积分到本局 score；toast/hint 提示即可，**不弹**奖励面板。敌塔按**当前时代**满血重建；清除敌方小兵、保留己方单位与牌堆/合成台。
 - **时代推进**：`era_elapsed` 到期 → `enemy_era_index += 1`（封顶未来），切换 `enemy_era`，重建敌塔血量，`ai_spawn.on_phase_start()`，`era_elapsed = 0`，提示「进入铁器时代」等。玩家牌池下限 `max(player, enemy)` 上提，不削弱已有进度。
 - **同局多轮**：牌堆取空只推进轮次；玩家牌池按 `ERA_UP_ROUNDS := [2, 4, 7, 10]` 混入更高时代卡（只升不降）。
 - **AI 出兵**：在难度与 `enemy_era_index` 之外，按 `time_in_era_norm = clamp(era_elapsed/ERA_DURATION, 0, 1)` 从少到多（频率/软顶/单位属性），详见 `docs/ai-spawn-probability.md`。
@@ -86,7 +86,12 @@
 
 ## 8. 击杀积分与时代推进
 
-击杀敌方英雄时，己方队伍增加该英雄职业对应的 `kill_score`，并获得等于该积分值乘时代倍率的金币；塔击杀给金币但不给积分。信息栏显示「时代：石器时代 · 第 R 轮 · 状态」，倒计时为时代剩余（未来时代显示已进行）。敌方时代靠战斗时间推进；毁塔只给金币。积分用于本局结算与最高分；排行榜 `stage_reached` 字段复用为时代进度，UI 显示时代名。
+本局积分（`kill_score`）由两项累计，供结算与排行榜：
+
+1. **消灭敌方小兵**：沿用英雄职业 `kill_score` 入账（塔炮击杀给金币但不给这项击杀分）。
+2. **摧毁敌方防御塔次数**：每次拆塔额外加 `TOWER_DESTROY_SCORE_BASE := 100`，按敌方当前时代倍率放大（`_era_amount_for`）。
+
+拆塔**金币**（`TOWER_DESTROY_GOLD_BASE := 200`×时代）直接发放，无奖励面板；拆塔**积分**计入本局 score。信息栏显示「时代：石器时代 · 第 R 轮 · 状态」，倒计时为时代剩余。敌方时代靠战斗时间推进。排行榜按积分排序；`stage_reached` 复用为时代进度，UI 显示时代名（不用「第 N 关」）。
 
 ## 9. 美术与动画
 
