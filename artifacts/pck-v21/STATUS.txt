@@ -1,10 +1,13 @@
-STATUS=PENDING_UPLOAD
-REASON=no_ssh_credentials_in_session
-ACTION_REQUIRED=inject_MINGGE_SSH_USER_and_MINGGE_SSH_PASS_or_mingge-deploy.env
+STATUS=UPLOADED
 TARGET_PCK=https://mingge.asia/deck-and-merge/update/deck-and-merge-v21.pck
 TARGET_MANIFEST=https://mingge.asia/deck-and-merge/update/version.json
 SERVER_DIR=/var/www/deck-and-merge/update/
 SERVER_HOST=111.228.14.193
 SHA256=b3825a1d25f66d411f51524233240a5d6254f05a2ea7e929faacb4692c49b033
+BYTES=42454012
 SOURCE_COMMIT=d6d0a833efd3b5396f381e193615221534c3f537
 NOTES=v21：五时代时长 5/8/15/20/30 分钟；不含 U15 重排修复
+LIVE_VERSION=21
+LIVE_PCK_HTTP=200
+LIVE_SHA256_MATCH=yes
+UPLOADED_AT=2026-08-07T17:12:19Z
