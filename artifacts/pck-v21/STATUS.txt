@@ -1,0 +1,8 @@
+VERSION=21
+UPLOAD_STATUS=pending_ssh_credentials
+ACTION_REQUIRED=inject_MINGGE_SSH_USER_and_MINGGE_SSH_PASS_or_commander_upload
+PCK=artifacts/pck-v21/deck-and-merge-v21.pck
+SHA256=9d80de235307248f7a3d371ca8f324d9e4b0852956213d46caf7186f644bd96b
+BYTES=42456172
+SERVER_HOST=111.228.14.193
+PCK_URL=https://mingge.asia/deck-and-merge/update/deck-and-merge-v21.pck
