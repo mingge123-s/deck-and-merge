@@ -89,7 +89,7 @@ field_soft_cap = round((soft_cap_base + era * soft_cap_per_era + wave/step)
 | 软顶倍率 | `TIME_IN_ERA_CAP_START=0.55` | `TIME_IN_ERA_CAP_END=1.15` |
 | 单位属性 | ×1.0 | ×1.25 |
 
-时代时长：`ERA_DURATION_SEC = [90, 90, 100, 110, 120]`。普通档石器：时代初期望速率约基准的 0.35×，时代末约 1.0×～1.2×（再叠 `ERA_P_MULT`）。
+时代时长：`ERA_DURATION_SEC = [300, 480, 900, 1200, 1800]`（石器 5 分 / 铁器 8 分 / 工业 15 分 / 现代 20 分 / 未来 30 分）。普通档石器：时代初期望速率约基准的 0.35×，时代末约 1.0×～1.2×（再叠 `ERA_P_MULT`）。
 
 **BOSS 稀疏化**：boss 不由「维持人数」带出。`boss_pending` 由 ① 波号 `% boss_wave == 0`、② 新阶段首波以 `phase_boss_chance` 掷中 两处置位；置位后每 tick 以 `boss_tick_chance` 概率出场，且出场后 `BOSS_MIN_GAP` 秒内不再出 boss：
 
