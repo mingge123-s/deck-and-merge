@@ -24,6 +24,16 @@ func _initialize() -> void:
 		main.ERA_DURATION_SEC == AiSpawnConfig.ERA_DURATION_SEC,
 		"main 与 AiSpawnConfig 时代时长表应一致"
 	)
+	var expected_durations := [300.0, 480.0, 900.0, 1200.0, 1800.0]
+	_check(
+		main.ERA_DURATION_SEC == expected_durations,
+		"时代时长表应为 [300,480,900,1200,1800]，实际 %s" % str(main.ERA_DURATION_SEC)
+	)
+	_check(is_equal_approx(main._era_duration_for(0), 300.0), "石器时长应为 300s")
+	_check(is_equal_approx(main._era_duration_for(1), 480.0), "铁器时长应为 480s")
+	_check(is_equal_approx(main._era_duration_for(2), 900.0), "工业时长应为 900s")
+	_check(is_equal_approx(main._era_duration_for(3), 1200.0), "现代时长应为 1200s")
+	_check(is_equal_approx(main._era_duration_for(4), 1800.0), "未来时长应为 1800s")
 
 	# 同局抽空牌堆 → 只推进轮次，不跨时代
 	var era_before: int = main.enemy_era_index

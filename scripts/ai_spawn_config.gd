@@ -15,7 +15,7 @@ extends RefCounted
 const DEFAULT_DIFFICULTY := "normal"
 
 ## 每个时代持续时间（秒），与 main.gd::ERA_DURATION_SEC 保持一致。
-const ERA_DURATION_SEC := [90.0, 90.0, 100.0, 110.0, 120.0]
+const ERA_DURATION_SEC := [300.0, 480.0, 900.0, 1200.0, 1800.0]
 
 ## 时代内时间曲线：norm=0 → 起始倍率，norm=1 → 时代末倍率。
 ## p / 软顶从低到高；tick 从疏到密（倍率越小 tick 越短）。

@@ -19,7 +19,7 @@
 
 ## 2.1 时间轴时代（当前实现）
 
-**不要关卡制**。一局为连续生存：石器 → 铁器 → 工业 → 现代 → 未来，由战斗时间推进（`era_elapsed` / `battle_elapsed`），暂停与奖励遮罩不累计。时长表：`ERA_DURATION_SEC := [90, 90, 100, 110, 120]`（`main.gd` / `AiSpawnConfig`）。
+**不要关卡制**。一局为连续生存：石器 → 铁器 → 工业 → 现代 → 未来，由战斗时间推进（`era_elapsed` / `battle_elapsed`），暂停与奖励遮罩不累计。时长表：`ERA_DURATION_SEC := [300, 480, 900, 1200, 1800]`（石器 5 分 / 铁器 8 分 / 工业 15 分 / 现代 20 分 / 未来 30 分；`main.gd` / `AiSpawnConfig`）。
 
 - **毁塔奖励**：摧毁敌塔直接发放 `TOWER_DESTROY_GOLD_BASE := 200`（×时代）金币，并计入 `TOWER_DESTROY_SCORE_BASE := 100`（×时代）积分到本局 score；toast/hint 提示即可，**不弹**奖励面板。敌塔按**当前时代**满血重建；清除敌方小兵、保留己方单位与牌堆/合成台。
 - **时代推进**：`era_elapsed` 到期 → `enemy_era_index += 1`（封顶未来），切换 `enemy_era`，重建敌塔血量，`ai_spawn.on_phase_start()`，`era_elapsed = 0`，提示「进入铁器时代」等。玩家牌池下限 `max(player, enemy)` 上提，不削弱已有进度。

@@ -15,7 +15,7 @@ const PREP_WAVE_INTERVAL := 3
 const WAVE_DURATION := 180.0
 # 连续一局：敌方时代按战斗时间推进（暂停/奖励遮罩不累计）。
 # 时长表与 AiSpawnConfig.ERA_DURATION_SEC 保持一致。
-const ERA_DURATION_SEC := [90.0, 90.0, 100.0, 110.0, 120.0]
+const ERA_DURATION_SEC := [300.0, 480.0, 900.0, 1200.0, 1800.0]
 # 摧毁敌塔：金币直接发放（无奖励面板）；积分计入本局 kill_score（结算/排行榜）。
 # 二者均按敌方当前时代倍率放大（_era_amount_for）。
 const TOWER_DESTROY_GOLD_BASE := 200
