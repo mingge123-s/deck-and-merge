@@ -2247,6 +2247,10 @@ func _show_round_reward() -> void:
 func _show_reward(context: String) -> void:
 	if reward_overlay == null:
 		return
+	# 拆塔无奖励面板：stage_clear 整条路径废止，只允许轮次等非过关上下文
+	if context == "stage_clear":
+		push_warning("_show_reward rejected: stage_clear path abolished (tower destroy gives gold only)")
+		return
 	if reward_active:
 		push_warning("_show_reward blocked: reward already active (context=%s, requested=%s)" % [reward_context, context])
 		return
@@ -5423,7 +5427,8 @@ func _on_enemy_tower_destroyed() -> void:
 		return
 	if enemy_tower_hp > 0.0:
 		return
-	# 连续一局：毁塔只发金币并按当前时代满血重建，不进关卡过关流 / 不强制终局胜利
+	# 验收最高优先级：拆塔绝不弹奖励/三选一；只发金币 + toast/hint，塔重建后继续打
+	# （不调用 _show_reward / 不设 reward_active / 不停下来等玩家点选）
 	var gold := _tower_destroy_gold()
 	_change_coins(gold)
 	_show_toast("摧毁敌塔 +%d 金币" % gold)

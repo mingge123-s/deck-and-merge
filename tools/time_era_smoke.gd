@@ -94,7 +94,19 @@ func _initialize() -> void:
 	main.enemy_tower_hp = 0.0
 	main._on_enemy_tower_destroyed()
 	await process_frame
-	_check(not main.reward_active, "毁塔不应弹出过关奖励面板")
+	_check(not main.reward_active, "毁塔不得打开任何奖励面板（reward_active）")
+	_check(
+		main.reward_overlay == null or not main.reward_overlay.visible,
+		"毁塔后奖励 overlay 必须不可见"
+	)
+	_check(main.reward_context != "stage_clear", "毁塔不得进入 stage_clear 上下文")
+	# 废止路径硬拒绝：即便误调也不应弹板
+	main._show_reward("stage_clear")
+	_check(not main.reward_active, "stage_clear 路径必须被拒绝")
+	_check(
+		main.reward_overlay == null or not main.reward_overlay.visible,
+		"误调 stage_clear 后 overlay 仍须不可见"
+	)
 	_check(main.enemy_era_index == destroy_era, "毁塔不得推进敌方时代")
 	_check(main.coin_count == coin_before + expected_gold, "毁塔应发放大量金币，期望 +%d 实际 %+d" % [
 		expected_gold, main.coin_count - coin_before
