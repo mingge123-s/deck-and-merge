@@ -54,7 +54,7 @@ func _initialize() -> void:
 	_check(main.info_bar.z_index > main.pause_overlay.z_index, "info_bar z 应高于 pause_overlay（%d > %d）" % [main.info_bar.z_index, main.pause_overlay.z_index])
 	_check(main.info_bar.z_index >= 4005, "info_bar z 应 ≥ 4005，实际 %d" % main.info_bar.z_index)
 	_check(main.reshuffle_button != null and main.reshuffle_button.size.x >= 64.0 and main.reshuffle_button.size.y >= 64.0, "重排热区应 ≥ 64，实际 %s" % str(main.reshuffle_button.size if main.reshuffle_button else Vector2.ZERO))
-	_check(main.clear_tray_button != null and main.clear_tray_button.size.x >= 64.0 and main.clear_tray_button.size.y >= 64.0, "清空热区应 ≥ 64，实际 %s" % str(main.clear_tray_button.size if main.clear_tray_button else Vector2.ZERO))
+	_check(main.get("clear_tray_button") == null, "不应再存在手动清空按钮")
 	_check(main.toast_overlay != null, "应有 toast_overlay")
 	_check(main.toast_overlay.z_index > main.pause_overlay.z_index, "toast z 应高于 pause_overlay")
 	var toast_y: float = main.toast_overlay.position.y
@@ -93,7 +93,6 @@ func _initialize() -> void:
 	_check(save_manager != null, "应能访问 SaveManager autoload")
 	if save_manager != null:
 		save_manager.set_reshuffle_hint_seen(true)
-		save_manager.set_clear_tray_hint_seen(true)
 	main.coin_count = 0
 	main.free_reshuffles = 0
 	main._update_coin_ui()
@@ -165,7 +164,6 @@ func _initialize() -> void:
 		main.reshuffle_button.pressed.emit()
 		await process_frame
 	_check(main.coin_count == coins_before_gui - main.RESHUFFLE_COST, "auto_prep 时重排应扣费（gui 或等价 pressed），实际 %d（期望 %d）" % [main.coin_count, coins_before_gui - main.RESHUFFLE_COST])
-	_check(not main.clear_tray_button.disabled, "auto_prep 时清空按钮应可点")
 
 	# 手动暂停（paused && !auto_prep）：取牌仍不可，但重排必须随时可点可执行
 	main.auto_prep = false
