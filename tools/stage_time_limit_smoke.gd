@@ -67,9 +67,14 @@ func _initialize() -> void:
 		main._on_reward_button_pressed(0)
 		main._on_reward_confirm_pressed()
 		_check(main.enemy_era_index == 1, "过关后应进入第 2 关")
+		var stage1_limit: float = main._stage_time_limit_for(0)
 		_check(
 			main.stage_time_limit == main._stage_time_limit_for(1),
 			"进入下一关后应取新关卡时限"
+		)
+		_check(
+			is_equal_approx(main.stage_time_limit, stage1_limit * 2.0),
+			"第 2 关时限应为第 1 关的 2 倍"
 		)
 		_check(
 			is_equal_approx(main.stage_time_left, main.stage_time_limit),
