@@ -75,6 +75,7 @@ func set_best_score(value: int) -> void:
 	save()
 
 ## 本机 Top10：[{score, difficulty, stage_reached, timestamp}, ...]，按 score 降序
+## stage_reached 复用为时代进度（1=石器 … 5=未来），UI 显示时代名而非「第N关」
 func get_leaderboard() -> Array:
 	_normalize_leaderboard()
 	return (_data["leaderboard"] as Array).duplicate(true)

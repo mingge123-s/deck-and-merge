@@ -19,15 +19,19 @@ if randf() < spawn_chance(): spawn_one(false) # 失败则本 tick 不出兵
 其中
 
 ```
+time_in_era_norm = clamp(era_elapsed / ERA_DURATION_SEC[era], 0, 1)
 tick_interval  = profile.tick_interval * ERA_TICK_MULT[era]
+                 * lerp(TIME_IN_ERA_TICK_START, TIME_IN_ERA_TICK_END, norm)
 spawn_chance   = clamp((profile.spawn_chance + chance_per_wave*(wave-1))
-                       * ERA_P_MULT[era] * pressure_mult, 0, chance_max)
-field_soft_cap = clamp(soft_cap_base + wave/soft_cap_step, base, soft_cap_max)
-                 + era * ERA_SOFT_CAP_STEP
+                       * ERA_P_MULT[era]
+                       * lerp(TIME_IN_ERA_P_START, TIME_IN_ERA_P_END, norm)
+                       * pressure_mult, P_MIN, P_MAX)
+field_soft_cap = round((soft_cap_base + era * soft_cap_per_era + wave/step)
+                       * lerp(TIME_IN_ERA_CAP_START, TIME_IN_ERA_CAP_END, norm))
 期望出兵速率   = spawn_chance / tick_interval   （个/秒）
 ```
 
-`era` 为敌方当前时代在 `GameData.ERAS` 中的下标（`AiSpawn.era_index()` 提供，未知时传 -1 表示不套用时代修正）。**升时代只由拆塔驱动**，本表不参与时代推进。
+`era` 为敌方当前时代在 `GameData.ERAS` 中的下标（`AiSpawn.era_index()`）。**升时代由主流程战斗时间驱动**（`main.gd::_tick_era_timer`），本表只提供时代内少→多曲线；跨时代兵种不在此预生成。单位属性另乘 `1.0 + 0.25*norm`（`AiSpawnConfig.time_stat_mult`）。
 
 ## 2. 难度基准（`PROFILES`，石器时代、第 1 波）
 
@@ -71,11 +75,21 @@ field_soft_cap = clamp(soft_cap_base + wave/soft_cap_step, base, soft_cap_max)
 | 事件 | 倍率 | 时长 | 入口 |
 |---|---|---|---|
 | 敌塔残血拼死反扑 | `RALLY_P_MULT=1.8` | 6s | `begin_rally_pressure()`（`main.gd::_enemy_rally_surge`） |
-| 玩家打爆敌塔（过关） | `TOWER_BREAK_P_MULT=0.5` | 4s | `begin_tower_break_relief()`（`main.gd::_enter_next_stage`） |
+| 玩家打爆敌塔 / 时间进入新时代 | `TOWER_BREAK_P_MULT=0.5` | 4s | `AiSpawn.on_phase_start()`（`main.gd` 毁塔重建或 `_advance_enemy_era_by_time`） |
 
-- 反扑窗内普通档 `p = min(0.55*1.8, 0.85) = 0.85` → 0.85/s，短时接近旧补位强度，作为拆塔前最后一道压力（`RALLY_BURST` 的一次性爆发仍走 `spawn_one()`，不经过概率）。
-- 拆塔奖励窗内普通档 `p = 0.275` → 0.275/s，给玩家一个喘息窗，让「拆塔 → 过关」有正反馈。
-- 两者先后触发时后者覆盖前者；结果始终被 `chance_max` 夹紧。
+- 反扑窗内普通档短时加压，作为拆塔前最后一道压力（`RALLY_BURST` 的一次性爆发仍走 `spawn_one()`，不经过概率）。
+- 拆塔/换时代喘息窗降低 `p`，给玩家正反馈；与时代内时间曲线叠乘，结果始终被 `P_MIN`/`P_MAX` 夹紧。
+
+## 5.1 时代内时间曲线（少→多）
+
+| norm | 0（时代初） | 1（时代末） |
+|---|---|---|
+| p 倍率 | `TIME_IN_ERA_P_START=0.35` | `TIME_IN_ERA_P_END=1.15` |
+| tick 倍率 | `TIME_IN_ERA_TICK_START=1.25` | `TIME_IN_ERA_TICK_END=0.90` |
+| 软顶倍率 | `TIME_IN_ERA_CAP_START=0.55` | `TIME_IN_ERA_CAP_END=1.15` |
+| 单位属性 | ×1.0 | ×1.25 |
+
+时代时长：`ERA_DURATION_SEC = [90, 90, 100, 110, 120]`。普通档石器：时代初期望速率约基准的 0.35×，时代末约 1.0×～1.2×（再叠 `ERA_P_MULT`）。
 
 **BOSS 稀疏化**：boss 不由「维持人数」带出。`boss_pending` 由 ① 波号 `% boss_wave == 0`、② 新阶段首波以 `phase_boss_chance` 掷中 两处置位；置位后每 tick 以 `boss_tick_chance` 概率出场，且出场后 `BOSS_MIN_GAP` 秒内不再出 boss：
 
@@ -128,4 +142,5 @@ field_soft_cap = clamp(soft_cap_base + wave/soft_cap_step, base, soft_cap_max)
 [ai_spawn] diff=normal wave=3 era=2 tick=0.97 p=0.61 roll=hit spawn=yes alive=4/12
 ```
 
-数值核对：`godot --headless --path . -s tools/ai_spawn_smoke.gd`（10 波 × 30s 模拟 + 满员不出兵断言 + 三难度 × 5 时代的 tick/p/速率/软顶 + 反扑与拆塔窗的 p）。
+数值核对：`godot --headless --path . -s tools/ai_spawn_smoke.gd`（10 波 × 30s 模拟 + 满员不出兵断言 + 三难度 × 5 时代的 tick/p/速率/软顶 + 时代内时间曲线 + 反扑与拆塔窗的 p）。  
+流程核对：`godot --headless --path . --script tools/time_era_smoke.gd`。

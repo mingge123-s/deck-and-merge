@@ -77,11 +77,18 @@ func _initialize() -> void:
 	await process_frame
 	_check(main.leaderboard_panel.visible, "打开后面板应可见")
 	_check(main.leaderboard_rows != null and main.leaderboard_rows.get_child_count() > 0, "应渲染榜行")
+	var row_text := ""
+	for child in main.leaderboard_rows.get_children():
+		if child is Label and str(child.text).contains("1500"):
+			row_text = str(child.text)
+			break
+	_check(not row_text.contains("关"), "排行榜行不应再显示「第N关」: %s" % row_text)
+	_check(row_text.contains("石器") or row_text.contains("铁器") or row_text.contains("工业") or row_text.contains("现代") or row_text.contains("未来") or row_text != "", "排行榜应显示时代名或有效行")
 	main.call("_hide_leaderboard")
 	await process_frame
 	_check(not main.leaderboard_panel.visible, "关闭后面板应隐藏")
 
-	# 结算路径：写入 kill_score 后走 _finish_round
+	# 结算路径：写入 kill_score 后走 _finish_round（stage_reached=时代进度）
 	main.kill_score = 9999
 	main.current_difficulty = "hard"
 	main.enemy_era_index = 2
@@ -90,6 +97,7 @@ func _initialize() -> void:
 	_check(int(sm.call("get_best_score")) == 9999, "结算后 best_score 更新: %d" % int(sm.call("get_best_score")))
 	var after_finish: Array = sm.call("get_leaderboard")
 	_check(not after_finish.is_empty() and int(after_finish[0].get("score", 0)) == 9999, "结算入榜榜首")
+	_check(int(after_finish[0].get("stage_reached", 0)) == 3, "结算应写入时代进度 3（工业）")
 	_check(str(main.status_label.text).contains("本机榜第"), "结算文案应提示名次: %s" % main.status_label.text)
 
 	_finish()

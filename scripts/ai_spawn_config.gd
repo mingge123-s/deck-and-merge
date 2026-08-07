@@ -9,9 +9,24 @@ extends RefCounted
 ## 期望出兵速率 = spawn_chance / tick_interval（个/秒）。
 ## Boss 不再由「维持人数」带出，只走 boss_pending（波次/阶段）+ 稀疏骰 + 最小间隔。
 ##
-## 数值初值取自 s3 调参分支（#44）：普通 tick=1.1s / p=0.45 → 0.41 个/秒（旧补位约 1.67 个/秒）。
+## 时代内时间曲线：time_in_era_norm = clamp(era_elapsed / ERA_DURATION, 0, 1)，
+## 从时代初（少）线性过渡到时代末（多）。跨时代兵种只靠主流程时间推进，不在此表预生成。
 
 const DEFAULT_DIFFICULTY := "normal"
+
+## 每个时代持续时间（秒），与 main.gd::ERA_DURATION_SEC 保持一致。
+const ERA_DURATION_SEC := [90.0, 90.0, 100.0, 110.0, 120.0]
+
+## 时代内时间曲线：norm=0 → 起始倍率，norm=1 → 时代末倍率。
+## p / 软顶从低到高；tick 从疏到密（倍率越小 tick 越短）。
+const TIME_IN_ERA_P_START := 0.35
+const TIME_IN_ERA_P_END := 1.15
+const TIME_IN_ERA_TICK_START := 1.25
+const TIME_IN_ERA_TICK_END := 0.90
+const TIME_IN_ERA_CAP_START := 0.55
+const TIME_IN_ERA_CAP_END := 1.15
+## 同时代内单位属性成长（main.gd::_spawn_enemy 使用）：1.0 + STAT_GROWTH * norm
+const TIME_IN_ERA_STAT_GROWTH := 0.25
 
 ## 每个难度一套参数：
 ## - tick_interval: 掷骰间隔（秒）
@@ -105,31 +120,54 @@ static func _era_mult(table: Array, era_index: int) -> float:
 		return 1.0
 	return float(table[clampi(era_index, 0, table.size() - 1)])
 
+## 时代时长（秒）；未知 index 回退到 90。
+static func era_duration(era_index := 0) -> float:
+	if ERA_DURATION_SEC.is_empty():
+		return 90.0
+	return float(ERA_DURATION_SEC[clampi(era_index, 0, ERA_DURATION_SEC.size() - 1)])
+
+static func time_in_era_norm(era_elapsed: float, era_index := 0) -> float:
+	var duration := era_duration(era_index)
+	if duration <= 0.0:
+		return 1.0
+	return clampf(era_elapsed / duration, 0.0, 1.0)
+
+static func _time_curve(start_mult: float, end_mult: float, norm: float) -> float:
+	return lerpf(start_mult, end_mult, clampf(norm, 0.0, 1.0))
+
 ## 掷骰间隔（秒）
-static func tick_interval(difficulty_key: String, era_index := 0) -> float:
+static func tick_interval(difficulty_key: String, era_index := 0, time_norm := 0.0) -> float:
 	var base := float(profile(difficulty_key).get("tick_interval", 1.1))
-	return clampf(base * _era_mult(ERA_TICK_MULT, era_index), TICK_MIN, TICK_MAX)
+	var era_tick := _era_mult(ERA_TICK_MULT, era_index)
+	var time_tick := _time_curve(TIME_IN_ERA_TICK_START, TIME_IN_ERA_TICK_END, time_norm)
+	return clampf(base * era_tick * time_tick, TICK_MIN, TICK_MAX)
 
 ## 单次 tick 的出兵概率。extra_mult 供反扑 / 拆塔喘息等临时窗口叠乘。
-static func spawn_chance(difficulty_key: String, wave_number := 0, era_index := 0, extra_mult := 1.0) -> float:
+static func spawn_chance(difficulty_key: String, wave_number := 0, era_index := 0, extra_mult := 1.0, time_norm := 0.0) -> float:
 	var p: Dictionary = profile(difficulty_key)
 	var base := float(p.get("spawn_chance", 0.45))
 	var growth := float(p.get("chance_per_wave", 0.0)) * float(maxi(0, wave_number - 1))
-	return clampf((base + growth) * _era_mult(ERA_P_MULT, era_index) * extra_mult, P_MIN, P_MAX)
+	var time_p := _time_curve(TIME_IN_ERA_P_START, TIME_IN_ERA_P_END, time_norm)
+	return clampf((base + growth) * _era_mult(ERA_P_MULT, era_index) * time_p * extra_mult, P_MIN, P_MAX)
 
 ## 场上敌人软顶（硬顶仍由 main.gd 的 ENEMY_UNIT_CAP 保证）
-static func field_soft_cap(difficulty_key: String, wave_number := 0, era_index := 0) -> int:
+static func field_soft_cap(difficulty_key: String, wave_number := 0, era_index := 0, time_norm := 0.0) -> int:
 	var p: Dictionary = profile(difficulty_key)
 	var base := int(p.get("soft_cap_base", 12))
-	var cap := base + era_index * int(p.get("soft_cap_per_era", 0))
+	var cap := float(base + era_index * int(p.get("soft_cap_per_era", 0)))
 	var wave_step := int(p.get("soft_cap_wave_step", 0))
 	if wave_step > 0:
-		cap += maxi(0, wave_number) / wave_step
-	return clampi(cap, 1, int(p.get("soft_cap_max", 20)))
+		cap += float(maxi(0, wave_number) / wave_step)
+	cap *= _time_curve(TIME_IN_ERA_CAP_START, TIME_IN_ERA_CAP_END, time_norm)
+	return clampi(int(round(cap)), 1, int(p.get("soft_cap_max", 20)))
 
 ## 期望出兵速率（个/秒），供调参与文档核对
-static func expected_rate(difficulty_key: String, wave_number := 0, era_index := 0) -> float:
-	return spawn_chance(difficulty_key, wave_number, era_index) / tick_interval(difficulty_key, era_index)
+static func expected_rate(difficulty_key: String, wave_number := 0, era_index := 0, time_norm := 0.0) -> float:
+	return spawn_chance(difficulty_key, wave_number, era_index, 1.0, time_norm) / tick_interval(difficulty_key, era_index, time_norm)
+
+## 同时代内单位属性成长倍率
+static func time_stat_mult(time_norm := 0.0) -> float:
+	return 1.0 + TIME_IN_ERA_STAT_GROWTH * clampf(time_norm, 0.0, 1.0)
 
 ## boss 已安排出场时，每 tick 的出场概率
 static func boss_tick_chance(difficulty_key: String) -> float:
@@ -159,15 +197,16 @@ static func roll(rng: RandomNumberGenerator, chance: float) -> bool:
 		return randf() < chance
 	return rng.randf() < chance
 
-static func debug_log(difficulty_key: String, era_index: int, chance: float, hit: bool, living: int) -> void:
+static func debug_log(difficulty_key: String, era_index: int, chance: float, hit: bool, living: int, time_norm := 0.0) -> void:
 	if not debug_spawn_log:
 		return
-	print("[ai_spawn] diff=%s era=%d tick=%.2f p=%.2f roll=%s living=%d/%d" % [
+	print("[ai_spawn] diff=%s era=%d t=%.2f tick=%.2f p=%.2f roll=%s living=%d/%d" % [
 		difficulty_key,
 		era_index,
-		tick_interval(difficulty_key, era_index),
+		time_norm,
+		tick_interval(difficulty_key, era_index, time_norm),
 		chance,
 		"hit" if hit else "miss",
 		living,
-		field_soft_cap(difficulty_key, 0, era_index),
+		field_soft_cap(difficulty_key, 0, era_index, time_norm),
 	])
