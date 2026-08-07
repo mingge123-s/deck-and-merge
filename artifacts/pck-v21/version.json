@@ -1,5 +1,5 @@
 {
   "version": 21,
   "pck_url": "https://mingge.asia/deck-and-merge/update/deck-and-merge-v21.pck",
-  "notes": "v21：五时代时长 5/8/15/20/30 分钟"
+  "notes": "v21：重排点击必有反馈（顶层热区+取消首次确认静默）；五时代时长 5/8/15/20/30 分钟（300/480/900/1200/1800 秒）"
 }
