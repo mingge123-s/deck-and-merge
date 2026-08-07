@@ -33,6 +33,8 @@ var _p_windows: Array[Dictionary] = []
 var era_provider := Callable()
 ## () -> int，返回敌方当前时代下标（用于时代倍率）
 var era_index_provider := Callable()
+## () -> float，返回当前时代内时间归一化 [0,1]
+var time_in_era_provider := Callable()
 ## () -> int，返回场上存活敌人数
 var alive_counter := Callable()
 ## (hero_id: String) -> bool，实际生成一个敌方单位
@@ -44,7 +46,8 @@ func setup(
 	alive_counter_cb: Callable,
 	spawn_hero_cb: Callable,
 	enemy_hard_cap: int,
-	era_index_provider_cb := Callable()
+	era_index_provider_cb := Callable(),
+	time_in_era_provider_cb := Callable()
 ) -> void:
 	_rng = rng
 	era_provider = era_provider_cb
@@ -52,6 +55,7 @@ func setup(
 	spawn_hero = spawn_hero_cb
 	hard_cap = enemy_hard_cap
 	era_index_provider = era_index_provider_cb
+	time_in_era_provider = time_in_era_provider_cb
 
 func set_difficulty(key: String) -> void:
 	difficulty_key = key
@@ -106,14 +110,19 @@ func era_index() -> int:
 		return 0
 	return int(era_index_provider.call())
 
+func time_in_era_norm() -> float:
+	if not time_in_era_provider.is_valid():
+		return 0.0
+	return clampf(float(time_in_era_provider.call()), 0.0, 1.0)
+
 func tick_interval() -> float:
-	return AiSpawnConfig.tick_interval(difficulty_key, era_index())
+	return AiSpawnConfig.tick_interval(difficulty_key, era_index(), time_in_era_norm())
 
 func spawn_chance() -> float:
-	return AiSpawnConfig.spawn_chance(difficulty_key, wave_number, era_index(), p_mult())
+	return AiSpawnConfig.spawn_chance(difficulty_key, wave_number, era_index(), p_mult(), time_in_era_norm())
 
 func field_soft_cap() -> int:
-	return mini(hard_cap, AiSpawnConfig.field_soft_cap(difficulty_key, wave_number, era_index()))
+	return mini(hard_cap, AiSpawnConfig.field_soft_cap(difficulty_key, wave_number, era_index(), time_in_era_norm()))
 
 ## 每帧调用（仅在本波出兵窗口内）。返回本次 tick 是否出了兵。
 func tick(delta: float) -> bool:
@@ -131,7 +140,7 @@ func tick(delta: float) -> bool:
 			return true
 	var chance := spawn_chance()
 	var hit := _roll(chance)
-	AiSpawnConfig.debug_log(difficulty_key, era_index(), chance, hit, _alive())
+	AiSpawnConfig.debug_log(difficulty_key, era_index(), chance, hit, _alive(), time_in_era_norm())
 	if not hit:
 		return false
 	if not spawn_one(false):

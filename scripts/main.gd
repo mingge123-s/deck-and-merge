@@ -13,20 +13,16 @@ const DECK_LOW_MARGIN := 12 # 牌堆少于目标-12张才触发补牌；每次�
 const TRAY_SLOTS := 7
 const PREP_WAVE_INTERVAL := 3
 const WAVE_DURATION := 180.0
-# 每关时间限制（关卡制防刷金币）：超时 = 本局失败，防止磨兵无限刷金币。
-# 语义是「整关时限」：进关时启动并倒计时，过关进入下一关时换本关时限并重新计时；
-# 与 WAVE_DURATION（单波出兵窗口）不同——这是玩家打爆本关敌塔的总时间预算。
-# 暂停 / 奖励面板打开时冻结（不罚玩家看选项）。可按难度、按关卡 index 0..4 配置。
-# 默认：普通 180s（与 WAVE_DURATION 同量级），简单略宽 240s，困难略紧 150s；
-# 五关同一基础时限，如需逐关变化只改对应数组元素即可（例：[180,180,190,200,210]）。
-const STAGE_TIME_LIMIT := {
-	"easy": [240.0, 240.0, 240.0, 240.0, 240.0],
-	"normal": [180.0, 180.0, 180.0, 180.0, 180.0],
-	"hard": [150.0, 150.0, 150.0, 150.0, 150.0],
-}
+# 连续一局：敌方时代按战斗时间推进（暂停/奖励遮罩不累计）。
+# 时长表与 AiSpawnConfig.ERA_DURATION_SEC 保持一致。
+const ERA_DURATION_SEC := [90.0, 90.0, 100.0, 110.0, 120.0]
+# 摧毁敌塔：金币直接发放（无奖励面板）；积分计入本局 kill_score（结算/排行榜）。
+# 二者均按敌方当前时代倍率放大（_era_amount_for）。
+const TOWER_DESTROY_GOLD_BASE := 200
+const TOWER_DESTROY_SCORE_BASE := 100
 const KILL_COIN_MULT := 0.2
-# 关卡制：敌方关卡只靠打爆敌塔推进；玩家牌池时代额外按本关轮次升级
-const ERA_UP_ROUNDS := [2, 4, 7, 10] # 相对本关起始时代，在这些轮次各升一级牌池时代
+# 同局多轮：玩家牌池按轮次混入更高时代卡；敌方时代只靠时间推进
+const ERA_UP_ROUNDS := [2, 4, 7, 10] # 相对起始时代下限，在这些轮次各升一级牌池时代
 const BATCH_BASE_GROUPS := 60
 const BATCH_GROUP_STEP := 10
 const MIN_BOSS_GROUPS := 2 # 每批保底当前时代 BOSS 组数（保证至少能合成）
@@ -111,12 +107,12 @@ const EFFECT_CARD_COLOR := Color("#8754d8")
 const TUTORIAL_STEPS := [
 	{
 		"title": "欢迎来到牌桌远征",
-		"text": "目标：打爆敌方防御塔即[b]过关[/b]，自己的塔被打爆则失败。共 5 关，打爆第 5 关敌塔获胜。\n跟着下面几步走一遍，十秒学会。",
+		"text": "目标：尽可能[b]活得更久、拆更多敌塔[/b]。摧毁敌方防御塔可获得[b]大量金币[/b]并重建敌塔；自己的塔被打爆则失败。\n时代会随战斗时间自动推进（石器→铁器→…→未来）。跟着下面几步走一遍，十秒学会。",
 		"rect": Rect2(),
 	},
 	{
 		"title": "第 1 步：从牌堆取牌",
-		"text": "这里是牌堆。点击[b]没被压住[/b]的卡牌，它会飞进上方的合成台；被压在下面的卡点不动。\n牌堆取空就进入[b]本关下一轮[/b]，自动发一批新牌，并逐轮混入[b]更高时代[/b]的卡。",
+		"text": "这里是牌堆。点击[b]没被压住[/b]的卡牌，它会飞进上方的合成台；被压在下面的卡点不动。\n牌堆取空就进入[b]下一轮[/b]，自动发一批新牌，并逐轮混入[b]更高时代[/b]的卡。",
 		"rect": BOARD_RECT,
 	},
 	{
@@ -126,12 +122,12 @@ const TUTORIAL_STEPS := [
 	},
 	{
 		"title": "第 3 步：看战场",
-		"text": "合成出的英雄会自动前进作战，你不用指挥。左右拖动可查看整个战场，右上角小地图显示双方单位与塔血。\n击杀敌人获得金币；敌人按波次持续进攻。",
+		"text": "合成出的英雄会自动前进作战，你不用指挥。左右拖动可查看整个战场，右上角小地图显示双方单位与塔血。\n击杀敌人获得金币；敌人按波次持续进攻，且会随时代内时间从少变多。",
 		"rect": BATTLE_RECT,
 	},
 	{
-		"title": "第 4 步：关卡与轮次",
-		"text": "信息栏显示当前[b]关卡[/b]、本关轮次、金币与积分（波次进度条在牌堆上方）。每关有独立倒计时（信息栏 ⏱ mm:ss），[b]倒计时归零即「超时失败」[/b]，暂停/选增益时冻结——尽快打爆敌塔，不要磨兵刷金币。共 5 关：第 1 关石器 → 第 2 关铁器 → 第 3 关工业 → 第 4 关现代 → 第 5 关未来。\n[b]打爆敌塔即过关[/b]：选完增益后直接进下一关——当前牌堆与合成台剩牌作废，双方小兵全部消失，双方塔满血重建，发本关第 1 轮牌；金币与永久增益保留。关卡越高，双方塔血与敌方出兵越强。信息栏左端是 ≡ 主界面，右端一排依次是重排 / 暂停 / [b]?[/b]，点最右的 [b]?[/b] 可随时重看本教程。",
+		"title": "第 4 步：时代与轮次",
+		"text": "信息栏显示当前[b]时代[/b]、轮次、金币与积分（波次进度条在牌堆上方）。倒计时（⏱ mm:ss）是[b]本时代剩余时间[/b]，到期自动进入下一时代（暂停/选增益时冻结）。\n[b]打爆敌塔[/b]直接获得大量金币，敌塔按当前时代满血重建——牌堆与合成台保留，不算过关。失败条件只有己方塔被摧毁。信息栏左端是 ≡ 主界面，右端有重排 / 暂停 / [b]?[/b]，点 [b]?[/b] 可随时重看本教程。",
 		"rect": INFO_BAR_RECT,
 	},
 	{
@@ -325,9 +321,10 @@ var ally_lane_cursor := 0
 var enemy_lane_cursor := 0
 var stuck_warned := false
 var reward_active := false
-var stage_clear_pending := false
-var stage_time_limit := 0.0
-var stage_time_left := 0.0
+## 当前时代内已进行战斗秒数（暂停/奖励遮罩不累计）
+var era_elapsed := 0.0
+## 本局累计战斗秒数（暂停/奖励遮罩不累计）
+var battle_elapsed := 0.0
 var reward_overlay: Control
 var reward_panel: Panel
 var reward_buttons: Array[Button] = []
@@ -562,7 +559,7 @@ func _process(delta: float) -> void:
 		return
 	fx_unit_count_cache = _living_units("ally").size() + _living_units("enemy").size()
 	_tick_buffs(delta)
-	_tick_stage_timer(delta)
+	_tick_era_timer(delta)
 	if battle_ended:
 		return
 	if round_tower_regen and ally_tower_hp > 0.0:
@@ -1514,7 +1511,7 @@ func _build_main_menu() -> void:
 	tagline.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	var start_button := _menu_button(card, "开始游戏", Vector2(144, 330), Vector2(300, 68), 24)
 	start_button.pressed.connect(_enter_game)
-	var solo_button := _menu_button(card, "单机闯关", Vector2(144, 406), Vector2(300, 50), 19)
+	var solo_button := _menu_button(card, "起始时代", Vector2(144, 406), Vector2(300, 50), 19)
 	solo_button.pressed.connect(_show_era_select)
 	var sandbox_button := _menu_button(card, "自定义对战", Vector2(144, 466), Vector2(300, 50), 19)
 	sandbox_button.pressed.connect(_show_sandbox_config)
@@ -1739,7 +1736,7 @@ func _build_leaderboard_panel() -> void:
 	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	var header := _label(
 		leaderboard_panel,
-		"名次　　积分　　难度　　到达　　时间",
+		"名次　　积分　　难度　　时代　　时间",
 		Vector2(36, 118),
 		Vector2(516, 28),
 		15,
@@ -1808,7 +1805,8 @@ func _refresh_leaderboard_panel() -> void:
 		var score := int(row.get("score", 0))
 		var diff_key := str(row.get("difficulty", "normal"))
 		var diff_name := str(DIFFICULTIES.get(diff_key, {}).get("name", diff_key))
-		var stage := int(row.get("stage_reached", 1))
+		var era_progress := int(row.get("stage_reached", 1))
+		var era_text := _era_display_name(era_progress - 1)
 		var stamp := int(row.get("timestamp", 0))
 		var time_text := "—"
 		if stamp > 0:
@@ -1817,7 +1815,7 @@ func _refresh_leaderboard_panel() -> void:
 		var accent := Color("#fff0c7") if index > 0 else Color("#ffd273")
 		var line := _label(
 			leaderboard_rows,
-			"%2d　　%6d　　%s　　第%d关　　%s" % [index + 1, score, diff_name, stage, time_text],
+			"%2d　　%6d　　%s　　%s　　%s" % [index + 1, score, diff_name, era_text, time_text],
 			Vector2.ZERO,
 			Vector2(512, 40),
 			16,
@@ -2248,22 +2246,19 @@ func _roll_reward_option(reward_id: String) -> Dictionary:
 func _show_round_reward() -> void:
 	_show_reward("round")
 
-func _show_stage_clear_reward() -> void:
-	_show_reward("stage_clear")
-
 func _show_reward(context: String) -> void:
 	if reward_overlay == null:
+		return
+	# 拆塔无奖励面板：stage_clear 整条路径废止，只允许轮次等非过关上下文
+	if context == "stage_clear":
+		push_warning("_show_reward rejected: stage_clear path abolished (tower destroy gives gold only)")
 		return
 	if reward_active:
 		push_warning("_show_reward blocked: reward already active (context=%s, requested=%s)" % [reward_context, context])
 		return
 	reward_context = context
 	if reward_title_label != null:
-		if context == "stage_clear":
-			# 过关奖励时仍停留在当前关：_stage_number()=N，下一关文案需 N+1（等价 enemy_era_index+2）
-			reward_title_label.text = "过关！选择一项增益，随后进入%s" % _stage_name(_stage_number() + 1)
-		else:
-			reward_title_label.text = "选择一项增益"
+		reward_title_label.text = "选择一项增益"
 	_roll_reward_options()
 	_update_reward_reroll_button()
 	reward_active = true
@@ -2330,10 +2325,7 @@ func _on_reward_confirm_pressed() -> void:
 	if reward_selected_index < 0 or reward_selected_index >= reward_options.size():
 		return
 	var option: Dictionary = reward_options[reward_selected_index]
-	if reward_context == "stage_clear":
-		_apply_stage_clear_reward(option)
-	else:
-		_apply_round_reward(option)
+	_apply_round_reward(option)
 
 func _reset_round_mods() -> void:
 	round_weight_mult.clear()
@@ -2358,21 +2350,8 @@ func _apply_round_reward(option: Dictionary) -> void:
 	_update_reward_selection()
 	AudioManager.play_sfx("era")
 	_update_tower_ui()
-	if stage_clear_pending:
-		stage_clear_pending = false
-		_show_stage_clear_reward()
-		return
 	_spawn_next_batch()
 	_update_progress_ui()
-
-func _apply_stage_clear_reward(option: Dictionary) -> void:
-	_apply_reward_effect(option)
-	reward_active = false
-	reward_overlay.visible = false
-	reward_options.clear()
-	reward_selected_index = -1
-	_update_reward_selection()
-	_enter_next_stage()
 
 func _apply_reward_effect(option: Dictionary) -> void:
 	var reward_id := str(option.get("id", ""))
@@ -2612,11 +2591,11 @@ func _build_era_select_panel() -> void:
 	era_select_panel.add_theme_stylebox_override("panel", _panel_style(Color("#c58a53"), Color("#70412c"), 24, 3))
 	era_select_panel.visible = false
 	main_menu.add_child(era_select_panel)
-	var title := _label(era_select_panel, "选择起始关卡", Vector2(0, 28), Vector2(552, 42), 28)
+	var title := _label(era_select_panel, "选择起始时代", Vector2(0, 28), Vector2(552, 42), 28)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	for index in range(GameData.ERAS.size()):
 		var unlocked := index <= SaveManager.get_unlocked_era_index()
-		var text := _stage_name(index + 1)
+		var text := _era_display_name(index)
 		if not unlocked:
 			text += "（未解锁）"
 		var button := _menu_button(era_select_panel, text, Vector2(86, 94 + index * 88), Vector2(380, 60), 19)
@@ -2639,7 +2618,7 @@ func _refresh_era_select_ui() -> void:
 	for index in range(era_select_buttons.size()):
 		var unlocked := index <= unlocked_index
 		era_select_buttons[index].disabled = not unlocked
-		era_select_buttons[index].text = _stage_name(index + 1)
+		era_select_buttons[index].text = _era_display_name(index)
 		if not unlocked:
 			era_select_buttons[index].text += "（未解锁）"
 
@@ -3458,7 +3437,8 @@ func _show_main_menu() -> void:
 	sandbox_mode = false
 	paused = false
 	reward_active = false
-	stage_clear_pending = false
+	era_elapsed = 0.0
+	battle_elapsed = 0.0
 	AudioManager.set_music_filtered(false)
 	_hide_settings()
 	_hide_leaderboard()
@@ -3522,7 +3502,7 @@ func _start_round(start_era_index: int = 0) -> void:
 	prep_pending = false
 	auto_prep = false
 	stuck_warned = false
-	# 关卡制：起始关卡 = 所选时代，敌方与玩家时代同关锁定
+	# 起始时代入口：敌方与玩家从所选时代开始，之后敌方按时间推进
 	enemy_era_index = era_index
 	enemy_era = current_era
 	buff_timers.clear()
@@ -3547,7 +3527,8 @@ func _start_round(start_era_index: int = 0) -> void:
 	free_reshuffles = 0
 	free_clear_tokens = 0
 	reward_active = false
-	stage_clear_pending = false
+	era_elapsed = 0.0
+	battle_elapsed = 0.0
 	_reset_round_mods()
 	tower_destruction_started = false
 	enemy_coin = 0.0
@@ -3561,7 +3542,7 @@ func _start_round(start_era_index: int = 0) -> void:
 	battle_ended = false
 	battle_won = false
 	paused = false
-	_reset_stage_timer()
+	_update_era_timer_ui()
 	if pause_overlay != null:
 		pause_overlay.visible = false
 	if tutorial_overlay != null:
@@ -3622,7 +3603,8 @@ func _spawn_card(card_id: String, index: int, from_bottom := false) -> void:
 
 func _spawn_next_batch() -> void:
 	round_number += 1
-	# 牌池时代：本关时代下限 + 本关轮次阈值升级（只升不降）
+	# 牌池时代：起始下限 + 轮次阈值升级，并与敌方时代对齐取高（只升不降）
+	base_era_index = maxi(base_era_index, enemy_era_index)
 	var era_steps := 0
 	for up_round in ERA_UP_ROUNDS:
 		if round_number >= int(up_round):
@@ -4299,7 +4281,8 @@ func _setup_ai_spawn() -> void:
 		func() -> int: return _living_units("enemy").size(),
 		_spawn_ai_enemy,
 		ENEMY_UNIT_CAP,
-		func() -> int: return enemy_era_index
+		func() -> int: return enemy_era_index,
+		func() -> float: return _time_in_era_norm()
 	)
 	ai_spawn.set_difficulty(current_difficulty)
 
@@ -4340,6 +4323,9 @@ func _spawn_enemy(hero_id: String, index: int, total_count: int, apply_diff := t
 		return null
 	var data: Dictionary = GameData.HEROES[hero_id].duplicate(true)
 	var mult := float(_diff().enemy_mult) if apply_diff else 1.0
+	# 时代内时间成长：只加强当前时代兵，不提前刷下一时代兵种
+	if apply_diff:
+		mult *= AiSpawnConfig.time_stat_mult(_time_in_era_norm())
 	data["hp"] = float(data.hp) * mult
 	data["attack"] = float(data.attack) * mult
 	var texture: Texture2D
@@ -5443,69 +5429,87 @@ func _on_enemy_tower_destroyed() -> void:
 		return
 	if enemy_tower_hp > 0.0:
 		return
-	if enemy_era_index >= GameData.ERAS.size() - 1:
-		if not tower_destruction_started:
-			_trigger_tower_destruction(true)
-		return
-	if reward_active and reward_context == "stage_clear":
-		return
-	if stage_clear_pending:
-		return
-	if reward_active:
-		stage_clear_pending = true
-		return
-	_show_stage_clear_reward()
+	# 验收最高优先级：拆塔绝不弹奖励/三选一；金币直接发 + 塔分入账，塔重建后继续打
+	# （不调用 _show_reward / 不设 reward_active / 不停下来等玩家点选）
+	var gold := _tower_destroy_gold()
+	var score := _tower_destroy_score()
+	_change_coins(gold)
+	kill_score += score
+	_show_toast("摧毁敌塔 +%d 金币 · +%d 积分" % [gold, score])
+	battle_hint.text = "摧毁敌塔 +%d 金币 · +%d 积分！敌塔已重建" % [gold, score]
+	_clear_enemy_battle_units()
+	_rebuild_enemy_tower()
+	enemy_rally_fired = 0
+	ai_spawn.on_phase_start()
+	_update_tower_ui()
+	_update_progress_ui()
+	AudioManager.play_sfx("era")
+	if fx_manager != null:
+		fx_manager.emit_era_transition(Vector2(360, 280), _era_fx_color(enemy_era), enemy_era)
 
-## 关卡编号（1 起）与文案：第 1 关=石器 … 第 5 关=未来
-func _stage_number() -> int:
+func _tower_destroy_gold() -> int:
+	return _era_amount_for(enemy_era, TOWER_DESTROY_GOLD_BASE)
+
+func _tower_destroy_score() -> int:
+	return _era_amount_for(enemy_era, TOWER_DESTROY_SCORE_BASE)
+
+## 时代进度（1 起），排行榜复用 stage_reached 字段存此值
+func _era_progress() -> int:
 	return enemy_era_index + 1
 
-func _stage_name(stage_number: int) -> String:
-	var index := clampi(stage_number - 1, 0, GameData.ERAS.size() - 1)
+func _era_display_name(era_idx: int = -1) -> String:
+	var index := enemy_era_index if era_idx < 0 else clampi(era_idx, 0, GameData.ERAS.size() - 1)
 	var era: String = GameData.ERAS[index]
-	return "第 %d 关（%s）" % [stage_number, str(GameData.ERA_NAMES.get(era, era))]
+	return str(GameData.ERA_NAMES.get(era, era))
 
-## 本关时限（秒）：按难度表 + 关卡 index（0..4）取值；<=0 表示无限制（不启用）
-func _stage_time_limit_for(stage_index: int) -> float:
-	var table: Array = STAGE_TIME_LIMIT.get(current_difficulty, STAGE_TIME_LIMIT["normal"])
-	if table.is_empty():
-		return 0.0
-	var idx := clampi(stage_index, 0, table.size() - 1)
-	return float(table[idx])
+func _era_duration_for(era_idx: int = -1) -> float:
+	var index := enemy_era_index if era_idx < 0 else era_idx
+	if ERA_DURATION_SEC.is_empty():
+		return 90.0
+	return float(ERA_DURATION_SEC[clampi(index, 0, ERA_DURATION_SEC.size() - 1)])
 
-## 进关/开局时重置并启动本关计时
-func _reset_stage_timer() -> void:
-	stage_time_limit = _stage_time_limit_for(enemy_era_index)
-	stage_time_left = stage_time_limit
-	_update_stage_timer_ui()
+func _time_in_era_norm() -> float:
+	return AiSpawnConfig.time_in_era_norm(era_elapsed, enemy_era_index)
 
-## 每帧扣时（仅在战斗进行、未暂停、未开奖励面板时被调用 → 天然冻结）
-func _tick_stage_timer(delta: float) -> void:
-	if stage_time_limit <= 0.0 or battle_ended:
+## 每帧累计时代/战斗时间（仅在战斗进行、未暂停、未开奖励面板时被调用 → 天然冻结）
+func _tick_era_timer(delta: float) -> void:
+	if battle_ended or not battle_active:
 		return
-	stage_time_left = maxf(0.0, stage_time_left - delta)
-	_update_stage_timer_ui()
-	if stage_time_left <= 0.0:
-		_finish_battle(false, "超时失败：本关时间耗尽")
+	battle_elapsed += delta
+	era_elapsed += delta
+	_update_era_timer_ui()
+	# 最后时代：只封顶成长曲线，不再推进
+	if enemy_era_index >= GameData.ERAS.size() - 1:
+		return
+	var duration := _era_duration_for(enemy_era_index)
+	if duration > 0.0 and era_elapsed >= duration:
+		_advance_enemy_era_by_time()
 
-func _update_stage_timer_ui() -> void:
+func _update_era_timer_ui() -> void:
 	if stage_timer_label == null:
 		return
-	if not battle_active or battle_ended or stage_time_limit <= 0.0:
+	if not battle_active or battle_ended:
 		stage_timer_label.text = "⏱ --:--"
 		stage_timer_label.add_theme_color_override("font_color", Color("#f6d69f"))
 		return
-	var secs := int(ceil(stage_time_left))
-	stage_timer_label.text = "⏱ %02d:%02d" % [secs / 60, secs % 60]
+	var duration := _era_duration_for(enemy_era_index)
 	var color := Color("#f6d69f")
-	if stage_time_left <= 15.0:
-		color = Color("#ff5a3c")
-	elif stage_time_left <= 30.0:
-		color = Color("#ffd166")
+	if enemy_era_index >= GameData.ERAS.size() - 1:
+		# 未来时代：显示本时代已进行
+		var secs := int(floor(era_elapsed))
+		stage_timer_label.text = "⏱ %02d:%02d" % [secs / 60, secs % 60]
+	else:
+		var left := maxf(0.0, duration - era_elapsed)
+		var secs := int(ceil(left))
+		stage_timer_label.text = "⏱ %02d:%02d" % [secs / 60, secs % 60]
+		if left <= 15.0:
+			color = Color("#ff5a3c")
+		elif left <= 30.0:
+			color = Color("#ffd166")
 	stage_timer_label.add_theme_color_override("font_color", color)
 
-## 把玩家时代下限提到当前关卡时代：牌池只升不降，已超前的轮次升级保留
-func _sync_player_era_to_stage() -> void:
+## 把玩家时代下限提到敌方当前时代：牌池只升不降
+func _sync_player_era_floor() -> void:
 	base_era_index = maxi(base_era_index, enemy_era_index)
 	era_index = maxi(era_index, base_era_index)
 	current_era = GameData.ERAS[era_index]
@@ -5527,101 +5531,62 @@ func _advance_era() -> void:
 	battle_hint.text = "文明进阶：%s！新一轮牌堆解锁更高级卡牌" % GameData.ERA_NAMES[current_era]
 	_refresh_era_visuals(true)
 
-func _advance_enemy_era() -> void:
+func _rebuild_enemy_tower() -> void:
+	enemy_tower_max_hp = GameData.tower_hp(enemy_era)
+	enemy_tower_hp = enemy_tower_max_hp
+	_update_tower_ui()
+
+## 时间到期：敌方进入下一时代，重建敌塔，重置 era_elapsed
+func _advance_enemy_era_by_time() -> void:
 	if enemy_era_index >= GameData.ERAS.size() - 1:
+		era_elapsed = 0.0
+		_update_era_timer_ui()
 		return
 	enemy_era_index += 1
 	enemy_era = GameData.ERAS[enemy_era_index]
-	enemy_tower_max_hp = GameData.tower_hp(enemy_era)
-	enemy_tower_hp = enemy_tower_max_hp
+	era_elapsed = 0.0
+	_rebuild_enemy_tower()
 	enemy_rally_fired = 0
-	_refresh_era_visuals(true)
-	_update_tower_ui()
-	AudioManager.play_sfx("era")
-	if fx_manager != null:
-		fx_manager.emit_era_transition(Vector2(360, 280), _era_fx_color(enemy_era), enemy_era)
-	_announce_enemy_action("敌方防御塔重建：%s" % _stage_name(_stage_number()), "")
-
-## 过关主路径：摧毁敌塔 → 进入下一关（新敌塔满血、双方清场、己方塔满血、发本关第 1 轮牌）
-func _enter_next_stage() -> void:
-	if enemy_era_index >= GameData.ERAS.size() - 1:
-		return
-	stage_clear_pending = false
-	reward_context = "round"
-	_advance_enemy_era()
-	_sync_player_era_to_stage()
-	_clear_all_battle_units()
-	# 保留金币与 run_* / free_* 永久项，只重置当轮修饰
-	_reset_round_mods()
-	_discard_all_cards()
-	buff_timers.clear()
-	enemy_buff_timers.clear()
-	enemy_freeze_time = 0.0
-	ally_freeze_time = 0.0
-	enemy_tower_attack_bonus = 1.0
-	_update_buff_ui()
-	# 己方塔按新关卡满血重建
-	ally_tower_max_hp = _ally_tower_target_hp()
-	ally_tower_hp = ally_tower_max_hp
-	ally_alarm_50_played = false
-	ally_alarm_25_played = false
-	# 重启本关出兵节奏
-	wave_spawning = false
-	wave_active_timer = 0.0
-	wave_number = 0
-	enemy_spawn_index = 0
-	enemy_lane_cursor = 0
-	ally_lane_cursor = 0
-	enemy_coin = 0.0
-	enemy_effect_cd = 0.0
-	enemy_rally_fired = 0
-	prep_pending = false
-	auto_prep = false
-	stuck_warned = false
-	occupied_units = 0
-	ai_spawn.reset()
+	_sync_player_era_floor()
 	ai_spawn.on_phase_start()
-	wave_min_timer = _diff().first_delay
-	_reset_stage_timer()
-	# 关卡第 1 轮发牌（_spawn_next_batch 内部会 round_number += 1）
-	round_number = 0
-	_spawn_next_batch()
+	_refresh_era_visuals(true)
 	_rescale_towers_for_era()
 	_update_tower_ui()
 	_update_progress_ui()
-	battle_hint.text = "进入%s：敌方防御塔已重建，牌堆按本关时代下限重新发牌" % _stage_name(_stage_number())
-	_show_toast("进入%s" % _stage_name(_stage_number()))
-	print("进入关卡: %d (%s)" % [_stage_number(), current_era])
+	_update_era_timer_ui()
+	AudioManager.play_sfx("era")
+	if fx_manager != null:
+		fx_manager.emit_era_transition(Vector2(360, 280), _era_fx_color(enemy_era), enemy_era)
+	var era_name := _era_display_name()
+	_announce_enemy_action("进入%s" % era_name, "")
+	battle_hint.text = "进入%s！敌方防御塔已按新时代重建" % era_name
+	_show_toast("进入%s" % era_name)
+	print("进入时代: %d (%s)" % [enemy_era_index, enemy_era])
 
-## 过关清场：双方单位与投射物全部消失
-func _clear_all_battle_units() -> void:
+## 毁塔后清敌方单位（保留己方小兵与牌堆，维持连续感）
+func _clear_enemy_battle_units() -> void:
+	var kept: Array = []
 	for unit in battle_units:
-		if is_instance_valid(unit):
+		if not is_instance_valid(unit):
+			continue
+		if unit.faction == "enemy":
 			walk_dust_cooldowns.erase(unit.get_instance_id())
 			unit.queue_free()
+		else:
+			kept.append(unit)
 	battle_units.clear()
+	for unit in kept:
+		battle_units.append(unit)
 	if world != null:
 		for child in world.get_children():
 			if child is Projectile:
 				child.queue_free()
 
-## 过关丢弃：牌堆 + 合成台当前轮次剩余牌直接作废
-func _discard_all_cards() -> void:
-	for card in deck_cards:
-		if is_instance_valid(card):
-			card.queue_free()
-	deck_cards.clear()
-	tray_cards.clear()
-	tray_incoming = 0
-	tray_slots = TRAY_SLOTS + round_extra_tray_slots
-	_layout_tray_slots()
-	_rebuild_tray_visuals()
-
 func _era_fx_color(era: String) -> Color:
 	var material: Dictionary = fx_manager.era_material(era) if fx_manager != null else {}
 	return material.get("primary", Color("#ffd273"))
 
-## 当前关卡下己方塔的满血值（关卡时代 × 难度倍率 × 永久塔血加成）
+## 当前时代下己方塔的满血值（时代 × 难度倍率 × 永久塔血加成）
 func _ally_tower_target_hp() -> float:
 	return GameData.ally_tower_hp(current_era) * float(_diff().tower_mult) * run_tower_hp_mult
 
@@ -5705,7 +5670,7 @@ func _remove_battle_units() -> void:
 				child.queue_free()
 
 func _finish_round(message: String) -> void:
-	var rank := SaveManager.try_submit_score(kill_score, current_difficulty, _stage_number())
+	var rank := SaveManager.try_submit_score(kill_score, current_difficulty, _era_progress())
 	var best_score := SaveManager.get_best_score()
 	if rank > 0:
 		status_label.text = "%s\n本局积分 %d（最高 %d）\n新纪录！本机榜第 %d 名" % [message, kill_score, best_score, rank]
@@ -5773,7 +5738,7 @@ func _update_progress_ui() -> void:
 		else:
 			state = "战斗中"
 	# 信息栏空间有限：只放关卡号 + 轮次 + 状态（关卡对应时代在提示/奖励面板里给全名）
-	era_label.text = "第 %d 关 · 第 %d 轮 · %s" % [_stage_number(), round_number, state]
+	era_label.text = "时代：%s · 第 %d 轮 · %s" % [_era_display_name(), round_number, state]
 	if score_label != null:
 		score_label.text = "积分 %d" % kill_score
 	if deck_label != null:
@@ -5794,7 +5759,7 @@ func _update_tower_ui() -> void:
 	enemy_tower_bar.set_phase(
 		enemy_era_index,
 		GameData.ERAS.size(),
-		"第 %d 关" % _stage_number()
+		_era_display_name()
 	)
 	if ally_tower_max_hp > 0.0:
 		var health_ratio := ally_tower_hp / ally_tower_max_hp
