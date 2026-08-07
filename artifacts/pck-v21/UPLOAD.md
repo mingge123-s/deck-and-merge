@@ -32,7 +32,7 @@ sshpass -p "$MINGGE_SSH_PASS" scp -o StrictHostKeyChecking=accept-new \
 # 2) 校验可达
 curl -sI "https://mingge.asia/deck-and-merge/update/deck-and-merge-v21.pck" | head
 sha256sum artifacts/pck-v21/deck-and-merge-v21.pck
-# 期望: 9d80de235307248f7a3d371ca8f324d9e4b0852956213d46caf7186f644bd96b
+# 期望: 4b38b34610f67ae054de690b083d0baece9ddb8a881c7a5a5751366872d321f2
 
 # 3) 再覆盖清单
 sshpass -p "$MINGGE_SSH_PASS" scp -o StrictHostKeyChecking=accept-new \
@@ -47,6 +47,7 @@ curl -sS "https://mingge.asia/deck-and-merge/update/version.json"
 
 ## 基线
 
-- 源 commit：`f1d86de`（U15 重排点击反馈修复）
+- 源 commit：`71897da`（rebase 含 #74 五时代时长 + U15 重排点击反馈）
+- `ERA_DURATION_SEC = [300, 480, 900, 1200, 1800]`（5/8/15/20/30 分钟）
 - 未改 `BASE_VERSION`（APK 基线仍为 1）
 - 未改战斗经济数值（RESHUFFLE_COST 仍为 200）

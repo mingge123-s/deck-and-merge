@@ -1,7 +1,7 @@
 version=21
 pck=deck-and-merge-v21.pck
 pck_url=https://mingge.asia/deck-and-merge/update/deck-and-merge-v21.pck
-sha256=9d80de235307248f7a3d371ca8f324d9e4b0852956213d46caf7186f644bd96b
-bytes=42456172
+sha256=4b38b34610f67ae054de690b083d0baece9ddb8a881c7a5a5751366872d321f2
+bytes=43916324
 preset=Android
-generated_at=2026-08-07T15:16:19Z
+generated_at=2026-08-07T15:31:09Z
