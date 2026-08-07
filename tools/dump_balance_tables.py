@@ -20,11 +20,12 @@ TOWER_ATTACK_CD = 1.1
 TOWER_ATTACK_RANGE = 420.0
 TOWER_MELEE_RANGE = 82.0
 TOWER_REPAIR_RATIO = 0.25
-VICTORY_REWARD_BASE = 120
+CLEAR_GOLD_BASE = 180
+STARTING_COINS = 400
 REINFORCEMENT_PRICE_BASE = 200
 CLEAR_TRAY_PRICE_BASE = 120
 RANDOM_EFFECT_PRICE_BASE = 260
-BOUNTY_COIN_BASE = 15
+BOUNTY_INSTANT_GOLD = 80
 PREP_WAVE_INTERVAL = 3
 RANDOM_EFFECTS = [
     ("BOSS 召唤", "立刻出战 1 个当前时代的 BOSS 英雄", "即时"),
@@ -38,7 +39,7 @@ RANDOM_EFFECTS = [
     ("荆棘护甲", "我方受到近战伤害时反弹 30%", "30 秒"),
     ("修复我方塔", "我方塔回复 25% 满血", "即时"),
     ("塔炮升级", "我方塔攻击 ×1.5（可叠加）", "整局"),
-    ("悬赏令", "每击杀额外 +15 × 时代倍率 金币", "30 秒"),
+    ("疾战悬赏", "立即 +80×时代倍率金币；30秒内过关金币+25%", "30 秒"),
 ]
 # 出兵节奏参数与 scripts/ai_spawn_config.gd 的 PROFILES 对应（概率制出兵）
 DIFFICULTIES = {
@@ -47,9 +48,10 @@ DIFFICULTIES = {
     "hard": {"name": "困难", "wave_min": 3.0, "first_delay": 3.0, "tick": 0.9, "spawn_chance": 0.60, "soft_cap": 16, "boss_wave": 4, "enemy_mult": 1.3},
 }
 ECONOMY = [
-    ("局内固定初始金币", 300),
-    ("英雄/塔击杀敌人金币", "敌方定位击杀积分 × 时代倍率（塔击杀不给击杀积分）"),
-    ("战斗胜利", "120 × 时代倍率"),
+    ("局内固定初始金币", STARTING_COINS),
+    ("英雄/塔击杀敌人金币", 0),
+    ("过关/通关金币", f"{CLEAR_GOLD_BASE} × 关卡时代倍率 × 难度系数 × clamp(目标用时/已用, 0.35, 1.6)"),
+    ("疾战悬赏即时金币", f"{BOUNTY_INSTANT_GOLD} × 时代倍率"),
     ("商店：时代进阶", "石器→铁器 200；铁器→工业 360；工业→现代 600；现代→未来 950"),
     ("商店：清理合成台（移除 3 张牌）", "120 × 时代倍率"),
     ("商店：召唤援军（随机时代的随机英雄）", "200 × 时代倍率"),

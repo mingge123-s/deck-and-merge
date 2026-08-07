@@ -13,18 +13,33 @@ const DECK_LOW_MARGIN := 12 # 牌堆少于目标-12张才触发补牌；每次�
 const TRAY_SLOTS := 7
 const PREP_WAVE_INTERVAL := 3
 const WAVE_DURATION := 180.0
-# 每关时间限制（关卡制防刷金币）：超时 = 本局失败，防止磨兵无限刷金币。
-# 语义是「整关时限」：进关时启动并倒计时，过关进入下一关时换本关时限并重新计时；
-# 与 WAVE_DURATION（单波出兵窗口）不同——这是玩家打爆本关敌塔的总时间预算。
+# 每关「目标用时」（速度奖励基准，不再超时判负）。
+# 进关时启动并累计已用时间；过关进入下一关时换本关目标并重新计时。
+# 与 WAVE_DURATION（单波出兵窗口）不同——这是打爆本关敌塔的速度参考预算。
 # 暂停 / 奖励面板打开时冻结（不罚玩家看选项）。可按难度、按关卡 index 0..4 配置。
-# 默认：普通 180s（与 WAVE_DURATION 同量级），简单略宽 240s，困难略紧 150s；
-# 五关同一基础时限，如需逐关变化只改对应数组元素即可（例：[180,180,190,200,210]）。
+# 第 2 关目标 = 第 1 关 ×2（仅评级/金币倍率用，倒计时归零不失败）。
 const STAGE_TIME_LIMIT := {
-	"easy": [240.0, 240.0, 240.0, 240.0, 240.0],
-	"normal": [180.0, 180.0, 180.0, 180.0, 180.0],
-	"hard": [150.0, 150.0, 150.0, 150.0, 150.0],
+	"easy": [240.0, 480.0, 240.0, 240.0, 240.0],
+	"normal": [180.0, 360.0, 180.0, 180.0, 180.0],
+	"hard": [150.0, 300.0, 150.0, 150.0, 150.0],
 }
+## AI 经济倍率（敌方击杀/涓流收入）；玩家击杀金币已归零，不再乘此值
 const KILL_COIN_MULT := 0.2
+## 方案甲：玩家击杀/塔击杀金币固定为 0（防刷改由速度过关金解决）
+const PLAYER_KILL_GOLD := 0
+## 击杀积分弱化系数（磨兵收益下降；过关关卡分+速度分成为主体）
+const KILL_SCORE_MULT := 0.25
+const STARTING_COINS := 400
+## 过关金币基础（再 × 关卡时代倍率 × 难度系数 × 速度倍率）
+const CLEAR_GOLD_BASE := 180
+const CLEAR_GOLD_DIFF_MULT := {"easy": 1.15, "normal": 1.0, "hard": 0.9}
+const CLEAR_GOLD_SPEED_MIN := 0.35
+const CLEAR_GOLD_SPEED_MAX := 1.6
+## 过关积分：关卡分（随关卡略增）+ 速度分（随速度倍率）
+const STAGE_SCORE_BASE := 800
+const SPEED_SCORE_BASE := 400
+const BOUNTY_INSTANT_GOLD := 80
+const BOUNTY_CLEAR_GOLD_MULT := 1.25
 # 关卡制：敌方关卡只靠打爆敌塔推进；玩家牌池时代额外按本关轮次升级
 const ERA_UP_ROUNDS := [2, 4, 7, 10] # 相对本关起始时代，在这些轮次各升一级牌池时代
 const BATCH_BASE_GROUPS := 60
@@ -63,7 +78,6 @@ const SANDBOX_SIDE_CAP := 20
 const TOUCH_SCROLL_CLICK_THRESHOLD := 12.0
 const UNIT_CAP := 30
 const ENEMY_UNIT_CAP := 60 # 敌方同屏上限（AI出兵x5后需高于己方）
-const VICTORY_REWARD_BASE := 120
 const RANDOM_EFFECT_PRICE_BASE := 260
 const CLEAR_TRAY_COST := 100
 # 少于这个张数清空没有意义（凑不出三连也不会卡台）
@@ -86,9 +100,8 @@ const RANDOM_EFFECTS := [
 	{"id": "thorns", "name": "荆棘护甲", "desc": "我方受到近战伤害时反弹 30%，持续 30 秒", "duration": 30.0, "weight": 10.0},
 	{"id": "tower_repair", "name": "修复我方塔", "desc": "我方塔回复 25% 满血", "duration": 0.0, "weight": 6.0},
 	{"id": "tower_power", "name": "塔炮升级", "desc": "我方塔攻击 +50%，整局有效", "duration": 0.0, "weight": 3.0},
-	{"id": "bounty", "name": "悬赏令", "desc": "30 秒内每击杀额外 +15 金币（随时代缩放）", "duration": 30.0, "weight": 6.0},
+	{"id": "bounty", "name": "疾战悬赏", "desc": "立即获得 80 金币（随时代缩放）；30 秒内过关金币 +25%", "duration": 30.0, "weight": 6.0},
 ]
-const BOUNTY_COIN_BASE := 15
 ## 合成台上长按多久弹卡牌详情
 const CARD_INFO_HOLD := 0.4
 const EFFECT_ICON_PATH := "res://assets/icons/effects/%s.png"
@@ -121,12 +134,12 @@ const TUTORIAL_STEPS := [
 	},
 	{
 		"title": "第 3 步：看战场",
-		"text": "合成出的英雄会自动前进作战，你不用指挥。左右拖动可查看整个战场，右上角小地图显示双方单位与塔血。\n击杀敌人获得金币；敌人按波次持续进攻。",
+		"text": "合成出的英雄会自动前进作战，你不用指挥。左右拖动可查看整个战场，右上角小地图显示双方单位与塔血。\n敌人按波次持续进攻；[b]金币主要靠尽快打爆敌塔[/b]（用时越短奖励越高），击杀本身不再刷金币。",
 		"rect": BATTLE_RECT,
 	},
 	{
 		"title": "第 4 步：关卡与轮次",
-		"text": "信息栏显示当前[b]关卡[/b]、本关轮次、金币与积分（波次进度条在牌堆上方）。每关有独立倒计时（信息栏 ⏱ mm:ss），[b]倒计时归零即「超时失败」[/b]，暂停/选增益时冻结——尽快打爆敌塔，不要磨兵刷金币。共 5 关：第 1 关石器 → 第 2 关铁器 → 第 3 关工业 → 第 4 关现代 → 第 5 关未来。\n[b]打爆敌塔即过关[/b]：选完增益后直接进下一关——当前牌堆与合成台剩牌作废，双方小兵全部消失，双方塔满血重建，发本关第 1 轮牌；金币与永久增益保留。关卡越高，双方塔血与敌方出兵越强。信息栏左端是 ≡ 主界面，右端一排依次是清空 / 重排 / 暂停 / [b]?[/b]，点最右的 [b]?[/b] 可随时重看本教程。",
+		"text": "信息栏显示当前[b]关卡[/b]、本关轮次、金币与积分（波次进度条在牌堆上方）。信息栏 ⏱ 显示本关[b]已用时间与速度评级[/b]（对照目标用时，暂停/选增益时冻结）——[b]不会因超时失败[/b]，但越快过关金币与速度分越高。共 5 关：第 1 关石器 → 第 2 关铁器 → 第 3 关工业 → 第 4 关现代 → 第 5 关未来。\n[b]打爆敌塔即过关[/b]：选完增益后直接进下一关——当前牌堆与合成台剩牌作废，双方小兵全部消失，双方塔满血重建，发本关第 1 轮牌；金币与永久增益保留。关卡越高，双方塔血与敌方出兵越强。信息栏左端是 ≡ 主界面，右端一排依次是清空 / 重排 / 暂停 / [b]?[/b]，点最右的 [b]?[/b] 可随时重看本教程。",
 		"rect": INFO_BAR_RECT,
 	},
 	{
@@ -320,8 +333,12 @@ var enemy_lane_cursor := 0
 var stuck_warned := false
 var reward_active := false
 var stage_clear_pending := false
+## 本关目标用时（秒）；stage_elapsed 为已用，stage_time_left 为距目标剩余（仅 UI/参考）
 var stage_time_limit := 0.0
 var stage_time_left := 0.0
+var stage_elapsed := 0.0
+## 本关是否已发放过关金币/关卡分（防重复）
+var stage_clear_economy_awarded := false
 var reward_overlay: Control
 var reward_panel: Panel
 var reward_buttons: Array[Button] = []
@@ -431,7 +448,7 @@ func _ready() -> void:
 	_apply_default_font()
 	GameData.initialize()
 	_register_effect_cards()
-	coin_count = 300
+	coin_count = STARTING_COINS
 	rng.randomize()
 	_setup_ai_spawn()
 	for effect in RANDOM_EFFECTS:
@@ -1900,6 +1917,11 @@ func _apply_random_effect(effect: Dictionary, actor := "ally") -> void:
 					Vector2(ALLY_TOWER_X if actor == "ally" else ENEMY_TOWER_X, BATTLE_GROUND_Y - 82.0),
 					current_era if actor == "ally" else enemy_era
 				)
+		"bounty":
+			if actor == "ally":
+				_change_coins(_era_amount(BOUNTY_INSTANT_GOLD))
+			var bounty_timers: Dictionary = buff_timers if actor == "ally" else enemy_buff_timers
+			bounty_timers[effect_id] = maxf(float(bounty_timers.get(effect_id, 0.0)), duration)
 		_:
 			var timers: Dictionary = buff_timers if actor == "ally" else enemy_buff_timers
 			timers[effect_id] = maxf(float(timers.get(effect_id, 0.0)), duration)
@@ -2181,8 +2203,8 @@ func _roll_reward_option(reward_id: String) -> Dictionary:
 			option.name = "金币补给"
 			option.desc = "立即获得 200 金币"
 		"loot_boost":
-			option.name = "战利品增益"
-			option.desc = "本轮击杀获得的金币提升 30%"
+			option.name = "疾战赏金"
+			option.desc = "本轮过关金币提升 30%"
 		"atk_up":
 			option.name = "全军强攻"
 			option.desc = "我方全体单位攻击力提升 10%"
@@ -2228,7 +2250,15 @@ func _show_round_reward() -> void:
 	_show_reward("round")
 
 func _show_stage_clear_reward() -> void:
+	var award := _award_stage_clear_economy()
 	_show_reward("stage_clear")
+	if reward_title_label != null:
+		# 过关奖励时仍停留在当前关：_stage_number()=N，下一关文案需 N+1
+		reward_title_label.text = "过关！评级 %s · +%d 金 · 选择增益后进入%s" % [
+			str(award.get("grade", "B")),
+			int(award.get("gold", 0)),
+			_stage_name(_stage_number() + 1),
+		]
 
 func _show_reward(context: String) -> void:
 	if reward_overlay == null:
@@ -2239,7 +2269,7 @@ func _show_reward(context: String) -> void:
 	reward_context = context
 	if reward_title_label != null:
 		if context == "stage_clear":
-			# 过关奖励时仍停留在当前关：_stage_number()=N，下一关文案需 N+1（等价 enemy_era_index+2）
+			# 标题由 _show_stage_clear_reward 写入速度/金币摘要；此处兜底
 			reward_title_label.text = "过关！选择一项增益，随后进入%s" % _stage_name(_stage_number() + 1)
 		else:
 			reward_title_label.text = "选择一项增益"
@@ -3500,7 +3530,7 @@ func _start_round(start_era_index: int = 0) -> void:
 	era_index = clampi(start_era_index, 0, GameData.ERAS.size() - 1)
 	base_era_index = era_index
 	current_era = GameData.ERAS[era_index]
-	coin_count = 300
+	coin_count = STARTING_COINS
 	kill_score = 0
 	prep_pending = false
 	auto_prep = false
@@ -3531,6 +3561,7 @@ func _start_round(start_era_index: int = 0) -> void:
 	free_clear_tokens = 0
 	reward_active = false
 	stage_clear_pending = false
+	stage_clear_economy_awarded = false
 	_reset_round_mods()
 	tower_destruction_started = false
 	enemy_coin = 0.0
@@ -5452,14 +5483,12 @@ func _on_unit_expired(unit: BattleUnit) -> void:
 		occupied_units = maxi(0, occupied_units - 1)
 	if faction == "enemy" and not unit.score_awarded:
 		unit.score_awarded = true
+		# 方案甲：玩家击杀/塔击杀金币归零；积分弱化，主体改为过关关卡分+速度分
+		if PLAYER_KILL_GOLD > 0:
+			_change_coins(PLAYER_KILL_GOLD)
 		var kill_score_value := int(unit.stats.get("kill_score", 0))
-		var coins := maxi(1, int(round(float(_era_amount(kill_score_value)) * KILL_COIN_MULT)))
-		coins = int(round(float(coins) * round_coin_mult))
-		if _buff_active("bounty"):
-			coins += maxi(1, int(round(float(_era_amount(BOUNTY_COIN_BASE)) * KILL_COIN_MULT)))
-		_change_coins(coins)
 		if unit.last_damage_source != "tower":
-			kill_score += kill_score_value
+			kill_score += maxi(0, int(round(float(kill_score_value) * KILL_SCORE_MULT)))
 		_update_progress_ui()
 	elif faction == "ally" and not unit.score_awarded:
 		unit.score_awarded = true
@@ -5528,7 +5557,7 @@ func _stage_name(stage_number: int) -> String:
 	var era: String = GameData.ERAS[index]
 	return "第 %d 关（%s）" % [stage_number, str(GameData.ERA_NAMES.get(era, era))]
 
-## 本关时限（秒）：按难度表 + 关卡 index（0..4）取值；<=0 表示无限制（不启用）
+## 本关目标用时（秒）：按难度表 + 关卡 index（0..4）取值；<=0 表示不计速度
 func _stage_time_limit_for(stage_index: int) -> float:
 	var table: Array = STAGE_TIME_LIMIT.get(current_difficulty, STAGE_TIME_LIMIT["normal"])
 	if table.is_empty():
@@ -5536,20 +5565,72 @@ func _stage_time_limit_for(stage_index: int) -> float:
 	var idx := clampi(stage_index, 0, table.size() - 1)
 	return float(table[idx])
 
-## 进关/开局时重置并启动本关计时
+## 进关/开局时重置并启动本关计时（累计已用；倒计时归零不失败）
 func _reset_stage_timer() -> void:
 	stage_time_limit = _stage_time_limit_for(enemy_era_index)
+	stage_elapsed = 0.0
 	stage_time_left = stage_time_limit
+	stage_clear_economy_awarded = false
 	_update_stage_timer_ui()
 
-## 每帧扣时（仅在战斗进行、未暂停、未开奖励面板时被调用 → 天然冻结）
+## 每帧累计已用时间（仅在战斗进行、未暂停、未开奖励面板时被调用 → 天然冻结）
 func _tick_stage_timer(delta: float) -> void:
 	if stage_time_limit <= 0.0 or battle_ended:
 		return
-	stage_time_left = maxf(0.0, stage_time_left - delta)
+	stage_elapsed += delta
+	stage_time_left = maxf(0.0, stage_time_limit - stage_elapsed)
 	_update_stage_timer_ui()
-	if stage_time_left <= 0.0:
-		_finish_battle(false, "超时失败：本关时间耗尽")
+
+## 速度倍率：target / elapsed，夹在 [0.35, 1.6]
+func _stage_speed_mult() -> float:
+	if stage_time_limit <= 0.0:
+		return 1.0
+	return clampf(stage_time_limit / maxf(stage_elapsed, 1.0), CLEAR_GOLD_SPEED_MIN, CLEAR_GOLD_SPEED_MAX)
+
+func _stage_speed_grade() -> String:
+	if stage_time_limit <= 0.0:
+		return "A"
+	var ratio := stage_time_limit / maxf(stage_elapsed, 1.0)
+	if ratio >= 1.3:
+		return "S"
+	if ratio >= 1.0:
+		return "A"
+	if ratio >= 0.7:
+		return "B"
+	if ratio >= CLEAR_GOLD_SPEED_MIN:
+		return "C"
+	return "D"
+
+func _clear_gold_base_amount() -> int:
+	var diff_mult := float(CLEAR_GOLD_DIFF_MULT.get(current_difficulty, 1.0))
+	return maxi(1, int(round(float(_era_amount_for(enemy_era, CLEAR_GOLD_BASE)) * diff_mult)))
+
+func _compute_clear_gold() -> int:
+	var mult := _stage_speed_mult()
+	mult *= maxf(0.0, round_coin_mult)
+	if _buff_active("bounty"):
+		mult *= BOUNTY_CLEAR_GOLD_MULT
+	return maxi(1, int(round(float(_clear_gold_base_amount()) * mult)))
+
+func _compute_stage_clear_scores() -> Dictionary:
+	var stage_pts := int(round(float(STAGE_SCORE_BASE) * (1.0 + 0.15 * float(enemy_era_index))))
+	var speed_pts := int(round(float(SPEED_SCORE_BASE) * _stage_speed_mult()))
+	return {"stage": stage_pts, "speed": speed_pts}
+
+## 过关/通关时发放速度金币与关卡+速度积分（幂等）
+func _award_stage_clear_economy() -> Dictionary:
+	var grade := _stage_speed_grade()
+	if stage_clear_economy_awarded:
+		return {"gold": 0, "stage_pts": 0, "speed_pts": 0, "grade": grade}
+	stage_clear_economy_awarded = true
+	var gold := _compute_clear_gold()
+	var scores := _compute_stage_clear_scores()
+	var stage_pts := int(scores.stage)
+	var speed_pts := int(scores.speed)
+	_change_coins(gold)
+	kill_score += stage_pts + speed_pts
+	_update_progress_ui()
+	return {"gold": gold, "stage_pts": stage_pts, "speed_pts": speed_pts, "grade": grade}
 
 func _update_stage_timer_ui() -> void:
 	if stage_timer_label == null:
@@ -5558,13 +5639,19 @@ func _update_stage_timer_ui() -> void:
 		stage_timer_label.text = "⏱ --:--"
 		stage_timer_label.add_theme_color_override("font_color", Color("#f6d69f"))
 		return
-	var secs := int(ceil(stage_time_left))
-	stage_timer_label.text = "⏱ %02d:%02d" % [secs / 60, secs % 60]
+	var secs := int(floor(stage_elapsed))
+	var grade := _stage_speed_grade()
+	stage_timer_label.text = "⏱ %02d:%02d·%s" % [secs / 60, secs % 60, grade]
 	var color := Color("#f6d69f")
-	if stage_time_left <= 15.0:
-		color = Color("#ff5a3c")
-	elif stage_time_left <= 30.0:
+	var ratio := stage_time_limit / maxf(stage_elapsed, 1.0)
+	if ratio >= 1.3:
+		color = Color("#8ce68c")
+	elif ratio >= 1.0:
+		color = Color("#f6d69f")
+	elif ratio >= 0.7:
 		color = Color("#ffd166")
+	else:
+		color = Color("#ff5a3c")
 	stage_timer_label.add_theme_color_override("font_color", color)
 
 ## 把玩家时代下限提到当前关卡时代：牌池只升不降，已超前的轮次升级保留
@@ -5740,9 +5827,14 @@ func _finish_battle(won: bool, message: String) -> void:
 			fx_manager.emit_victory(Vector2(360, BATTLE_GROUND_Y - 42.0), Color("#ffd273"), current_era)
 	print("战斗结束: %s" % message)
 	if won:
-		var reward := _era_amount(VICTORY_REWARD_BASE)
-		_change_coins(reward)
-		_finish_round("%s\n获得 +%d 金币" % [message, reward])
+		var award := _award_stage_clear_economy()
+		_finish_round("%s\n速度评级 %s · 过关 +%d 金币（关卡分 +%d / 速度分 +%d）" % [
+			message,
+			str(award.get("grade", "A")),
+			int(award.get("gold", 0)),
+			int(award.get("stage_pts", 0)),
+			int(award.get("speed_pts", 0)),
+		])
 	else:
 		_finish_round(message)
 
