@@ -1,6 +1,13 @@
-STATUS=UPLOADING_FULL_V21
-REASON=replacing_duration_only_with_main_#76_package
+STATUS=UPLOADED
 TARGET_PCK=https://mingge.asia/deck-and-merge/update/deck-and-merge-v21.pck
+TARGET_MANIFEST=https://mingge.asia/deck-and-merge/update/version.json
+SERVER_DIR=/var/www/deck-and-merge/update/
+SERVER_HOST=111.228.14.193
 SHA256=4b38b34610f67ae054de690b083d0baece9ddb8a881c7a5a5751366872d321f2
 BYTES=43916324
-SOURCE=origin/main #76 (includes #74 durations + reshuffle fix)
+SOURCE=origin/main #76 (includes #74 durations + U15 reshuffle fix)
+LIVE_VERSION=21
+LIVE_PCK_HTTP=200
+LIVE_SHA256_MATCH=yes
+NOTES=v21：重排点击必有反馈；五时代时长 5/8/15/20/30 分钟
+UPLOADED_AT=2026-08-07T17:44:55Z
