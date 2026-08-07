@@ -1,0 +1,9 @@
+STATUS=PENDING_UPLOAD
+REASON=no_ssh_credentials_in_session
+ACTION_REQUIRED=inject_MINGGE_SSH_USER_and_MINGGE_SSH_PASS_or_commander_upload
+TARGET_PCK=https://mingge.asia/deck-and-merge/update/deck-and-merge-v20.pck
+TARGET_MANIFEST=https://mingge.asia/deck-and-merge/update/version.json
+SERVER_DIR=/var/www/deck-and-merge/update/
+SERVER_HOST=111.228.14.193
+SHA256=f55965971e17e5e23583555e2b05883f38e4969d69bc29fcb5fe81c8987a0690
+SOURCE_COMMIT=af7bdb1f98c5ce061b9921a905fcec3ab272c4f5

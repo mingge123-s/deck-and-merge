@@ -1,0 +1,7 @@
+version=20
+pck=deck-and-merge-v20.pck
+pck_url=https://mingge.asia/deck-and-merge/update/deck-and-merge-v20.pck
+sha256=f55965971e17e5e23583555e2b05883f38e4969d69bc29fcb5fe81c8987a0690
+bytes=42452980
+preset=Android
+generated_at=2026-08-07T02:36:16Z
