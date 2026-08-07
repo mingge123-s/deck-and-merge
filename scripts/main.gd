@@ -69,6 +69,11 @@ const CLEAR_TRAY_COST := 100
 # 少于这个张数清空没有意义（凑不出三连也不会卡台）
 const MIN_CLEAR_TRAY_CARDS := 3
 const RESHUFFLE_COST := 200
+# 信息栏抬到 pause_overlay(4000) 之上，避免依赖镂空穿透（Android 部分路径不可靠）
+const INFO_BAR_Z_INDEX := 4005
+const PAUSE_OVERLAY_Z_INDEX := 4000
+# 重排/清空触控热区（视觉同尺寸；≥64 降低手机点空率）
+const INFO_ACTION_HIT_SIZE := Vector2(64, 64)
 # 奖励面板刷新（重roll 三选一）花费的金币，便于以后调整
 const REWARD_REROLL_COST := 100
 const AI_EFFECT_CD := 8.0
@@ -187,6 +192,7 @@ var score_label: Label
 var era_label: Label
 var deck_label: Label
 var stage_timer_label: Label
+var info_bar: Panel
 var reshuffle_button: Button
 var reshuffle_confirm_overlay: Control
 var clear_tray_button: Button
@@ -194,8 +200,11 @@ var clear_tray_badge: Label
 var clear_tray_confirm_overlay: Control
 var status_label: Label
 var update_status_label: Label
+var content_version_label: Label
+var content_version_hint_label: Label
 var update_restart_overlay: Control
 var update_restart_notes_label: Label
+var deny_button_tween: Tween
 var restart_button: Button
 var result_menu_button: Button
 var return_button: Button
@@ -722,8 +731,11 @@ func _build_background() -> void:
 
 func _build_top_bar() -> void:
 	var bar := Panel.new()
+	info_bar = bar
 	bar.position = INFO_BAR_RECT.position
 	bar.size = INFO_BAR_RECT.size
+	# 高于 pause_overlay，暂停/整备时不依赖镂空穿透
+	bar.z_index = INFO_BAR_Z_INDEX
 	bar.add_theme_stylebox_override("panel", _panel_style(Color("#a75d38"), Color("#633822"), 19, 3))
 	add_child(bar)
 	return_button = Button.new()
@@ -738,7 +750,7 @@ func _build_top_bar() -> void:
 	return_button.pressed.connect(_play_button_sfx)
 	bar.add_child(return_button)
 	pause_button = Button.new()
-	pause_button.position = Vector2(536, 9)
+	pause_button.position = Vector2(540, 9)
 	pause_button.size = Vector2(46, 46)
 	pause_button.tooltip_text = "暂停"
 	pause_button.icon = load("res://assets/ui/pause_icon.png")
@@ -753,7 +765,7 @@ func _build_top_bar() -> void:
 	pause_button.visible = false
 	bar.add_child(pause_button)
 	help_button = Button.new()
-	help_button.position = Vector2(592, 9)
+	help_button.position = Vector2(596, 9)
 	help_button.size = Vector2(46, 46)
 	help_button.text = "?"
 	help_button.tooltip_text = "玩法介绍"
@@ -766,12 +778,12 @@ func _build_top_bar() -> void:
 	coin_label = _label(bar, "", Vector2(70, 18), Vector2(140, 28), 16, Color("#fff0c7"))
 	score_label = _label(bar, "", Vector2(70, 40), Vector2(160, 22), 13, Color("#f6d69f"))
 	era_label = _label(bar, "", Vector2(215, 22), Vector2(200, 20), 12, Color("#f6d69f"))
-	# 倒计时右缘须避开清空按钮（x=424），避免与顶栏右侧方块按钮重叠
-	stage_timer_label = _label(bar, "⏱ --:--", Vector2(250, 38), Vector2(160, 24), 17, Color("#f6d69f"))
+	# 倒计时右缘须避开清空按钮（x=400），避免与顶栏右侧方块按钮重叠
+	stage_timer_label = _label(bar, "⏱ --:--", Vector2(230, 38), Vector2(160, 24), 17, Color("#f6d69f"))
 	_outline(stage_timer_label, 4)
 	clear_tray_button = Button.new()
-	clear_tray_button.position = Vector2(424, 9)
-	clear_tray_button.size = Vector2(46, 46)
+	clear_tray_button.position = Vector2(400, 0)
+	clear_tray_button.size = INFO_ACTION_HIT_SIZE
 	clear_tray_button.tooltip_text = "清空合成台，卡牌补回牌堆底（-%d 金币，有免费次数时优先用免费）" % CLEAR_TRAY_COST
 	clear_tray_button.add_theme_stylebox_override("normal", _panel_style(Color("#e4863e"), Color("#713722"), 12, 2))
 	clear_tray_button.add_theme_stylebox_override("hover", _panel_style(Color("#f2a252"), Color("#713722"), 12, 2))
@@ -779,14 +791,14 @@ func _build_top_bar() -> void:
 	clear_tray_button.add_theme_stylebox_override("disabled", _panel_style(Color("#9c6b45"), Color("#5e3320"), 12, 2))
 	clear_tray_button.icon = load("res://assets/ui/clear_tray_icon.png")
 	clear_tray_button.expand_icon = true
-	clear_tray_button.add_theme_constant_override("icon_max_width", 30)
+	clear_tray_button.add_theme_constant_override("icon_max_width", 34)
 	clear_tray_button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	clear_tray_button.vertical_icon_alignment = VERTICAL_ALIGNMENT_CENTER
 	clear_tray_button.pressed.connect(_on_clear_tray_pressed)
 	clear_tray_button.pressed.connect(_play_button_sfx)
 	bar.add_child(clear_tray_button)
 	clear_tray_badge = Label.new()
-	clear_tray_badge.position = Vector2(26, -4)
+	clear_tray_badge.position = Vector2(40, -2)
 	clear_tray_badge.size = Vector2(24, 20)
 	clear_tray_badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	clear_tray_badge.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -797,8 +809,8 @@ func _build_top_bar() -> void:
 	clear_tray_badge.visible = false
 	clear_tray_button.add_child(clear_tray_badge)
 	reshuffle_button = Button.new()
-	reshuffle_button.position = Vector2(480, 9)
-	reshuffle_button.size = Vector2(46, 46)
+	reshuffle_button.position = Vector2(468, 0)
+	reshuffle_button.size = INFO_ACTION_HIT_SIZE
 	reshuffle_button.tooltip_text = "重排牌序（-%d 金币）" % RESHUFFLE_COST
 	reshuffle_button.add_theme_stylebox_override("normal", _panel_style(Color("#e4863e"), Color("#713722"), 12, 2))
 	reshuffle_button.add_theme_stylebox_override("hover", _panel_style(Color("#f2a252"), Color("#713722"), 12, 2))
@@ -806,7 +818,7 @@ func _build_top_bar() -> void:
 	reshuffle_button.add_theme_stylebox_override("disabled", _panel_style(Color("#9c6b45"), Color("#5e3320"), 12, 2))
 	reshuffle_button.icon = load("res://assets/ui/reshuffle_icon.png")
 	reshuffle_button.expand_icon = true
-	reshuffle_button.add_theme_constant_override("icon_max_width", 30)
+	reshuffle_button.add_theme_constant_override("icon_max_width", 34)
 	reshuffle_button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	reshuffle_button.vertical_icon_alignment = VERTICAL_ALIGNMENT_CENTER
 	reshuffle_button.pressed.connect(_on_reshuffle_pressed)
@@ -1273,8 +1285,8 @@ func _build_overlay() -> void:
 func _build_pause_overlay() -> void:
 	pause_overlay = Control.new()
 	pause_overlay.size = VIEW_SIZE
-	pause_overlay.z_index = 4000
-	# 根节点放行：由 shade/cover/panel 各自拦截；INFO_BAR 镂空可点重排
+	pause_overlay.z_index = PAUSE_OVERLAY_Z_INDEX
+	# 根节点放行 + INFO_BAR 镂空保留作双保险；主路径靠 info_bar.z_index > pause
 	pause_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	pause_overlay.visible = false
 	add_child(pause_overlay)
@@ -1509,7 +1521,8 @@ func _build_main_menu() -> void:
 	main_menu = Control.new()
 	main_menu.name = "MainMenu"
 	main_menu.size = VIEW_SIZE
-	main_menu.z_index = 3800
+	# 高于 INFO_BAR_Z_INDEX(4005)，且不超过 Godot z 上限 4096
+	main_menu.z_index = 4010
 	main_menu.mouse_filter = Control.MOUSE_FILTER_STOP
 	add_child(main_menu)
 	var shade := ColorRect.new()
@@ -1573,11 +1586,15 @@ func _build_main_menu() -> void:
 	_label(card, "点击开始，自动进入战斗", Vector2(0, 732), Vector2(588, 28), 14, Color("#e6c199")).horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	var check_update_button := _menu_button(card, "检查更新", Vector2(194, 772), Vector2(200, 42), 16)
 	check_update_button.pressed.connect(_on_check_update_pressed)
-	var version_label := _label(card, "内容版本 v%d" % Updater.installed_version, Vector2(0, 818), Vector2(588, 18), 12, Color("#e6c199"))
-	version_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	update_status_label = _label(card, "", Vector2(0, 836), Vector2(588, 36), 14, Color("#ffe3a5"))
+	content_version_label = _label(card, "内容版本 v%d" % Updater.installed_version, Vector2(0, 818), Vector2(588, 18), 12, Color("#e6c199"))
+	content_version_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	content_version_hint_label = _label(card, "", Vector2(20, 834), Vector2(548, 20), 12, Color("#ffd36a"))
+	content_version_hint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	content_version_hint_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	update_status_label = _label(card, "", Vector2(0, 854), Vector2(588, 36), 14, Color("#ffe3a5"))
 	update_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	update_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_refresh_content_version_hint()
 	_build_settings_panel(card)
 	_build_leaderboard_panel()
 	_build_era_select_panel()
@@ -1594,7 +1611,7 @@ func _on_update_status(text: String) -> void:
 		return
 	update_status_label.text = text
 	# 待重启/下载完成：醒目强调；普通进度保持原色
-	if text.find("退出") >= 0 or text.find("重启") >= 0 or text.begins_with("★"):
+	if text.find("退出") >= 0 or text.find("重启") >= 0 or text.find("划掉") >= 0 or text.begins_with("★"):
 		update_status_label.add_theme_color_override("font_color", Color("#ffd36a"))
 		update_status_label.add_theme_font_size_override("font_size", 15)
 	elif text.find("失败") >= 0:
@@ -1603,12 +1620,32 @@ func _on_update_status(text: String) -> void:
 	else:
 		update_status_label.add_theme_color_override("font_color", Color("#ffe3a5"))
 		update_status_label.add_theme_font_size_override("font_size", 14)
+	_refresh_content_version_hint()
+
+func _refresh_content_version_hint() -> void:
+	if content_version_label != null:
+		content_version_label.text = "内容版本 v%d" % Updater.installed_version
+	if content_version_hint_label == null:
+		return
+	if Updater.pending_restart_version > Updater.installed_version:
+		content_version_hint_label.text = "v%d 已下载：请从多任务彻底划掉后再开" % Updater.pending_restart_version
+		return
+	var status := update_status_label.text if update_status_label != null else ""
+	if status.find("发现新版本") >= 0 or status.find("正在下载") >= 0 or status.find("下载新版本") >= 0:
+		content_version_hint_label.text = "远端有更新，请点「检查更新」；下完后须划掉重开"
+		return
+	if status.find("已是最新") >= 0:
+		content_version_hint_label.text = ""
+		return
+	# 默认轻提示：旧 APK/未彻底退出时功能异常常见于未装热更
+	content_version_hint_label.text = "若按钮无反应，请点「检查更新」并从多任务划掉重开"
 
 func _on_update_ready(version: int, notes: String) -> void:
 	if update_status_label != null:
-		update_status_label.text = "★ 已下载 v%d，请完全退出后再打开 ★" % version
+		update_status_label.text = "★ 已下载 v%d，请从多任务彻底划掉后再打开 ★" % version
 		update_status_label.add_theme_color_override("font_color", Color("#ffd36a"))
 		update_status_label.add_theme_font_size_override("font_size", 15)
+	_refresh_content_version_hint()
 	_show_update_restart_overlay(version, notes)
 
 func _build_update_restart_overlay() -> void:
@@ -1632,7 +1669,7 @@ func _build_update_restart_overlay() -> void:
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	var desc := _label(
 		panel,
-		"新内容已下载完成。\n请完全退出游戏后再次打开，更新才会生效。\n（返回桌面再点图标即可）",
+		"新内容已下载完成。\n请打开多任务，将本游戏彻底划掉后再打开。\n仅按 Home 回桌面可能仍跑旧逻辑。",
 		Vector2(36, 86),
 		Vector2(508, 110),
 		17,
@@ -2097,6 +2134,32 @@ func _show_toast(text: String) -> void:
 		if toast_overlay != null:
 			toast_overlay.visible = false
 	)
+
+func _notify_action_blocked(reason: String, button: Control = null) -> void:
+	AudioManager.play_sfx("ui_denied")
+	if battle_hint != null:
+		battle_hint.text = reason
+	_show_toast(reason)
+	_flash_deny_button(button)
+
+func _flash_deny_button(button: Control) -> void:
+	if button == null or not is_instance_valid(button):
+		return
+	if deny_button_tween != null:
+		deny_button_tween.kill()
+		deny_button_tween = null
+	if button.has_meta("deny_base_pos"):
+		button.position = button.get_meta("deny_base_pos")
+	button.modulate = Color.WHITE
+	var base_pos: Vector2 = button.position
+	button.set_meta("deny_base_pos", base_pos)
+	deny_button_tween = create_tween()
+	button.modulate = Color(1.0, 0.52, 0.4, 1.0)
+	deny_button_tween.tween_property(button, "position:x", base_pos.x + 6.0, 0.04)
+	deny_button_tween.tween_property(button, "position:x", base_pos.x - 6.0, 0.05)
+	deny_button_tween.tween_property(button, "position:x", base_pos.x + 4.0, 0.04)
+	deny_button_tween.tween_property(button, "position:x", base_pos.x, 0.04)
+	deny_button_tween.tween_property(button, "modulate", Color.WHITE, 0.16)
 
 func _reward_pool() -> Array[String]:
 	return [
@@ -3939,9 +4002,7 @@ func _on_reshuffle_confirmed() -> void:
 func _on_reshuffle_pressed() -> void:
 	var reason := _reshuffle_block_reason()
 	if reason != "":
-		AudioManager.play_sfx("ui_denied")
-		battle_hint.text = reason
-		_show_toast(reason)
+		_notify_action_blocked(reason, reshuffle_button)
 		return
 	if not SaveManager.get_reshuffle_hint_seen() and reshuffle_confirm_overlay != null:
 		move_child(reshuffle_confirm_overlay, get_child_count() - 1)
@@ -3960,8 +4021,9 @@ func _reshuffle_live_deck_count() -> int:
 	return live_count
 
 # 返回空串表示可重排，否则为不可重排的中文原因（用于点击时弹提示）
+# 战斗中随时可重排（含手动暂停）；不依赖 _can_pick_cards / auto_prep。
 func _reshuffle_block_reason() -> String:
-	if not _can_pick_cards():
+	if not battle_active or battle_ended or reward_active:
 		return "当前阶段不可重排"
 	if _reshuffle_live_deck_count() < 2:
 		return "牌堆可重排卡牌不足 2 张"
@@ -3971,18 +4033,23 @@ func _reshuffle_block_reason() -> String:
 
 func _do_reshuffle() -> void:
 	if not _can_reshuffle():
-		AudioManager.play_sfx("ui_denied")
+		_notify_action_blocked(_reshuffle_block_reason(), reshuffle_button)
 		return
+	var toast_text := ""
 	if free_reshuffles > 0:
 		free_reshuffles -= 1
 		battle_hint.text = "免费重排牌序（剩 %d 次）" % free_reshuffles
+		toast_text = "已重排（免费，剩 %d 次）" % free_reshuffles
 	else:
 		coin_count = maxi(0, coin_count - RESHUFFLE_COST)
 		battle_hint.text = "已扣 %d 金币重排牌序" % RESHUFFLE_COST
+		toast_text = "已重排（-%d 金币）" % RESHUFFLE_COST
 	_reshuffle_deck()
 	AudioManager.play_sfx("place")
 	_update_coin_ui()
 	_update_progress_ui()
+	# 暂停遮罩下也要有可见成功反馈
+	_show_toast(toast_text)
 
 func _reshuffle_deck() -> void:
 	var live_cards: Array[CardView] = []
@@ -4066,10 +4133,7 @@ func _clear_tray_block_reason() -> String:
 func _on_clear_tray_pressed() -> void:
 	var reason := _clear_tray_block_reason()
 	if reason != "":
-		AudioManager.play_sfx("ui_denied")
-		if battle_hint != null:
-			battle_hint.text = reason
-		_show_toast(reason)
+		_notify_action_blocked(reason, clear_tray_button)
 		return
 	if not SaveManager.get_clear_tray_hint_seen() and clear_tray_confirm_overlay != null:
 		move_child(clear_tray_confirm_overlay, get_child_count() - 1)
@@ -5862,8 +5926,8 @@ func _update_clear_tray_button() -> void:
 	if clear_tray_badge != null:
 		clear_tray_badge.visible = free_clear
 		clear_tray_badge.text = str(free_clear_tokens) if free_clear else ""
-	# 战斗未开始/已结束/奖励面板打开时直接置灰；其余不可用原因保持可点以弹中文提示
-	clear_tray_button.disabled = not _can_pick_cards()
+	# 未开战/已结束/奖励中置灰；暂停/整备时保持可点，拦截走 toast+抖动（勿静默）
+	clear_tray_button.disabled = (not battle_active) or battle_ended or reward_active
 
 func _update_tower_ui() -> void:
 	if ally_tower_bar == null:
