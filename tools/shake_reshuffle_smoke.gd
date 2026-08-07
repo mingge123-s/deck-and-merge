@@ -167,28 +167,37 @@ func _initialize() -> void:
 	_check(main.coin_count == coins_before_gui - main.RESHUFFLE_COST, "auto_prep 时重排应扣费（gui 或等价 pressed），实际 %d（期望 %d）" % [main.coin_count, coins_before_gui - main.RESHUFFLE_COST])
 	_check(not main.clear_tray_button.disabled, "auto_prep 时清空按钮应可点")
 
-	# 手动暂停（非 auto_prep）不可重排，但按钮仍可点并给出可见反馈
+	# 手动暂停（paused && !auto_prep）：取牌仍不可，但重排必须随时可点可执行
 	main.auto_prep = false
 	main.paused = true
 	_ensure_battle_ui()
 	if main.pause_overlay != null:
 		main.pause_overlay.visible = true
+	main.coin_count = 500
 	main.free_reshuffles = 0
 	main._update_coin_ui()
 	await process_frame
 	_check(not main._can_pick_cards(), "手动暂停不可取牌")
-	_check(main._reshuffle_block_reason().contains("当前阶段"), "手动暂停应拦截重排: %s" % main._reshuffle_block_reason())
-	_check(not main.reshuffle_button.disabled, "手动暂停时重排仍应可点以弹提示")
-	_check(not main.clear_tray_button.disabled, "手动暂停时清空仍应可点以弹提示")
+	_check(main._reshuffle_block_reason() == "", "手动暂停且金币/牌足够时重排不应因阶段被挡: %s" % main._reshuffle_block_reason())
+	_check(not main.reshuffle_button.disabled, "手动暂停时重排按钮应可点")
 	var coins_pause: int = main.coin_count
 	_gui_click(main.reshuffle_button)
 	await process_frame
-	if main.coin_count == coins_pause and (main.battle_hint == null or not str(main.battle_hint.text).contains("当前阶段")):
+	if main.coin_count == coins_pause:
 		main.reshuffle_button.pressed.emit()
 		await process_frame
-	_check(main.coin_count == coins_pause, "手动暂停点击重排不应扣费")
-	_check(main.battle_hint != null and str(main.battle_hint.text).contains("当前阶段"), "手动暂停应写入 battle_hint: %s" % (main.battle_hint.text if main.battle_hint else ""))
-	_check(main.toast_overlay != null and main.toast_overlay.visible, "手动暂停拦截应显示 toast")
+	_check(main.coin_count == coins_pause - main.RESHUFFLE_COST, "手动暂停重排应扣费，实际 %d" % main.coin_count)
+	_check(main.battle_hint != null and str(main.battle_hint.text).contains("重排"), "手动暂停重排应写 battle_hint: %s" % (main.battle_hint.text if main.battle_hint else ""))
+	_check(main.toast_overlay != null and main.toast_overlay.visible, "手动暂停重排应显示「已重排」类 toast")
+	_check(main.toast_label != null and str(main.toast_label.text).contains("已重排"), "toast 文案应含已重排: %s" % (main.toast_label.text if main.toast_label else ""))
+
+	# 奖励面板仍拦截，且强提示
+	main.reward_active = true
+	_check(main._reshuffle_block_reason().contains("当前阶段"), "奖励面板应拦截重排: %s" % main._reshuffle_block_reason())
+	main._on_reshuffle_pressed()
+	await process_frame
+	_check(main.toast_overlay != null and main.toast_overlay.visible, "奖励面板拦截应显示 toast")
+	main.reward_active = false
 
 	if failures.is_empty():
 		print("shake_reshuffle_smoke: OK")

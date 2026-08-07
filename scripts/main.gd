@@ -4021,8 +4021,9 @@ func _reshuffle_live_deck_count() -> int:
 	return live_count
 
 # 返回空串表示可重排，否则为不可重排的中文原因（用于点击时弹提示）
+# 战斗中随时可重排（含手动暂停）；不依赖 _can_pick_cards / auto_prep。
 func _reshuffle_block_reason() -> String:
-	if not _can_pick_cards():
+	if not battle_active or battle_ended or reward_active:
 		return "当前阶段不可重排"
 	if _reshuffle_live_deck_count() < 2:
 		return "牌堆可重排卡牌不足 2 张"
@@ -4032,18 +4033,23 @@ func _reshuffle_block_reason() -> String:
 
 func _do_reshuffle() -> void:
 	if not _can_reshuffle():
-		AudioManager.play_sfx("ui_denied")
+		_notify_action_blocked(_reshuffle_block_reason(), reshuffle_button)
 		return
+	var toast_text := ""
 	if free_reshuffles > 0:
 		free_reshuffles -= 1
 		battle_hint.text = "免费重排牌序（剩 %d 次）" % free_reshuffles
+		toast_text = "已重排（免费，剩 %d 次）" % free_reshuffles
 	else:
 		coin_count = maxi(0, coin_count - RESHUFFLE_COST)
 		battle_hint.text = "已扣 %d 金币重排牌序" % RESHUFFLE_COST
+		toast_text = "已重排（-%d 金币）" % RESHUFFLE_COST
 	_reshuffle_deck()
 	AudioManager.play_sfx("place")
 	_update_coin_ui()
 	_update_progress_ui()
+	# 暂停遮罩下也要有可见成功反馈
+	_show_toast(toast_text)
 
 func _reshuffle_deck() -> void:
 	var live_cards: Array[CardView] = []
