@@ -1,6 +1,6 @@
 extends SceneTree
 
-## 一键清空合成台冒烟测试：费用 100 / 免费次数优先 / 阻断原因 / 卡补回牌堆
+## 自动清台冒烟测试：满台无合成 → 免费次数优先 / 付费自动清 / 金币不足判负
 ## 用法：godot --headless --path . --script tools/clear_tray_smoke.gd
 
 var main: Node
@@ -11,71 +11,74 @@ func _check(ok: bool, label: String) -> void:
 		failures.append(label)
 		print("FAIL: ", label)
 
+func _fill_stuck_tray() -> void:
+	# 7 格：最多 2 张同名单位卡 → 无三连、无效果二连，触发软锁清台
+	# 例：图腾1 + 兽皮2 + 骨刃2 + 木棒2
+	var ids: Array = GameData.cards_for_era(main.current_era)
+	_check(ids.size() >= 4, "当前时代至少应有 4 种单位卡: %d" % ids.size())
+	main.tray_cards.clear()
+	main.tray_cards.append(ids[0])
+	main.tray_cards.append(ids[1])
+	main.tray_cards.append(ids[1])
+	main.tray_cards.append(ids[2])
+	main.tray_cards.append(ids[2])
+	main.tray_cards.append(ids[3])
+	main.tray_cards.append(ids[3])
+	main.tray_incoming = 0
+	main._rebuild_tray_visuals()
+
 func _initialize() -> void:
 	var scene: PackedScene = load("res://scenes/main.tscn")
 	main = scene.instantiate()
 	root.add_child(main)
 	await process_frame
 	_check(main.CLEAR_TRAY_COST == 100, "费用应为 100")
-	# 战斗未开始：按钮禁用 + 原因
-	_check(main.clear_tray_button != null, "应存在清空按钮")
-	_check(main.clear_tray_button.disabled, "战斗未开始时按钮应禁用")
+	_check(main.get("clear_tray_button") == null, "不应再存在手动清空按钮")
+	_check(not ResourceLoader.exists("res://assets/ui/clear_tray_icon.png"), "清空图标资源应已移除")
+	# U8 信息栏抬升仍应保留（重排可点）
+	_check(main.info_bar != null and main.info_bar.z_index >= 4005, "信息栏 z 应 ≥ 4005")
 	main._start_round(0)
 	await process_frame
 	main._close_tutorial() if main.has_method("_close_tutorial") else null
 	main.paused = false
 	await process_frame
-	main.tray_cards.clear()
-	main._rebuild_tray_visuals()
+
+	# 免费次数优先：满台自动清台不扣金币
+	_fill_stuck_tray()
+	main.coin_count = 50
+	main.free_clear_tokens = 1
+	main._update_coin_ui()
+	var deck_before: int = main.deck_cards.size()
+	main._check_stuck()
 	await process_frame
-	_check(main._clear_tray_block_reason().contains("不足 3 张"), "空台原因: %s" % main._clear_tray_block_reason())
-	_check(not main.clear_tray_button.disabled, "战斗中按钮应可点")
-	# 放 4 张不同名卡（不会触发合成）
-	var ids: Array = GameData.cards_for_era(main.current_era)
-	for id in [ids[0], ids[1], ids[2], ids[3]]:
-		main.tray_cards.append(id)
-	main._rebuild_tray_visuals()
+	_check(main.tray_cards.is_empty(), "自动清台后合成台应为空")
+	_check(main.free_clear_tokens == 0, "应消耗免费清台次数")
+	_check(main.coin_count == 50, "免费自动清台不应扣金币，实际 %d" % main.coin_count)
+	_check(main.deck_cards.size() == deck_before + 7, "卡应补回牌堆，%d -> %d" % [deck_before, main.deck_cards.size()])
+	_check(not main.battle_ended, "有免费次数时不应判负")
+
+	# 付费自动清台
+	_fill_stuck_tray()
+	main.coin_count = 130
+	main.free_clear_tokens = 0
+	main._update_coin_ui()
 	await process_frame
+	main._check_stuck()
+	await process_frame
+	_check(main.tray_cards.is_empty(), "付费自动清台后合成台应为空")
+	_check(main.coin_count == 30, "付费自动清台应扣 100，实际 %d" % main.coin_count)
+	_check(not main.battle_ended, "金币足够时不应判负")
+
+	# 金币与免费次数均不足 → 判负
+	_fill_stuck_tray()
 	main.coin_count = 50
 	main.free_clear_tokens = 0
 	main._update_coin_ui()
-	_check(main._clear_tray_block_reason().contains("金币不足"), "金币不足原因: %s" % main._clear_tray_block_reason())
-	_check(main.clear_tray_button.size.x >= 64.0 and main.clear_tray_button.size.y >= 64.0, "清空热区应 ≥ 64，实际 %s" % main.clear_tray_button.size)
-	_check(main.info_bar != null and main.info_bar.z_index >= 4005, "信息栏 z 应 ≥ 4005")
-	_check(main.clear_tray_button.get_parent() != main.tray, "清空按钮不应挂在合成台上")
-	_check(main.clear_tray_button.tooltip_text.contains("100"), "付费 tooltip: %s" % main.clear_tray_button.tooltip_text)
-	_check(main.clear_tray_badge != null and not main.clear_tray_badge.visible, "无免费次数时角标应隐藏")
-	# 免费次数优先
-	main.free_clear_tokens = 1
-	main._update_coin_ui()
-	_check(main.clear_tray_button.tooltip_text.contains("免费"), "免费 tooltip: %s" % main.clear_tray_button.tooltip_text)
-	_check(main.clear_tray_badge != null and main.clear_tray_badge.visible and main.clear_tray_badge.text == "1", "免费角标应显示 1")
-	_check(main._clear_tray_block_reason() == "", "有免费次数应可清空")
-	var deck_before: int = main.deck_cards.size()
-	main._do_clear_tray(true)
 	await process_frame
-	_check(main.tray_cards.is_empty(), "清空后合成台应为空")
-	_check(main.free_clear_tokens == 0, "应消耗免费次数")
-	_check(main.coin_count == 50, "免费清空不应扣金币，实际 %d" % main.coin_count)
-	_check(main.deck_cards.size() == deck_before + 4, "卡应补回牌堆，%d -> %d" % [deck_before, main.deck_cards.size()])
-	# 付费清空
-	for id2 in [ids[0], ids[1], ids[2]]:
-		main.tray_cards.append(id2)
-	main._rebuild_tray_visuals()
-	main.coin_count = 130
-	main._update_coin_ui()
+	main._check_stuck()
 	await process_frame
-	main._do_clear_tray(true)
-	await process_frame
-	_check(main.coin_count == 30, "付费清空应扣 100，实际 %d" % main.coin_count)
-	# 奖励面板打开时禁用
-	main.reward_active = true
-	main._update_clear_tray_button()
-	_check(main.clear_tray_button.disabled, "奖励面板打开时应禁用")
-	main.reward_active = false
-	main.battle_ended = true
-	main._update_clear_tray_button()
-	_check(main.clear_tray_button.disabled, "战斗结束时应禁用")
+	_check(main.battle_ended, "金币不足且满台无合成应判负")
+
 	if failures.is_empty():
 		print("clear_tray_smoke: OK")
 	else:
