@@ -1,11 +1,11 @@
-Godot Engine v4.5.stable.official.876b29033 - https://godotengine.org
+Godot Engine v4.7.1.stable.official.a13da4feb - https://godotengine.org
 
 进入关卡: 2 (iron)
 进入关卡: 3 (industrial)
 进入关卡: 4 (modern)
 进入关卡: 5 (future)
 stage_progression_smoke: OK
-WARNING: ObjectDB instances leaked at exit (run with --verbose for details).
-     at: cleanup (core/object/object.cpp:2514)
+WARNING: 14 ObjectDB instances were leaked at exit (run with `--verbose` for details).
+   at: cleanup (core/object/object.cpp:2536)
 ERROR: 3 resources still in use at exit (run with --verbose for details).
-   at: clear (core/io/resource.cpp:795)
+   at: clear (core/io/resource.cpp:822)

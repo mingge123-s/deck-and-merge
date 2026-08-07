@@ -64,16 +64,16 @@ func _clear_stage() -> void:
 	main._on_enemy_tower_destroyed()
 	await process_frame
 	_check(main.reward_active, "第 %d 关过关应弹出奖励面板" % (stage_before + 1))
-	var title := main.reward_title_label.text if main.reward_title_label != null else ""
+	var title: String = str(main.reward_title_label.text) if main.reward_title_label != null else ""
 	_check(
-		title.contains("过关") and title.contains(main._stage_name(stage_before + 2)),
+		title.contains("过关") and title.contains(str(main._stage_name(stage_before + 2))),
 		"第 %d 关过关标题应提示进入第 %d 关，实际「%s」" % [
 			stage_before + 1,
 			stage_before + 2,
 			title if not title.is_empty() else "<null>"
 		]
 	)
-	_check(main.coin_count > coin_before, "第 %d 关过关应按速度公式发放金币" % (stage_before + 1))
+	_check(int(main.coin_count) > coin_before, "第 %d 关过关应按速度公式发放金币" % (stage_before + 1))
 	_take_reward(Callable())
 	await process_frame
 	var stage: int = main.enemy_era_index
