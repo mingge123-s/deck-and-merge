@@ -68,6 +68,10 @@ const RESHUFFLE_COST := 200
 # 信息栏抬到 pause_overlay(4000) 之上，避免依赖镂空穿透（Android 部分路径不可靠）
 const INFO_BAR_Z_INDEX := 4005
 const PAUSE_OVERLAY_Z_INDEX := 4000
+# 顶层透明重排热区：高于 main_menu(4010)，低于 tutorial(4090)/toast(4096)
+# 真机上 info_bar 子按钮偶发点不进 pressed 时，由该热区兜底接点击
+const RESHUFFLE_HIT_Z_INDEX := 4080
+const RESHUFFLE_HIT_PAD_EXPAND := 16.0
 # 重排触控热区（视觉同尺寸；≥64 降低手机点空率）
 const INFO_ACTION_HIT_SIZE := Vector2(64, 64)
 # 奖励面板刷新（重roll 三选一）花费的金币，便于以后调整
@@ -190,6 +194,7 @@ var deck_label: Label
 var stage_timer_label: Label
 var info_bar: Panel
 var reshuffle_button: Button
+var reshuffle_hit_pad: Button
 var reshuffle_confirm_overlay: Control
 var status_label: Label
 var update_status_label: Label
@@ -537,6 +542,7 @@ func _update_minimap() -> void:
 	minimap.update_map(dots, towers, camera_x)
 
 func _process(delta: float) -> void:
+	_sync_reshuffle_hit_pad()
 	_poll_shake_input(delta)
 	if paused:
 		return
@@ -1246,6 +1252,7 @@ func _build_overlay() -> void:
 	_build_card_info_overlay()
 	_build_codex_detail_overlay()
 	_build_reshuffle_confirm_overlay()
+	_build_reshuffle_hit_pad()
 
 func _build_pause_overlay() -> void:
 	pause_overlay = Control.new()
@@ -1466,7 +1473,8 @@ func _hide_tutorial() -> void:
 		tutorial_overlay.visible = false
 	SaveManager.set_tutorial_seen(true)
 	AudioManager.set_music_filtered(false)
-	if tutorial_hid_menu and main_menu != null:
+	# 战斗中勿把主菜单拉回：main_menu.z(4010) > info_bar(4005)，会吞掉重排点击
+	if tutorial_hid_menu and main_menu != null and not battle_active:
 		main_menu.visible = true
 	tutorial_hid_menu = false
 	paused = tutorial_resume_paused
@@ -3900,31 +3908,52 @@ func _can_pick_cards() -> bool:
 	return battle_active and not battle_ended and (not paused or auto_prep) and not reward_active
 
 func _build_reshuffle_confirm_overlay() -> void:
+	# 保留节点以免旧存档/调试引用崩；真机首次改为直接执行 + 短提示（确认层易被当成「没反应」）
 	reshuffle_confirm_overlay = Control.new()
+	reshuffle_confirm_overlay.name = "ReshuffleConfirmOverlay"
 	reshuffle_confirm_overlay.size = VIEW_SIZE
 	reshuffle_confirm_overlay.z_index = 4095
 	reshuffle_confirm_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
 	reshuffle_confirm_overlay.visible = false
 	add_child(reshuffle_confirm_overlay)
-	var shade := ColorRect.new()
-	shade.size = VIEW_SIZE
-	shade.color = Color(0.05, 0.03, 0.02, 0.55)
-	shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	reshuffle_confirm_overlay.add_child(shade)
-	var panel := Panel.new()
-	panel.position = Vector2(70, 500)
-	panel.size = Vector2(580, 280)
-	panel.add_theme_stylebox_override("panel", _panel_style(Color("#c58a53"), Color("#70412c"), 24, 3))
-	reshuffle_confirm_overlay.add_child(panel)
-	var title := _label(panel, "重排牌序", Vector2(0, 26), Vector2(580, 40), 26)
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	var desc := _label(panel, "把牌堆里未取走的卡牌重新洗牌摆放，解开互相压住的牌。\n每次 %d 金币（有免费次数时优先扣免费）。确定使用？" % RESHUFFLE_COST, Vector2(40, 86), Vector2(500, 80), 17, Color("#fff0c7"))
-	desc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	var cancel_button := _menu_button(panel, "取消", Vector2(60, 190), Vector2(200, 56), 19)
-	cancel_button.pressed.connect(_hide_reshuffle_confirm)
-	var confirm_button := _menu_button(panel, "确定重排", Vector2(320, 190), Vector2(200, 56), 19)
-	confirm_button.pressed.connect(_on_reshuffle_confirmed)
+
+func _build_reshuffle_hit_pad() -> void:
+	reshuffle_hit_pad = Button.new()
+	reshuffle_hit_pad.name = "ReshuffleHitPad"
+	reshuffle_hit_pad.z_index = RESHUFFLE_HIT_Z_INDEX
+	reshuffle_hit_pad.focus_mode = Control.FOCUS_NONE
+	reshuffle_hit_pad.mouse_filter = Control.MOUSE_FILTER_STOP
+	reshuffle_hit_pad.flat = true
+	var empty := StyleBoxEmpty.new()
+	for state in ["normal", "hover", "pressed", "disabled", "focus"]:
+		reshuffle_hit_pad.add_theme_stylebox_override(state, empty)
+	reshuffle_hit_pad.tooltip_text = "重排牌序（-%d 金币）" % RESHUFFLE_COST
+	reshuffle_hit_pad.pressed.connect(_on_reshuffle_pressed)
+	reshuffle_hit_pad.pressed.connect(_play_button_sfx)
+	reshuffle_hit_pad.visible = false
+	add_child(reshuffle_hit_pad)
+	_sync_reshuffle_hit_pad()
+
+func _sync_reshuffle_hit_pad() -> void:
+	if reshuffle_hit_pad == null or reshuffle_button == null:
+		return
+	var blocked_by_modal := false
+	for overlay in [
+		main_menu, tutorial_overlay, result_overlay, card_info_overlay,
+		update_restart_overlay, codex_detail_overlay,
+	]:
+		if overlay != null and overlay.visible:
+			blocked_by_modal = true
+			break
+	var allow := battle_active and not battle_ended and not blocked_by_modal
+	reshuffle_hit_pad.visible = allow
+	reshuffle_hit_pad.disabled = false
+	if not allow:
+		return
+	var rect := reshuffle_button.get_global_rect()
+	var pad := RESHUFFLE_HIT_PAD_EXPAND
+	reshuffle_hit_pad.position = rect.position - Vector2(pad, pad)
+	reshuffle_hit_pad.size = rect.size + Vector2(pad * 2.0, pad * 2.0)
 
 func _hide_reshuffle_confirm() -> void:
 	if reshuffle_confirm_overlay != null:
@@ -3936,13 +3965,11 @@ func _on_reshuffle_confirmed() -> void:
 	_do_reshuffle()
 
 func _on_reshuffle_pressed() -> void:
+	# 禁止静默 return：拦截必走 _notify_action_blocked；成功必 toast
+	_hide_reshuffle_confirm()
 	var reason := _reshuffle_block_reason()
 	if reason != "":
 		_notify_action_blocked(reason, reshuffle_button)
-		return
-	if not SaveManager.get_reshuffle_hint_seen() and reshuffle_confirm_overlay != null:
-		move_child(reshuffle_confirm_overlay, get_child_count() - 1)
-		reshuffle_confirm_overlay.visible = true
 		return
 	_do_reshuffle()
 
@@ -3980,6 +4007,10 @@ func _do_reshuffle() -> void:
 		coin_count = maxi(0, coin_count - RESHUFFLE_COST)
 		battle_hint.text = "已扣 %d 金币重排牌序" % RESHUFFLE_COST
 		toast_text = "已重排（-%d 金币）" % RESHUFFLE_COST
+	# 首次不再弹确认层（真机上确认层常被当成「按钮没反应」）；改为成功 toast 附短提示
+	if not SaveManager.get_reshuffle_hint_seen():
+		SaveManager.set_reshuffle_hint_seen(true)
+		toast_text += " · 可解压住的牌"
 	_reshuffle_deck()
 	AudioManager.play_sfx("place")
 	_update_coin_ui()
