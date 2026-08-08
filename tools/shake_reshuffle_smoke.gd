@@ -58,7 +58,8 @@ func _initialize() -> void:
 	_check(main.info_bar != null, "应有 info_bar")
 	_check(main.info_bar.z_index > main.pause_overlay.z_index, "info_bar z 应高于 pause_overlay（%d > %d）" % [main.info_bar.z_index, main.pause_overlay.z_index])
 	_check(main.info_bar.z_index >= 4005, "info_bar z 应 ≥ 4005，实际 %d" % main.info_bar.z_index)
-	_check(main.reshuffle_button != null and main.reshuffle_button.size.x >= 64.0 and main.reshuffle_button.size.y >= 64.0, "重排热区应 ≥ 64，实际 %s" % str(main.reshuffle_button.size if main.reshuffle_button else Vector2.ZERO))
+	_check(main.RESHUFFLE_COST == 100, "重排费用应为 100，实际 %d" % main.RESHUFFLE_COST)
+	_check(main.reshuffle_button != null and main.reshuffle_button.size == Vector2(46, 46), "重排视觉按钮应为 46x46（与 return/pause/help 统一），实际 %s" % str(main.reshuffle_button.size if main.reshuffle_button else Vector2.ZERO))
 	_check(main.get("clear_tray_button") == null, "不应再存在手动清空按钮")
 	_check(main.toast_overlay != null, "应有 toast_overlay")
 	_check(main.toast_overlay.z_index > main.pause_overlay.z_index, "toast z 应高于 pause_overlay")
@@ -99,6 +100,7 @@ func _initialize() -> void:
 	await process_frame
 	main._sync_reshuffle_hit_pad()
 	_check(main.reshuffle_hit_pad.visible, "开战非暂停时 hit pad 应可见")
+	_check(main.reshuffle_hit_pad.size.x >= 64.0 and main.reshuffle_hit_pad.size.y >= 64.0, "触控热区应 ≥ 64（视觉 46 外扩 16），实际 %s" % str(main.reshuffle_hit_pad.size))
 
 	var save_manager: Node = root.get_node_or_null("SaveManager")
 	_check(save_manager != null, "应能访问 SaveManager autoload")
@@ -261,7 +263,7 @@ func _initialize() -> void:
 	_check(main.toast_overlay != null and main.toast_overlay.visible, "手动暂停重排应显示「已重排」类 toast")
 	_check(main.toast_label != null and str(main.toast_label.text).contains("已重排"), "toast 文案应含已重排: %s" % (main.toast_label.text if main.toast_label else ""))
 
-	# 奖励面板仍拦截，且强提示（hit pad 仍可见以便接点击反馈）
+	# 奖励面板仍拦截，且强提示（遮罩真正可见时 hit pad 会一并收起，见 expedition_fix_smoke）
 	main.reward_active = true
 	_check(main._reshuffle_block_reason().contains("当前阶段"), "奖励面板应拦截重排: %s" % main._reshuffle_block_reason())
 	main._on_reshuffle_pressed()

@@ -64,16 +64,18 @@ const RANDOM_EFFECT_PRICE_BASE := 260
 const CLEAR_TRAY_COST := 100
 # 少于这个张数清空没有意义（凑不出三连也不会卡台）
 const MIN_CLEAR_TRAY_CARDS := 3
-const RESHUFFLE_COST := 200
+# 与 CLEAR_TRAY_COST 对齐；拦截提示会展示「当前/需要」数额
+const RESHUFFLE_COST := 100
 # 信息栏抬到 pause_overlay(4000) 之上，避免依赖镂空穿透（Android 部分路径不可靠）
 const INFO_BAR_Z_INDEX := 4005
 const PAUSE_OVERLAY_Z_INDEX := 4000
+# 奖励遮罩压在 info_bar(4005) / main_menu(4010) 之上，
+# 低于 result(4050) / tutorial(4090) / toast(4096)，保证结算/教程/提示仍可见
+const REWARD_OVERLAY_Z_INDEX := 4030
 # 顶层透明重排热区：高于 main_menu(4010)，低于 tutorial(4090)/toast(4096)
 # 真机上 info_bar 子按钮偶发点不进 pressed 时，由该热区兜底接点击
 const RESHUFFLE_HIT_Z_INDEX := 4080
 const RESHUFFLE_HIT_PAD_EXPAND := 16.0
-# 重排触控热区（视觉同尺寸；≥64 降低手机点空率）
-const INFO_ACTION_HIT_SIZE := Vector2(64, 64)
 # 奖励面板刷新（重roll 三选一）花费的金币，便于以后调整
 const REWARD_REROLL_COST := 100
 const AI_EFFECT_CD := 8.0
@@ -778,12 +780,14 @@ func _build_top_bar() -> void:
 	coin_label = _label(bar, "", Vector2(70, 18), Vector2(140, 28), 16, Color("#fff0c7"))
 	score_label = _label(bar, "", Vector2(70, 40), Vector2(160, 22), 13, Color("#f6d69f"))
 	era_label = _label(bar, "", Vector2(215, 22), Vector2(200, 20), 12, Color("#f6d69f"))
-	# 倒计时右缘须避开重排按钮（x=468），避免与顶栏右侧方块按钮重叠
+	# 倒计时右缘须避开重排按钮（x=477），避免与顶栏右侧方块按钮重叠
 	stage_timer_label = _label(bar, "⏱ --:--", Vector2(230, 38), Vector2(160, 24), 17, Color("#f6d69f"))
 	_outline(stage_timer_label, 4)
 	reshuffle_button = Button.new()
-	reshuffle_button.position = Vector2(468, 0)
-	reshuffle_button.size = INFO_ACTION_HIT_SIZE
+	# 视觉与 return/pause/help 统一 46x46（中心 x=500，与 pause x=540 间距 17px）；
+	# ≥64 触控热区职责由 reshuffle_hit_pad（外扩 RESHUFFLE_HIT_PAD_EXPAND）承担
+	reshuffle_button.position = Vector2(477, 9)
+	reshuffle_button.size = Vector2(46, 46)
 	reshuffle_button.tooltip_text = "重排牌序（-%d 金币）" % RESHUFFLE_COST
 	reshuffle_button.add_theme_stylebox_override("normal", _panel_style(Color("#e4863e"), Color("#713722"), 12, 2))
 	reshuffle_button.add_theme_stylebox_override("hover", _panel_style(Color("#f2a252"), Color("#713722"), 12, 2))
@@ -791,7 +795,7 @@ func _build_top_bar() -> void:
 	reshuffle_button.add_theme_stylebox_override("disabled", _panel_style(Color("#9c6b45"), Color("#5e3320"), 12, 2))
 	reshuffle_button.icon = load("res://assets/ui/reshuffle_icon.png")
 	reshuffle_button.expand_icon = true
-	reshuffle_button.add_theme_constant_override("icon_max_width", 34)
+	reshuffle_button.add_theme_constant_override("icon_max_width", 26)
 	reshuffle_button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	reshuffle_button.vertical_icon_alignment = VERTICAL_ALIGNMENT_CENTER
 	reshuffle_button.pressed.connect(_on_reshuffle_pressed)
@@ -952,7 +956,7 @@ func _build_battlefield() -> void:
 func _build_reward_overlay() -> void:
 	reward_overlay = Control.new()
 	reward_overlay.size = VIEW_SIZE
-	reward_overlay.z_index = 200
+	reward_overlay.z_index = REWARD_OVERLAY_Z_INDEX
 	reward_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
 	add_child(reward_overlay)
 	var shade := ColorRect.new()
@@ -1395,6 +1399,9 @@ func _set_dim(index: int, rect: Rect2) -> void:
 
 func _toggle_pause() -> void:
 	if not battle_active or battle_ended:
+		return
+	# 奖励面板期间战斗已冻结，暂停层(4000)盖在奖励层(4030)下会造成语义混乱
+	if reward_active:
 		return
 	paused = not paused
 	if not paused:
@@ -3940,7 +3947,7 @@ func _sync_reshuffle_hit_pad() -> void:
 	var blocked_by_modal := false
 	for overlay in [
 		main_menu, tutorial_overlay, result_overlay, card_info_overlay,
-		update_restart_overlay, codex_detail_overlay,
+		update_restart_overlay, codex_detail_overlay, reward_overlay,
 	]:
 		if overlay != null and overlay.visible:
 			blocked_by_modal = true
@@ -3991,7 +3998,7 @@ func _reshuffle_block_reason() -> String:
 	if _reshuffle_live_deck_count() < 2:
 		return "牌堆可重排卡牌不足 2 张"
 	if free_reshuffles <= 0 and coin_count < RESHUFFLE_COST:
-		return "金币不足，重排需要 %d 金币" % RESHUFFLE_COST
+		return "金币不足：当前 %d / 需要 %d 金币" % [coin_count, RESHUFFLE_COST]
 	return ""
 
 func _do_reshuffle() -> void:
@@ -5469,6 +5476,7 @@ func _on_enemy_tower_destroyed() -> void:
 	_show_toast("摧毁敌塔 +%d 金币 · +%d 积分" % [gold, score])
 	battle_hint.text = "摧毁敌塔 +%d 金币 · +%d 积分！敌塔已重建" % [gold, score]
 	_clear_enemy_battle_units()
+	_recall_surviving_allies()
 	_rebuild_enemy_tower()
 	enemy_rally_fired = 0
 	ai_spawn.on_phase_start()
@@ -5612,6 +5620,30 @@ func _clear_enemy_battle_units() -> void:
 		for child in world.get_children():
 			if child is Projectile:
 				child.queue_free()
+
+## 拆塔重建后：存活己方小兵回撤我方塔前出生区（按 _spawn_ally 同布局），
+## 保留全部属性、不触发出生特效；敌方已清空，_step_battle 会自动带它们重新出发
+func _recall_surviving_allies() -> void:
+	var allies := _living_units("ally")
+	for idx in range(allies.size()):
+		var unit := allies[idx]
+		if not is_instance_valid(unit) or not unit.alive:
+			continue
+		var row := idx / 6
+		var column := idx % 6
+		var lane := idx % BATTLE_LANES
+		var lane_offset := (float(lane) - float(BATTLE_LANES - 1) * 0.5) * BATTLE_LANE_STEP
+		unit.position = Vector2(
+			ALLY_TOWER_X + 96.0 + float(column) * 48.0 + float(row) * 28.0,
+			BATTLE_GROUND_Y + lane_offset
+		)
+		unit.z_index = 4 + lane
+		unit.taunted_by = null
+		unit.taunt_time = 0.0
+		unit.backstab_retaliate_by = null
+		unit.backstab_retaliate_time = 0.0
+		unit.set_moving(false)
+		unit.queue_redraw()
 
 func _era_fx_color(era: String) -> Color:
 	var material: Dictionary = fx_manager.era_material(era) if fx_manager != null else {}
